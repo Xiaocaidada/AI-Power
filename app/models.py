@@ -92,6 +92,20 @@ class Message(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(100))
+    prefix: Mapped[str] = mapped_column(String(16), unique=True, index=True)
+    key_hash: Mapped[str] = mapped_column(String(64))
+    scopes: Mapped[str] = mapped_column(String(200), default="chat:write,kb:read")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+
 class UsageEvent(Base):
     __tablename__ = "usage_events"
 

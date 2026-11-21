@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
-from app.deps import get_current_user
+from app.deps import get_current_user, require_scope
 from app.models import KnowledgeBase, User
 from app.schemas import KnowledgeBaseCreate, KnowledgeBaseOut
 from app.services.access import get_owned_knowledge_base
@@ -16,6 +16,7 @@ router = APIRouter(prefix="/knowledge-bases", tags=["knowledge-bases"])
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
+ReadUser = Annotated[User, Depends(require_scope("kb:read"))]
 
 
 @router.post("", response_model=KnowledgeBaseOut, status_code=status.HTTP_201_CREATED)
@@ -30,9 +31,7 @@ async def create_knowledge_base(
 
 
 @router.get("", response_model=list[KnowledgeBaseOut])
-async def list_knowledge_bases(
-    current_user: CurrentUser, session: SessionDep
-) -> list[KnowledgeBase]:
+async def list_knowledge_bases(current_user: ReadUser, session: SessionDep) -> list[KnowledgeBase]:
     result = await session.execute(
         select(KnowledgeBase)
         .where(
@@ -46,7 +45,7 @@ async def list_knowledge_bases(
 
 @router.get("/{kb_id}", response_model=KnowledgeBaseOut)
 async def get_knowledge_base(
-    kb_id: UUID, current_user: CurrentUser, session: SessionDep
+    kb_id: UUID, current_user: ReadUser, session: SessionDep
 ) -> KnowledgeBase:
     return await get_owned_knowledge_base(kb_id, current_user.id, session)
 

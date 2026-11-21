@@ -26,6 +26,20 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
+API_KEY_PREFIX_BYTES = 4
+
+
+def generate_api_key() -> tuple[str, str, str]:
+    """Return (plaintext key, lookup prefix, sha256 hash)."""
+    prefix = f"ap_{secrets.token_hex(API_KEY_PREFIX_BYTES)}"
+    raw = f"{prefix}_{secrets.token_urlsafe(32)}"
+    return raw, prefix, hash_api_key(raw)
+
+
+def hash_api_key(raw_key: str) -> str:
+    return hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
+
+
 def generate_refresh_token() -> tuple[str, str]:
     """Return (plaintext token, sha256 hash). Only the hash is stored."""
     token = secrets.token_urlsafe(48)

@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db import SessionLocal, get_session
-from app.deps import get_current_user, get_registry
+from app.deps import get_current_user, get_registry, require_scope
 from app.models import Conversation, Message, MessageCitation, UsageEvent, User
 from app.providers.base import ChatMessage, LLMProvider, ProviderError, Usage
 from app.providers.registry import ProviderRegistry
@@ -35,6 +35,8 @@ logger = logging.getLogger(__name__)
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
+ChatUser = Annotated[User, Depends(require_scope("chat:write"))]
+ReadUser = Annotated[User, Depends(require_scope("kb:read"))]
 
 HISTORY_MESSAGE_LIMIT = 12
 TITLE_MAX_LENGTH = 30
@@ -184,7 +186,7 @@ async def _stream_reply(
 @router.post("", response_model=ConversationOut, status_code=status.HTTP_201_CREATED)
 async def create_conversation(
     payload: ConversationCreate,
-    current_user: CurrentUser,
+    current_user: ChatUser,
     session: SessionDep,
     registry: Annotated[ProviderRegistry, Depends(get_registry)],
 ) -> Conversation:
@@ -210,7 +212,7 @@ async def create_conversation(
 
 
 @router.get("", response_model=list[ConversationOut])
-async def list_conversations(current_user: CurrentUser, session: SessionDep) -> list[Conversation]:
+async def list_conversations(current_user: ReadUser, session: SessionDep) -> list[Conversation]:
     result = await session.execute(
         select(Conversation)
         .where(
@@ -224,7 +226,7 @@ async def list_conversations(current_user: CurrentUser, session: SessionDep) -> 
 
 @router.get("/{conversation_id}", response_model=ConversationDetailOut)
 async def get_conversation(
-    conversation_id: UUID, current_user: CurrentUser, session: SessionDep
+    conversation_id: UUID, current_user: ReadUser, session: SessionDep
 ) -> ConversationDetailOut:
     conversation = await _get_owned_conversation(conversation_id, current_user.id, session)
     result = await session.execute(
@@ -282,7 +284,7 @@ async def archive_conversation(
 async def send_message(
     conversation_id: UUID,
     payload: SendMessageIn,
-    current_user: CurrentUser,
+    current_user: ChatUser,
     session: SessionDep,
     registry: Annotated[ProviderRegistry, Depends(get_registry)],
 ) -> StreamingResponse:

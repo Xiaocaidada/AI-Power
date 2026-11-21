@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
@@ -155,3 +156,34 @@ class UsageSummaryOut(BaseModel):
     end: datetime
     group_by: str
     buckets: list[UsageBucketOut] = Field(default_factory=list)
+
+
+class ApiKeyCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    scopes: list[Literal["chat:write", "kb:read"]] | None = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def strip_name(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class ApiKeyOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    name: str
+    prefix: str
+    scopes: list[str]
+    created_at: datetime
+    last_used_at: datetime | None
+    revoked_at: datetime | None
+
+    @field_validator("scopes", mode="before")
+    @classmethod
+    def split_scopes(cls, value: object) -> object:
+        return value.split(",") if isinstance(value, str) else value
+
+
+class ApiKeyCreatedOut(ApiKeyOut):
+    key: str

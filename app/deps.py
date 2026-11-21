@@ -1,7 +1,8 @@
+from dataclasses import dataclass
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,6 +10,7 @@ from app.db import get_session
 from app.models import User
 from app.providers.registry import ProviderRegistry, build_registry
 from app.security import decode_access_token
+from app.services.api_keys import authenticate_api_key
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -21,9 +23,14 @@ def _unauthorized() -> HTTPException:
     )
 
 
-async def get_current_user(
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
-    session: Annotated[AsyncSession, Depends(get_session)],
+@dataclass(frozen=True, slots=True)
+class AuthContext:
+    user: User
+    scopes: frozenset[str] | None = None
+
+
+async def _resolve_jwt(
+    credentials: HTTPAuthorizationCredentials | None, session: AsyncSession
 ) -> User:
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise _unauthorized()
@@ -35,6 +42,42 @@ async def get_current_user(
     if user is None:
         raise _unauthorized()
     return user
+
+
+async def get_current_user(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> User:
+    """JWT-only authentication for account management endpoints."""
+    return await _resolve_jwt(credentials, session)
+
+
+async def get_auth_context(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
+) -> AuthContext:
+    if x_api_key:
+        user, scopes = await authenticate_api_key(x_api_key, session)
+        return AuthContext(user=user, scopes=scopes)
+    return AuthContext(user=await _resolve_jwt(credentials, session), scopes=None)
+
+
+def require_scope(scope: str):
+    async def dependency(
+        context: Annotated[AuthContext, Depends(get_auth_context)],
+    ) -> User:
+        if context.scopes is not None and scope not in context.scopes:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "insufficient_scope",
+                    "message": f"API key is missing scope: {scope}",
+                },
+            )
+        return context.user
+
+    return dependency
 
 
 _registry: ProviderRegistry | None = None

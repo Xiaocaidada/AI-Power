@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db import get_session
-from app.deps import get_current_user
+from app.deps import get_current_user, require_scope
 from app.models import Chunk, ChunkEmbedding, Document, IngestionJob, User
 from app.schemas import DocumentOut, DocumentUploadOut
 from app.services.access import get_owned_document, get_owned_knowledge_base
@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
+ReadUser = Annotated[User, Depends(require_scope("kb:read"))]
 QueueDep = Annotated[JobQueue, Depends(get_queue)]
 
 
@@ -164,9 +165,7 @@ async def retry_document(
 
 
 @router.get("/documents/{document_id}", response_model=DocumentOut)
-async def get_document(
-    document_id: UUID, current_user: CurrentUser, session: SessionDep
-) -> Document:
+async def get_document(document_id: UUID, current_user: ReadUser, session: SessionDep) -> Document:
     return await get_owned_document(document_id, current_user.id, session)
 
 
