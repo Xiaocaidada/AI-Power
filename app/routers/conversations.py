@@ -13,10 +13,18 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.registry import AgentRegistry
 from app.clients import RedisLike, get_redis
 from app.config import get_settings
 from app.db import SessionLocal, get_session
-from app.deps import AuthContext, get_jwt_context, get_registry, require_scope
+from app.deps import (
+    AuthContext,
+    get_agent_registry,
+    get_jwt_context,
+    get_registry,
+    get_tool_registry,
+    require_scope,
+)
 from app.models import Conversation, Message, MessageCitation, Trace, UsageEvent
 from app.observability import request_id_var
 from app.providers.base import ChatChunk, ChatMessage, LLMProvider, ProviderError, Usage
@@ -30,10 +38,12 @@ from app.schemas import (
     SendMessageIn,
 )
 from app.services.access import get_owned_knowledge_base
+from app.services.agent import AgentFailure, AgentRunner
 from app.services.quotas import add_token_usage, enforce_quota
 from app.services.rag import build_rag_messages, fit_context
 from app.services.retrieval import Citation, build_citations, retrieve_chunks
 from app.services.routing import record_failure, reset_failures, route_candidates
+from app.tools.base import ToolContext, ToolRegistry
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 logger = logging.getLogger(__name__)
@@ -43,6 +53,8 @@ JwtContext = Annotated[AuthContext, Depends(get_jwt_context)]
 ChatContext = Annotated[AuthContext, Depends(require_scope("chat:write"))]
 ReadContext = Annotated[AuthContext, Depends(require_scope("kb:read"))]
 RedisDep = Annotated[RedisLike, Depends(get_redis)]
+ToolRegistryDep = Annotated[ToolRegistry, Depends(get_tool_registry)]
+AgentRegistryDep = Annotated[AgentRegistry, Depends(get_agent_registry)]
 
 HISTORY_MESSAGE_LIMIT = 12
 TITLE_MAX_LENGTH = 30
@@ -75,6 +87,7 @@ async def _update_trace(
     error_code: str | None = None,
     ttft_ms: float | None = None,
     total_ms: float | None = None,
+    agents: list[dict[str, object]] | None = None,
 ) -> None:
     try:
         async with SessionLocal() as session:
@@ -89,6 +102,8 @@ async def _update_trace(
                 trace.ttft_ms = ttft_ms
             if total_ms is not None:
                 trace.total_ms = total_ms
+            if agents is not None:
+                trace.agents = agents
             await session.commit()
     except Exception:
         logger.exception("failed to update trace %s", trace_id)
@@ -280,6 +295,153 @@ async def _stream_reply(
         await _finalize(assistant_id, "".join(parts), "failed", usage, workspace_id, citations)
 
 
+async def _stream_agent_reply(
+    *,
+    provider: LLMProvider,
+    conversation_id: UUID,
+    assistant_id: UUID,
+    history: list[ChatMessage],
+    model: str,
+    workspace_id: UUID,
+    user_id: UUID,
+    kb_id: UUID | None,
+    context: AuthContext,
+    redis: RedisLike,
+    tool_registry: ToolRegistry,
+    agent_registry: AgentRegistry,
+    citations: Sequence[Citation] = (),
+    trace_id: UUID | None = None,
+    started: float | None = None,
+) -> AsyncIterator[str]:
+    runner = AgentRunner(
+        provider=provider,
+        model=model,
+        tool_registry=tool_registry,
+        agent_registry=agent_registry,
+        context=ToolContext(
+            workspace_id=workspace_id,
+            user_id=user_id,
+            kb_id=kb_id,
+            redis=redis,
+        ),
+        quota_guard=lambda: enforce_quota(redis, context),
+    )
+    parts: list[str] = []
+    ttft_ms: float | None = None
+    usage: Usage | None = None
+
+    async def finish() -> Usage | None:
+        result = runner.usage
+        if result.prompt_tokens is not None or result.completion_tokens is not None:
+            await add_token_usage(
+                redis,
+                workspace_id,
+                (result.prompt_tokens or 0) + (result.completion_tokens or 0),
+            )
+        return result
+
+    try:
+        yield _sse(
+            "meta",
+            {
+                "message_id": str(assistant_id),
+                "provider": provider.id,
+                "model": model,
+                "conversation_id": str(conversation_id),
+                "agent": True,
+            },
+        )
+        for citation in citations:
+            yield _sse(
+                "citation",
+                {
+                    "index": citation.index,
+                    "document_id": str(citation.document_id),
+                    "chunk_id": str(citation.chunk_id),
+                    "page_no": citation.page_no,
+                    "snippet": citation.snippet,
+                },
+            )
+        async for event in runner.run(history):
+            if event.kind == "delta":
+                text = str(event.data.get("text", ""))
+                if text:
+                    parts.append(text)
+                    if ttft_ms is None and trace_id is not None and started is not None:
+                        ttft_ms = round((time.perf_counter() - started) * 1000, 1)
+                        await _update_trace(trace_id, ttft_ms=ttft_ms)
+                    yield _sse("delta", {"text": text})
+                continue
+            yield _sse(event.kind, event.data)
+        usage = await finish()
+        yield _sse(
+            "usage",
+            {
+                "prompt_tokens": usage.prompt_tokens if usage else None,
+                "completion_tokens": usage.completion_tokens if usage else None,
+            },
+        )
+        yield _sse("done", {"finish_reason": "stop"})
+        if trace_id is not None and started is not None:
+            await _update_trace(
+                trace_id,
+                status="completed",
+                total_ms=round((time.perf_counter() - started) * 1000, 1),
+                agents=runner.tool_records or None,
+            )
+        await _finalize(assistant_id, "".join(parts), "completed", usage, workspace_id, citations)
+    except asyncio.CancelledError:
+        usage = await finish()
+        if trace_id is not None and started is not None:
+            await _update_trace(
+                trace_id,
+                status="cancelled",
+                total_ms=round((time.perf_counter() - started) * 1000, 1),
+                agents=runner.tool_records or None,
+            )
+        await _finalize(assistant_id, "".join(parts), "cancelled", usage, workspace_id, citations)
+        raise
+    except AgentFailure as exc:
+        usage = await finish()
+        if trace_id is not None and started is not None:
+            await _update_trace(
+                trace_id,
+                status="failed",
+                error_code=exc.code,
+                total_ms=round((time.perf_counter() - started) * 1000, 1),
+                agents=runner.tool_records or None,
+            )
+        yield _sse("error", {"code": exc.code, "message": exc.message})
+        await _finalize(assistant_id, "".join(parts), "failed", usage, workspace_id, citations)
+    except ProviderError as exc:
+        usage = await finish()
+        await record_failure(redis, provider.id)
+        if trace_id is not None and started is not None:
+            await _update_trace(
+                trace_id,
+                status="failed",
+                error_code=exc.code,
+                total_ms=round((time.perf_counter() - started) * 1000, 1),
+                agents=runner.tool_records or None,
+            )
+        yield _sse("error", {"code": exc.code, "message": exc.message})
+        await _finalize(assistant_id, "".join(parts), "failed", usage, workspace_id, citations)
+    except Exception:
+        usage = await finish()
+        await record_failure(redis, provider.id)
+        if trace_id is not None and started is not None:
+            await _update_trace(
+                trace_id,
+                status="failed",
+                error_code="internal_error",
+                total_ms=round((time.perf_counter() - started) * 1000, 1),
+                agents=runner.tool_records or None,
+            )
+        logger.exception("agent streaming failed for message %s", assistant_id)
+        yield _sse("error", {"code": "internal_error", "message": "Agent run failed"})
+        await _finalize(assistant_id, "".join(parts), "failed", usage, workspace_id, citations)
+
+
 @router.post("", response_model=ConversationOut, status_code=status.HTTP_201_CREATED)
 async def create_conversation(
     payload: ConversationCreate,
@@ -303,6 +465,7 @@ async def create_conversation(
         provider_id=payload.provider_id,
         model="auto" if payload.provider_id == "auto" else payload.model,
         kb_id=payload.kb_id,
+        agent=payload.agent,
     )
     session.add(conversation)
     await session.commit()
@@ -424,6 +587,8 @@ async def send_message(
     session: SessionDep,
     registry: Annotated[ProviderRegistry, Depends(get_registry)],
     redis: RedisDep,
+    tool_registry: ToolRegistryDep,
+    agent_registry: AgentRegistryDep,
 ) -> StreamingResponse:
     conversation = await _get_owned_conversation(conversation_id, context.workspace.id, session)
     await enforce_quota(redis, context)
@@ -481,7 +646,24 @@ async def send_message(
     routed_model = conversation.model
     attempts = 1
 
-    if provider is None:
+    if provider is None and conversation.agent:
+        candidates = await route_candidates(session, registry, redis)
+        for provider_id, candidate_model in candidates:
+            try:
+                provider = registry.get(provider_id)
+            except ProviderError:
+                continue
+            routed_model = candidate_model
+            break
+        if provider is None:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                {
+                    "code": "no_provider_available",
+                    "message": "No provider is currently available",
+                },
+            )
+    elif provider is None:
         candidates = await route_candidates(session, registry, redis)
         provider, routed_model, stream, first_chunk, attempts = await _open_auto_stream(
             registry, candidates, chat_history, redis
@@ -531,8 +713,26 @@ async def send_message(
     # long-running streams cannot exhaust the pool under concurrency.
     await session.close()
 
-    return StreamingResponse(
-        _stream_reply(
+    if conversation.agent:
+        response_stream = _stream_agent_reply(
+            provider=provider,
+            conversation_id=conversation.id,
+            assistant_id=assistant_message.id,
+            history=chat_history,
+            model=routed_model,
+            workspace_id=context.workspace.id,
+            user_id=context.user.id,
+            kb_id=conversation.kb_id,
+            context=context,
+            redis=redis,
+            tool_registry=tool_registry,
+            agent_registry=agent_registry,
+            citations=citations,
+            trace_id=trace.id,
+            started=started,
+        )
+    else:
+        response_stream = _stream_reply(
             provider=provider,
             conversation_id=conversation.id,
             assistant_id=assistant_message.id,
@@ -545,7 +745,10 @@ async def send_message(
             redis=redis,
             trace_id=trace.id,
             started=started,
-        ),
+        )
+
+    return StreamingResponse(
+        response_stream,
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

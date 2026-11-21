@@ -59,6 +59,10 @@ class Settings(BaseSettings):
     retrieval_top_k: int = 5
     retrieval_max_context_chars: int = 6000
 
+    agent_max_steps: int = 8
+    agent_tool_timeout_seconds: float = 10.0
+    agent_tool_output_max_chars: int = 4000
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
@@ -87,6 +91,16 @@ class Settings(BaseSettings):
             raise ValueError("RETRIEVAL_TOP_K must be >= 1")
         if self.retrieval_max_context_chars < 1:
             raise ValueError("RETRIEVAL_MAX_CONTEXT_CHARS must be >= 1")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_agent_settings(self) -> "Settings":
+        if self.agent_max_steps < 1:
+            raise ValueError("AGENT_MAX_STEPS must be >= 1")
+        if self.agent_tool_timeout_seconds <= 0:
+            raise ValueError("AGENT_TOOL_TIMEOUT_SECONDS must be > 0")
+        if self.agent_tool_output_max_chars < 1:
+            raise ValueError("AGENT_TOOL_OUTPUT_MAX_CHARS must be >= 1")
         return self
 
     @model_validator(mode="after")

@@ -28,6 +28,7 @@ export function NewChatPage() {
   const queryClient = useQueryClient()
   const [modelId, setModelId] = useState('auto')
   const [kbId, setKbId] = useState('')
+  const [agent, setAgent] = useState(false)
   const [value, setValue] = useState('')
   const [error, setError] = useState<string | null>(null)
 
@@ -62,6 +63,7 @@ export function NewChatPage() {
           provider_id: providerId,
           model: modelName,
           kb_id: kbId === '' ? null : kbId,
+          agent,
         },
       })
       await queryClient.invalidateQueries({ queryKey: ['conversations'] })
@@ -117,6 +119,19 @@ export function NewChatPage() {
             </Field>
           </div>
         )}
+
+        <label className="mt-4 flex items-start gap-2 rounded-lg border border-border bg-surface px-3 py-2.5 text-sm">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4 accent-accent"
+            checked={agent}
+            onChange={(event) => setAgent(event.target.checked)}
+          />
+          <span>
+            <span className="block text-ink">{t('chat.agentMode')}</span>
+            <span className="mt-0.5 block text-xs text-ink-muted">{t('chat.agentModeHint')}</span>
+          </span>
+        </label>
 
         {modelsQuery.data !== undefined && availableModels.length === 0 && (
           <p className="mt-4 rounded-lg bg-warning/10 px-3 py-2 text-sm text-warning">

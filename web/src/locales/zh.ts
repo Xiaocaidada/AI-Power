@@ -83,6 +83,14 @@ export const zh = {
     copyAnswer: '复制回答',
     newConversation: '新对话',
     backToNew: '返回新对话',
+    agentMode: '多 Agent 模式',
+    agentModeHint: '由 supervisor 拆解任务并委派检索/计算子 Agent，耗时更长。',
+    agentFlow: 'Agent 流程（{count} 次工具调用）',
+    agentStarted: '▶ {agent} 开始',
+    agentFinished: '✓ {agent} 完成 · {ms} ms',
+    agentFailed: '✗ {agent} 失败',
+    toolDone: '✓ {tool} · {ms} ms',
+    toolFailed: '✗ {tool} · {code}',
   },
   knowledge: {
     title: '知识库',
@@ -257,6 +265,7 @@ export const zh = {
     unavailable: '这次请求没有 trace（可能未记录或已过期）',
     close: '关闭',
     view: '详情',
+    agents: 'Agent / 工具',
   },
   profile: {
     title: '个人资料',

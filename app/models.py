@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     DateTime,
     Float,
@@ -125,6 +126,7 @@ class Conversation(Base):
     kb_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("knowledge_bases.id", ondelete="SET NULL"), default=None
     )
+    agent: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
@@ -319,6 +321,7 @@ class Trace(Base):
     status: Mapped[str] = mapped_column(String(20), default="streaming")
     error_code: Mapped[str | None] = mapped_column(String(50), default=None)
     attempts: Mapped[int] = mapped_column(Integer, default=1)
+    agents: Mapped[list[dict[str, object]] | None] = mapped_column(JSON, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow

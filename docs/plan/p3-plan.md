@@ -1,6 +1,6 @@
 # P3 规划：从平台化到 Agent 与应用层
 
-- **Status:** Confirmed（2026-11-21；D1 按用户要求改为多 Agent，其余按建议）
+- **Status:** In progress（S1 已完成 2026-11-21；S2–S6 待逐片批准）
 - **Date:** 2026-11-21
 - **Scope source:** [`PRODUCT-BRIEF.md`](../../PRODUCT-BRIEF.md) §3 P3、[`docs/product/CAPABILITY.md`](../product/CAPABILITY.md)
 - **前置:** P2 已完成（2026-11-21），见 [`p2-plan.md`](./p2-plan.md)、[`p2-s6-hardening.md`](../tdd/p2-s6-hardening.md)
@@ -53,7 +53,7 @@ P3 必须补的差距：
 
 原则：先工具框架与安全，再 Prompt 与成本，再管理端，最后开放 API 与收口；每片可独立演示。
 
-### P3-S1 多 Agent 工具框架（约 1.5–2 周）
+### P3-S1 多 Agent 工具框架 — **已完成（2026-11-21）**（约 1.5–2 周）
 
 - `app/tools/`：`ToolSpec(name, description, parameters_schema, handler)`、`ToolRegistry`、`ToolContext(workspace, user, session, redis)`。
 - `app/agents/`：`AgentSpec(name, system_prompt, tools, max_steps)`、`AgentRegistry`；内置 `supervisor`、`retrieval`、`math` 三个 Agent。
@@ -68,6 +68,8 @@ P3 必须补的差距：
 - 会话创建支持 `agent: bool`（启用 supervisor + 子 Agent，默认关闭）；消息 finalize 时累加全部步数 token。
 - 测试使用 D10 的脚本化假 provider；真机验证为 best-effort。
 - 验收：`agent=true` 的会话问"知识库里 X 是什么？帮我算一下 Y"，SSE 可见 supervisor 委派 `retrieval` 与 `math`，回答带引用，trace 记录各 Agent 与工具耗时。
+
+> **完成证据**：`docs/tdd/p3-s1-agents.md`。框架、委派、SSE/trace 元数据、前端开关与流程展示已完成；真实 `kb_search` / `calculator` 留待 S2。
 
 ### P3-S2 内置工具与安全（约 1 周）
 

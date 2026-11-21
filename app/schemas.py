@@ -64,6 +64,7 @@ class ConversationCreate(BaseModel):
     provider_id: str = Field(min_length=1, max_length=50)
     model: str = Field(min_length=1, max_length=200)
     kb_id: UUID | None = None
+    agent: bool = False
 
     @field_validator("provider_id", "model", mode="before")
     @classmethod
@@ -79,6 +80,7 @@ class ConversationOut(BaseModel):
     provider_id: str
     model: str
     kb_id: UUID | None
+    agent: bool = False
     created_at: datetime
 
 
@@ -259,6 +261,7 @@ class TraceOut(BaseModel):
     status: str
     error_code: str | None
     attempts: int
+    agents: list[dict[str, object]] | None = None
     created_at: datetime
 
 

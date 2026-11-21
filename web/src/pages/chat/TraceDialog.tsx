@@ -88,6 +88,28 @@ export function TraceDialog({ requestId, onClose }: TraceDialogProps) {
               <dd className="mt-0.5 font-mono text-xs text-ink">{trace.data.attempts}</dd>
             </div>
           </dl>
+          {trace.data.agents !== null &&
+            trace.data.agents !== undefined &&
+            trace.data.agents.length > 0 && (
+              <div>
+                <p className="text-xs text-ink-muted">{t('trace.agents')}</p>
+                <ul className="mt-1 space-y-1">
+                  {trace.data.agents.map((step, index) => (
+                    <li
+                      key={`${step.agent}-${step.tool}-${index}`}
+                      className="flex items-center justify-between gap-2 font-mono text-xs text-ink"
+                    >
+                      <span className={step.ok ? '' : 'text-danger'}>
+                        {step.agent} · {step.tool}
+                      </span>
+                      <span className="text-ink-muted">
+                        {Math.round(step.duration_ms)} ms
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           {trace.data.error_code !== null && (
             <div>
               <dt className="text-xs text-ink-muted">{t('trace.error')}</dt>

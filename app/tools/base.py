@@ -1,0 +1,116 @@
+import asyncio
+import logging
+from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass
+from typing import Any
+from uuid import UUID
+
+from pydantic import BaseModel, ValidationError
+
+from app.clients import RedisLike
+from app.config import get_settings
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class ToolContext:
+    workspace_id: UUID
+    user_id: UUID
+    kb_id: UUID | None = None
+    redis: RedisLike | None = None
+
+
+ToolHandler = Callable[[ToolContext, BaseModel], Awaitable[str]]
+
+
+@dataclass(frozen=True, slots=True)
+class ToolSpec:
+    name: str
+    description: str
+    args_model: type[BaseModel]
+    handler: ToolHandler
+
+    def parameters_schema(self) -> dict[str, Any]:
+        return self.args_model.model_json_schema()
+
+    def prompt_descriptor(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": self.parameters_schema(),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ToolResult:
+    ok: bool
+    output: str = ""
+    error_code: str | None = None
+    error: str | None = None
+
+
+class ToolRegistry:
+    def __init__(
+        self,
+        tools: Sequence[ToolSpec] = (),
+        *,
+        timeout_seconds: float | None = None,
+        max_output_chars: int | None = None,
+    ) -> None:
+        settings = get_settings()
+        self.tools = tuple(tools)
+        self.timeout_seconds = (
+            settings.agent_tool_timeout_seconds if timeout_seconds is None else timeout_seconds
+        )
+        self.max_output_chars = (
+            settings.agent_tool_output_max_chars if max_output_chars is None else max_output_chars
+        )
+
+    def get(self, name: str) -> ToolSpec | None:
+        return next((spec for spec in self.tools if spec.name == name), None)
+
+    def has(self, name: str) -> bool:
+        return self.get(name) is not None
+
+    def names(self) -> list[str]:
+        return [spec.name for spec in self.tools]
+
+    def descriptors(self) -> list[dict[str, Any]]:
+        return [spec.prompt_descriptor() for spec in self.tools]
+
+    async def execute(
+        self, name: str, arguments: dict[str, object], context: ToolContext
+    ) -> ToolResult:
+        spec = self.get(name)
+        if spec is None:
+            return ToolResult(ok=False, error_code="tool_not_found", error=f"Unknown tool: {name}")
+        try:
+            parsed = spec.args_model.model_validate(arguments)
+        except ValidationError as exc:
+            return ToolResult(ok=False, error_code="invalid_arguments", error=_short(str(exc)))
+        try:
+            output = await asyncio.wait_for(
+                spec.handler(context, parsed),
+                timeout=self.timeout_seconds,
+            )
+        except TimeoutError:
+            return ToolResult(
+                ok=False,
+                error_code="tool_timeout",
+                error=f"Tool {name} timed out",
+            )
+        except Exception as exc:
+            logger.warning("tool %s failed: %s", name, type(exc).__name__)
+            return ToolResult(ok=False, error_code="tool_error", error=_short(str(exc)))
+        return ToolResult(ok=True, output=_truncate(str(output), self.max_output_chars))
+
+
+def _short(text: str) -> str:
+    return _truncate(text, 300)
+
+
+def _truncate(text: str, limit: int | None) -> str:
+    if limit is None or len(text) <= limit:
+        return text
+    return text[:limit]

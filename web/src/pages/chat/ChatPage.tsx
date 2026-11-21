@@ -11,6 +11,7 @@ import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
 import { streamChat } from '../../lib/sse'
 import type {
+  AgentActivity,
   ChatUsage,
   Citation,
   ConversationDetail,
@@ -25,6 +26,7 @@ interface PendingStream {
   user: string
   assistant: string
   citations: Citation[]
+  activity: AgentActivity[]
   status: 'streaming' | 'failed' | 'cancelled'
   errorCode?: string
   usage: ChatUsage | null
@@ -45,6 +47,7 @@ export function ChatPage() {
   const [confirmArchive, setConfirmArchive] = useState(false)
   const [traceRequestId, setTraceRequestId] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const activityIdRef = useRef(0)
   const startedRef = useRef(false)
   const bottomRef = useRef<HTMLDivElement | null>(null)
 
@@ -63,10 +66,24 @@ export function ChatPage() {
     async (content: string) => {
       if (conversationId === '') return
       setInput('')
-      setPending({ user: content, assistant: '', citations: [], status: 'streaming', usage: null })
+      setPending({
+        user: content,
+        assistant: '',
+        citations: [],
+        activity: [],
+        status: 'streaming',
+        usage: null,
+      })
       const controller = new AbortController()
       abortRef.current = controller
       let failedCode: string | null = null
+      const appendActivity = (item: Omit<AgentActivity, 'id'>) => {
+        activityIdRef.current += 1
+        const entry: AgentActivity = { ...item, id: `activity-${activityIdRef.current}` }
+        setPending((prev) =>
+          prev ? { ...prev, activity: [...prev.activity, entry] } : prev,
+        )
+      }
 
       try {
         await streamChat({
@@ -76,7 +93,43 @@ export function ChatPage() {
           onEvent: (event) => {
             const data = event.data as Record<string, unknown> | null
             if (data === null) return
-            if (event.event === 'citation') {
+            const agent = String(data.agent ?? 'agent')
+            const depth = typeof data.depth === 'number' ? data.depth : 0
+            if (event.event === 'agent_start') {
+              appendActivity({ type: 'agent_start', agent, depth })
+            } else if (event.event === 'agent_end') {
+              appendActivity({
+                type: 'agent_end',
+                agent,
+                depth,
+                status: String(data.status ?? 'completed'),
+                duration_ms:
+                  typeof data.duration_ms === 'number' ? data.duration_ms : undefined,
+              })
+            } else if (event.event === 'tool_call') {
+              appendActivity({
+                type: 'tool_call',
+                agent,
+                depth,
+                tool: String(data.tool ?? ''),
+                arguments: data.arguments as Record<string, unknown> | undefined,
+              })
+            } else if (event.event === 'tool_result') {
+              appendActivity({
+                type: 'tool_result',
+                agent,
+                depth,
+                tool: String(data.tool ?? ''),
+                ok: data.ok === true,
+                output: String(data.output ?? ''),
+                error_code:
+                  data.error_code === null || data.error_code === undefined
+                    ? null
+                    : String(data.error_code),
+                duration_ms:
+                  typeof data.duration_ms === 'number' ? data.duration_ms : undefined,
+              })
+            } else if (event.event === 'citation') {
               setPending((prev) =>
                 prev ? { ...prev, citations: [...prev.citations, data as unknown as Citation] } : prev,
               )
@@ -193,6 +246,7 @@ export function ChatPage() {
             content: pending.assistant,
             status: pending.status,
             citations: pending.citations,
+            agentActivity: pending.activity,
             streaming: pending.status === 'streaming',
             errorCode: pending.errorCode,
             provider_id: conversation.data?.provider_id,

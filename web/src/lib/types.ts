@@ -31,7 +31,31 @@ export interface Conversation {
   provider_id: string
   model: string
   kb_id: string | null
+  agent: boolean
   created_at: string
+}
+
+export interface AgentActivity {
+  id: string
+  type: 'agent_start' | 'agent_end' | 'tool_call' | 'tool_result'
+  agent: string
+  depth: number
+  tool?: string
+  arguments?: Record<string, unknown>
+  ok?: boolean
+  output?: string
+  error_code?: string | null
+  duration_ms?: number
+  status?: string
+}
+
+export interface AgentTraceStep {
+  agent: string
+  tool: string
+  ok: boolean
+  duration_ms: number
+  depth?: number
+  target?: string
 }
 
 export interface Citation {
@@ -113,6 +137,7 @@ export interface TraceRecord {
   status: string
   error_code: string | null
   attempts: number
+  agents?: AgentTraceStep[] | null
   created_at: string
 }
 
