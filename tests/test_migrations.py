@@ -31,6 +31,7 @@ def test_alembic_upgrade_head_creates_schema(tmp_path):
         "ingestion_jobs",
         "usage_events",
         "message_citations",
+        "api_keys",
         "alembic_version",
     } <= tables
 
@@ -56,6 +57,17 @@ def test_alembic_upgrade_head_creates_schema(tmp_path):
     assert {"message_id", "citation_index", "document_id", "chunk_id", "page_no", "snippet"} <= (
         citation_columns
     )
+
+    api_key_columns = {column["name"] for column in inspector.get_columns("api_keys")}
+    assert {
+        "user_id",
+        "name",
+        "prefix",
+        "key_hash",
+        "scopes",
+        "last_used_at",
+        "revoked_at",
+    } <= api_key_columns
 
 
 def test_usage_backfill_from_existing_messages(tmp_path):
