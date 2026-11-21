@@ -118,6 +118,9 @@
 | DELETE | `/documents/{id}` | ✓ | 软删 + 删除 chunks/embeddings/磁盘文件 |
 | POST | `/documents/{id}/retry` | ✓ | 仅失败文档；重置任务并重新入队 |
 | GET | `/usage/summary` | ✓ | 本人用量聚合（`from/to/group_by=day|provider|model`） |
+| POST | `/api-keys` | ✓ | 创建 Key（明文仅返回一次，支持 `chat:write`/`kb:read`） |
+| GET | `/api-keys` | ✓ | 列出本人 Key 元数据（不含明文/哈希） |
+| DELETE | `/api-keys/{id}` | ✓ | 吊销 Key（幂等） |
 | GET | `/healthz` | — | liveness |
 | GET | `/readyz` | — | DB/Redis 检查 |
 
@@ -205,6 +208,7 @@ class CitationBuilder(Protocol):
 
 - 密码哈希 argon2id；登录失败统一错误信息；登录限流（Redis，10 次/分钟/IP，FIXED）。
 - JWT：HS256；access TTL 30 分钟 + refresh 7 天（一次性轮换、可吊销；FIXED，见 [`ADR-0004`](../adr/0004-auth-sessions.md)）。
+- API Key：`ap_<8hex>_<secret>`，只存 SHA-256 + prefix；`X-API-Key` 认证；scope `chat:write`/`kb:read`；Key 管理/上传/删除仅 JWT（FIXED，见 [`ADR-0007`](../adr/0007-api-keys.md)）。
 - CORS 仅允许前端 origin（env 配置）。
 - 上传：MIME 白名单 + 扩展名双检；UUID 文件名；解析超时 60s/文件。
 - 日志脱敏：不记录 `Authorization`、API key、完整文档内容；只记 chunk 数/字符数。
@@ -296,4 +300,5 @@ class CitationBuilder(Protocol):
 7. P1-S1 已完成：Alembic 迁移、refresh token（轮换/吊销）、登录限流、`/readyz`、Dockerfile/compose `api`/CI；证据见 [`docs/tdd/p1-s1-infra.md`](../tdd/p1-s1-infra.md)。
 8. P1-S2 已完成：Arq 持久化队列、租约/重试/死信、手动重试、文件删除与孤儿清理、compose `worker`；证据见 [`docs/tdd/p1-s2-queue.md`](../tdd/p1-s2-queue.md)。
 9. P1-S3 已完成：只追加 `usage_events`、`GET /usage/summary`、`message_citations` 回放、迁移 0003 回填；证据见 [`docs/tdd/p1-s3-usage.md`](../tdd/p1-s3-usage.md)。
-10. P1 剩余：S4 API Key、S5 前端（需二次确认）、S6 部署；每片后跑 `verification-loop`。
+10. P1-S4 已完成：API Key 创建/列表/吊销、`X-API-Key` 认证、scope 控制、`last_used_at`；证据见 [`docs/tdd/p1-s4-api-keys.md`](../tdd/p1-s4-api-keys.md)。
+11. P1 剩余：S5 前端（需二次确认）、S6 部署；每片后跑 `verification-loop`。
