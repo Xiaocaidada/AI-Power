@@ -5,15 +5,18 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.clients import RedisLike, get_redis
 from app.db import get_session
 from app.deps import AuthContext, get_jwt_context
 from app.models import UsageEvent
-from app.schemas import UsageBucketOut, UsageSummaryOut
+from app.schemas import QuotaSummaryOut, QuotaWindowOut, UsageBucketOut, UsageSummaryOut
+from app.services.quotas import quota_snapshot
 
 router = APIRouter(prefix="/usage", tags=["usage"])
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 JwtContext = Annotated[AuthContext, Depends(get_jwt_context)]
+RedisDep = Annotated[RedisLike, Depends(get_redis)]
 
 DEFAULT_RANGE_DAYS = 30
 
@@ -28,6 +31,30 @@ def _bucket_key(event: UsageEvent, group_by: str) -> str:
     if group_by == "provider":
         return event.provider_id or "unknown"
     return event.model or "unknown"
+
+
+@router.get("/quota", response_model=QuotaSummaryOut)
+async def quota_summary(
+    context: JwtContext, session: SessionDep, redis: RedisDep
+) -> QuotaSummaryOut:
+    snapshot = await quota_snapshot(session, redis, context)
+    return QuotaSummaryOut(
+        plan=snapshot.plan,
+        requests=QuotaWindowOut(
+            limit=snapshot.request_limit,
+            used=snapshot.request_used,
+            remaining=max(snapshot.request_limit - snapshot.request_used, 0),
+            reset_seconds=snapshot.request_reset,
+        ),
+        tokens=QuotaWindowOut(
+            limit=snapshot.token_limit,
+            used=snapshot.token_used,
+            remaining=max(snapshot.token_limit - snapshot.token_used, 0),
+            reset_seconds=snapshot.token_reset,
+        ),
+        max_keys=snapshot.max_keys,
+        active_keys=snapshot.active_keys,
+    )
 
 
 @router.get("/summary", response_model=UsageSummaryOut)

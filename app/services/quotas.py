@@ -141,6 +141,57 @@ async def add_token_usage(redis: RedisLike, workspace_id: UUID, tokens: int) -> 
         logger.warning("failed to record token usage", exc_info=True)
 
 
+@dataclass(frozen=True, slots=True)
+class QuotaSnapshot:
+    plan: str
+    request_limit: int
+    request_used: int
+    request_reset: int
+    token_limit: int
+    token_used: int
+    token_reset: int
+    max_keys: int
+    active_keys: int
+
+
+async def quota_snapshot(
+    session: AsyncSession, redis: RedisLike, context: AuthContext
+) -> QuotaSnapshot:
+    limits = plan_limits(context.workspace.plan)
+    try:
+        raw_requests = await redis.get(_request_key("ws", str(context.workspace.id)))
+        raw_tokens = await redis.get(_tokens_key(context.workspace.id))
+        request_used = int(raw_requests) if raw_requests is not None else 0
+        token_used = int(raw_tokens) if raw_tokens is not None else 0
+    except Exception:
+        logger.warning("quota store unavailable; reporting zero usage", exc_info=True)
+        request_used = 0
+        token_used = 0
+
+    active_keys = (
+        await session.execute(
+            select(func.count())
+            .select_from(ApiKey)
+            .where(
+                ApiKey.workspace_id == context.workspace.id,
+                ApiKey.revoked_at.is_(None),
+            )
+        )
+    ).scalar_one()
+
+    return QuotaSnapshot(
+        plan=context.workspace.plan,
+        request_limit=limits.requests_per_minute,
+        request_used=request_used,
+        request_reset=_minute_reset_seconds(),
+        token_limit=limits.tokens_per_day,
+        token_used=token_used,
+        token_reset=_day_reset_seconds(),
+        max_keys=limits.max_keys,
+        active_keys=active_keys,
+    )
+
+
 async def enforce_key_creation(
     session: AsyncSession, context: AuthContext, redis: RedisLike
 ) -> None:

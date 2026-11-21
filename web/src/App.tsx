@@ -12,8 +12,10 @@ import { NewChatPage } from './pages/chat/NewChatPage'
 import { KnowledgeDetailPage } from './pages/knowledge/KnowledgeDetailPage'
 import { KnowledgePage } from './pages/knowledge/KnowledgePage'
 import { LoginPage } from './pages/LoginPage'
+import { ModelsPage } from './pages/models/ModelsPage'
 import { ApiKeysPage } from './pages/settings/ApiKeysPage'
 import { ProfilePage } from './pages/settings/ProfilePage'
+import { WorkspaceSettingsPage } from './pages/settings/WorkspaceSettingsPage'
 import { useAuthStore } from './store/auth'
 
 const UsagePage = lazy(() =>
@@ -54,6 +56,7 @@ export function App() {
           <Route index element={<Navigate to="/chat" replace />} />
           <Route path="chat" element={<NewChatPage />} />
           <Route path="chat/:id" element={<ChatPage />} />
+          <Route path="models" element={<ModelsPage />} />
           <Route path="knowledge" element={<KnowledgePage />} />
           <Route path="knowledge/:id" element={<KnowledgeDetailPage />} />
           <Route
@@ -72,6 +75,7 @@ export function App() {
           />
           <Route path="settings" element={<Navigate to="/settings/api-keys" replace />} />
           <Route path="settings/api-keys" element={<ApiKeysPage />} />
+          <Route path="settings/workspace" element={<WorkspaceSettingsPage />} />
           <Route path="settings/profile" element={<ProfilePage />} />
         </Route>
       </Route>

@@ -1,6 +1,7 @@
 import { API_BASE } from './config'
 import { toApiError } from './errors'
 import { getAccessToken, hasSession, refreshAccessToken } from './tokens'
+import { getActiveWorkspaceId } from './workspace'
 
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'DELETE'
@@ -19,6 +20,8 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     if (body !== undefined) finalHeaders['Content-Type'] = 'application/json'
     const token = getAccessToken()
     if (auth && token !== null) finalHeaders.Authorization = `Bearer ${token}`
+    const workspaceId = getActiveWorkspaceId()
+    if (auth && workspaceId !== null) finalHeaders['X-Workspace-Id'] = workspaceId
     return fetch(`${API_BASE}${path}`, {
       method,
       headers: finalHeaders,

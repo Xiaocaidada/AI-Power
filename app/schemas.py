@@ -101,6 +101,7 @@ class MessageOut(BaseModel):
     model: str | None
     prompt_tokens: int | None
     completion_tokens: int | None
+    request_id: str | None = None
     created_at: datetime
     citations: list[CitationOut] = Field(default_factory=list)
 
@@ -226,6 +227,21 @@ class MemberOut(BaseModel):
     email: EmailStr
     role: str
     created_at: datetime
+
+
+class QuotaWindowOut(BaseModel):
+    limit: int
+    used: int
+    remaining: int
+    reset_seconds: int
+
+
+class QuotaSummaryOut(BaseModel):
+    plan: str
+    requests: QuotaWindowOut
+    tokens: QuotaWindowOut
+    max_keys: int
+    active_keys: int
 
 
 class TraceOut(BaseModel):

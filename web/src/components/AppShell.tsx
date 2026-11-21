@@ -1,24 +1,27 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   BarChart3,
   BookOpen,
+  Boxes,
   Menu,
   MessageSquare,
   Settings,
   X,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 
 import { apiRequest } from '../lib/http'
 import { useI18n } from '../lib/i18n'
 import { useLogout } from '../lib/useLogout'
-import type { Conversation } from '../lib/types'
+import type { Conversation, WorkspaceItem } from '../lib/types'
 import { cn } from '../lib/utils'
+import { getActiveWorkspaceId, setActiveWorkspaceId } from '../lib/workspace'
 import { useAuthStore } from '../store/auth'
 
 const navItems = [
   { to: '/chat', labelKey: 'nav.chat', icon: MessageSquare },
+  { to: '/models', labelKey: 'nav.models', icon: Boxes },
   { to: '/knowledge', labelKey: 'nav.knowledge', icon: BookOpen },
   { to: '/usage', labelKey: 'nav.usage', icon: BarChart3 },
   { to: '/settings/api-keys', labelKey: 'nav.settings', icon: Settings },
@@ -27,9 +30,35 @@ const navItems = [
 function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t, language, setLanguage } = useI18n()
   const location = useLocation()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const logout = useLogout()
   const user = useAuthStore((state) => state.user)
   const isChat = location.pathname.startsWith('/chat')
+  const [activeWorkspaceId, setActiveId] = useState<string | null>(getActiveWorkspaceId())
+
+  const workspaces = useQuery({
+    queryKey: ['workspaces'],
+    queryFn: () => apiRequest<WorkspaceItem[]>('/workspaces'),
+  })
+
+  useEffect(() => {
+    if (workspaces.data === undefined || workspaces.data.length === 0) return
+    const current = getActiveWorkspaceId()
+    if (current !== null && workspaces.data.some((item) => item.id === current)) return
+    const preferred =
+      workspaces.data.find((item) => item.is_personal) ?? workspaces.data[0]
+    setActiveWorkspaceId(preferred.id)
+    setActiveId(preferred.id)
+    queryClient.invalidateQueries()
+  }, [workspaces.data, queryClient])
+
+  const switchWorkspace = (workspaceId: string) => {
+    setActiveWorkspaceId(workspaceId)
+    setActiveId(workspaceId)
+    queryClient.clear()
+    navigate('/chat')
+  }
 
   const conversations = useQuery({
     queryKey: ['conversations'],
@@ -56,6 +85,29 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
         >
           <X className="h-4 w-4" />
         </button>
+      </div>
+
+      <div className="mx-2 mb-2 rounded-lg border border-border p-2">
+        <p className="mb-1 text-[11px] uppercase tracking-wide text-ink-muted">
+          {t('workspace.current')}
+        </p>
+        <select
+          className="h-8 w-full rounded-md border border-border bg-surface px-2 text-xs text-ink focus:border-accent focus:outline-none"
+          value={activeWorkspaceId ?? ''}
+          onChange={(event) => switchWorkspace(event.target.value)}
+        >
+          {(workspaces.data ?? []).map((workspace) => (
+            <option key={workspace.id} value={workspace.id}>
+              {workspace.is_personal ? t('workspace.personal') : workspace.name}
+            </option>
+          ))}
+        </select>
+        <NavLink
+          to="/settings/workspace"
+          className="mt-1 block text-[11px] text-ink-muted hover:text-ink"
+        >
+          {t('workspace.members')}
+        </NavLink>
       </div>
 
       <nav className="space-y-1 px-2">

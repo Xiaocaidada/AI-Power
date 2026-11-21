@@ -19,6 +19,7 @@ import type {
 import { CitationDrawer } from './CitationDrawer'
 import { Composer } from './Composer'
 import { MessageItem, type DisplayMessage } from './MessageItem'
+import { TraceDialog } from './TraceDialog'
 
 interface PendingStream {
   user: string
@@ -42,6 +43,7 @@ export function ChatPage() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerCitations, setDrawerCitations] = useState<Citation[]>([])
   const [confirmArchive, setConfirmArchive] = useState(false)
+  const [traceRequestId, setTraceRequestId] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const startedRef = useRef(false)
   const bottomRef = useRef<HTMLDivElement | null>(null)
@@ -247,6 +249,7 @@ export function ChatPage() {
               key={message.id}
               message={message}
               onOpenCitations={openCitations}
+              onOpenTrace={setTraceRequestId}
             />
           ))}
           {streamMessages.map((message) =>
@@ -288,6 +291,8 @@ export function ChatPage() {
         citations={drawerCitations}
         onClose={() => setDrawerOpen(false)}
       />
+
+      <TraceDialog requestId={traceRequestId} onClose={() => setTraceRequestId(null)} />
 
       <Dialog
         open={confirmArchive}

@@ -34,6 +34,10 @@ async def test_chat_creates_trace_with_stages(client, api, registry):
     assert body["retrieval_ms"] is None
     assert body["attempts"] == 1
 
+    detail = await client.get(f"/conversations/{conversation.json()['id']}", headers=headers)
+    assert detail.status_code == 200
+    assert detail.json()["messages"][-1]["request_id"] == "trace-ok-1"
+
 
 async def test_trace_is_workspace_scoped(client, api, registry):
     alice = await api.headers("trace-alice@example.com")

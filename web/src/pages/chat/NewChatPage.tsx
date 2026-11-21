@@ -7,7 +7,7 @@ import { Spinner } from '../../components/ui/spinner'
 import { errorTextKey } from '../../lib/errorText'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
-import type { Conversation, KnowledgeBase, Provider } from '../../lib/types'
+import type { Conversation, KnowledgeBase, ModelEntry } from '../../lib/types'
 import { Composer } from './Composer'
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -26,15 +26,14 @@ export function NewChatPage() {
   const { t } = useI18n()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [providerId, setProviderId] = useState('')
-  const [model, setModel] = useState('')
+  const [modelId, setModelId] = useState('auto')
   const [kbId, setKbId] = useState('')
   const [value, setValue] = useState('')
   const [error, setError] = useState<string | null>(null)
 
-  const providersQuery = useQuery({
-    queryKey: ['providers'],
-    queryFn: () => apiRequest<Provider[]>('/providers'),
+  const modelsQuery = useQuery({
+    queryKey: ['models'],
+    queryFn: () => apiRequest<ModelEntry[]>('/models'),
     staleTime: 60_000,
   })
   const kbsQuery = useQuery({
@@ -43,25 +42,25 @@ export function NewChatPage() {
     staleTime: 60_000,
   })
 
-  const availableProviders = (providersQuery.data ?? []).filter((provider) => provider.available)
-  const selectedProvider =
-    availableProviders.find((provider) => provider.id === providerId) ?? availableProviders[0]
-  const models = selectedProvider?.models ?? []
-  const currentModel = models.includes(model) ? model : (models[0] ?? '')
-  const canChat = selectedProvider !== undefined && currentModel !== ''
+  const availableModels = (modelsQuery.data ?? []).filter((model) => model.available)
+  const selected = availableModels.find((model) => model.id === modelId)
+  const isAuto = modelId === 'auto'
+  const canChat = isAuto || selected !== undefined
 
   const send = async (content: string) => {
-    if (selectedProvider === undefined || currentModel === '') {
-      setError(t('chat.noProviders'))
-      throw new Error('no provider')
-    }
     setError(null)
+    const providerId = isAuto ? 'auto' : selected?.provider_id
+    const modelName = isAuto ? 'auto' : selected?.model_id
+    if (providerId === undefined || modelName === undefined) {
+      setError(t('chat.noProviders'))
+      throw new Error('no model')
+    }
     try {
       const conversation = await apiRequest<Conversation>('/conversations', {
         method: 'POST',
         body: {
-          provider_id: selectedProvider.id,
-          model: currentModel,
+          provider_id: providerId,
+          model: modelName,
           kb_id: kbId === '' ? null : kbId,
         },
       })
@@ -79,42 +78,25 @@ export function NewChatPage() {
         <h1 className="font-serif text-3xl text-ink">{t('chat.newTitle')}</h1>
         <p className="mt-2 text-sm text-ink-muted">{t('chat.newLead')}</p>
 
-        {providersQuery.isLoading ? (
+        {modelsQuery.isLoading ? (
           <div className="mt-8 flex items-center gap-2 text-sm text-ink-muted">
             <Spinner />
             {t('common.loading')}
           </div>
-        ) : availableProviders.length === 0 ? (
-          <p className="mt-8 rounded-lg bg-warning/10 px-3 py-2 text-sm text-warning">
-            {t('chat.noProviders')}
-          </p>
         ) : (
-          <div className="mt-8 grid gap-3 sm:grid-cols-3">
-            <Field label={t('chat.provider')}>
-              <select
-                className={selectClass}
-                value={selectedProvider?.id ?? ''}
-                onChange={(event) => {
-                  setProviderId(event.target.value)
-                  setModel('')
-                }}
-              >
-                {availableProviders.map((provider) => (
-                  <option key={provider.id} value={provider.id}>
-                    {provider.id}
-                  </option>
-                ))}
-              </select>
-            </Field>
+          <div className="mt-8 grid gap-3 sm:grid-cols-2">
             <Field label={t('chat.model')}>
               <select
                 className={selectClass}
-                value={currentModel}
-                onChange={(event) => setModel(event.target.value)}
+                value={modelId}
+                onChange={(event) => setModelId(event.target.value)}
               >
-                {models.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
+                <option value="auto">
+                  {t('models.auto')} — {t('models.autoHint')}
+                </option>
+                {availableModels.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.display_name} · {model.provider_id}
                   </option>
                 ))}
               </select>
@@ -134,6 +116,12 @@ export function NewChatPage() {
               </select>
             </Field>
           </div>
+        )}
+
+        {modelsQuery.data !== undefined && availableModels.length === 0 && (
+          <p className="mt-4 rounded-lg bg-warning/10 px-3 py-2 text-sm text-warning">
+            {t('chat.noProviders')}
+          </p>
         )}
 
         {error !== null && (

@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/auth'
 import { apiRequest } from './http'
 import { clearTokens, getRefreshToken } from './tokens'
+import { setActiveWorkspaceId } from './workspace'
 
 export function useLogout(): () => Promise<void> {
   const queryClient = useQueryClient()
@@ -24,6 +25,7 @@ export function useLogout(): () => Promise<void> {
       // Local logout is authoritative even when the server call fails.
     }
     clearTokens()
+    setActiveWorkspaceId(null)
     queryClient.clear()
     setAnonymous()
     navigate('/login', { replace: true })

@@ -91,6 +91,26 @@ async def test_api_key_rate_limit_applies_per_key(client, api, registry, quota_s
     assert second.json()["detail"]["scope"] == "api_key"
 
 
+async def test_quota_summary_reports_limits_and_usage(client, api, registry, quota_settings):
+    headers = await api.headers("quota-summary@example.com")
+    conversation = await _conversation(client, headers)
+    await _send(client, headers, conversation.json()["id"])
+
+    response = await client.get("/usage/quota", headers=headers)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["plan"] == "free"
+    assert body["requests"]["limit"] == 100
+    assert body["requests"]["used"] == 1
+    assert body["requests"]["remaining"] == 99
+    assert body["tokens"]["used"] == 3
+    assert body["tokens"]["remaining"] == 999_997
+    assert body["requests"]["reset_seconds"] > 0
+    assert body["max_keys"] == 5
+    assert body["active_keys"] == 0
+
+
 async def test_workspace_key_limit_blocks_creation(client, api, quota_settings):
     quota_settings.quota_free_max_keys = 1
     headers = await api.headers("quota-keys-max@example.com")

@@ -51,8 +51,68 @@ export interface Message {
   model: string | null
   prompt_tokens: number | null
   completion_tokens: number | null
+  request_id?: string | null
   created_at: string
   citations: Citation[]
+}
+
+export interface WorkspaceItem {
+  id: string
+  name: string
+  plan: string
+  is_personal: boolean
+  role: string
+  created_at: string
+}
+
+export interface WorkspaceMember {
+  user_id: string
+  email: string
+  role: string
+  created_at: string
+}
+
+export interface ModelEntry {
+  id: string
+  provider_id: string
+  model_id: string
+  display_name: string
+  context_window: number
+  input_price: number
+  output_price: number
+  tags: string[]
+  priority: number
+  available: boolean
+}
+
+export interface QuotaWindow {
+  limit: number
+  used: number
+  remaining: number
+  reset_seconds: number
+}
+
+export interface QuotaSummary {
+  plan: string
+  requests: QuotaWindow
+  tokens: QuotaWindow
+  max_keys: number
+  active_keys: number
+}
+
+export interface TraceRecord {
+  request_id: string
+  conversation_id: string | null
+  message_id: string | null
+  provider_id: string | null
+  model: string | null
+  retrieval_ms: number | null
+  ttft_ms: number | null
+  total_ms: number | null
+  status: string
+  error_code: string | null
+  attempts: number
+  created_at: string
 }
 
 export interface ConversationDetail extends Conversation {

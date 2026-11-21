@@ -18,15 +18,22 @@ export interface DisplayMessage {
   model?: string | null
   prompt_tokens?: number | null
   completion_tokens?: number | null
+  request_id?: string | null
 }
 
 interface MessageItemProps {
   message: DisplayMessage
   onOpenCitations: (citations: Citation[]) => void
   onResend?: () => void
+  onOpenTrace?: (requestId: string) => void
 }
 
-export function MessageItem({ message, onOpenCitations, onResend }: MessageItemProps) {
+export function MessageItem({
+  message,
+  onOpenCitations,
+  onResend,
+  onOpenTrace,
+}: MessageItemProps) {
   const { t } = useI18n()
   const [copied, setCopied] = useState(false)
 
@@ -134,6 +141,17 @@ export function MessageItem({ message, onOpenCitations, onResend }: MessageItemP
               {copied ? t('common.copied') : t('common.copy')}
             </button>
           )}
+          {message.request_id !== null &&
+            message.request_id !== undefined &&
+            onOpenTrace !== undefined && (
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 hover:text-ink"
+                onClick={() => onOpenTrace(message.request_id as string)}
+              >
+                {t('trace.view')}
+              </button>
+            )}
         </div>
       ) : null}
     </div>

@@ -18,7 +18,7 @@ import { Input } from '../../components/ui/input'
 import { Spinner } from '../../components/ui/spinner'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
-import type { UsageSummary } from '../../lib/types'
+import type { QuotaSummary, UsageSummary } from '../../lib/types'
 import {
   defaultRange,
   fillDailyBuckets,
@@ -52,6 +52,11 @@ export function UsagePage() {
       )
     },
     enabled: validRange,
+  })
+
+  const quota = useQuery({
+    queryKey: ['quota'],
+    queryFn: () => apiRequest<QuotaSummary>('/usage/quota'),
   })
 
   const buckets = usage.data?.buckets ?? []
@@ -93,6 +98,55 @@ export function UsagePage() {
       </header>
 
       <div className="space-y-5 px-6 py-6">
+        {quota.data !== undefined && (
+          <section className="rounded-card border border-border bg-surface p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold">{t('quota.title')}</h2>
+              <span className="text-xs text-ink-muted">
+                {t('quota.plan', { plan: quota.data.plan })}
+              </span>
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              {(
+                [
+                  { label: t('quota.requests'), window: quota.data.requests },
+                  { label: t('quota.tokens'), window: quota.data.tokens },
+                ] as const
+              ).map(({ label, window }) => (
+                <div key={label} className="rounded-lg bg-surface-muted p-3">
+                  <div className="flex items-center justify-between text-xs text-ink-muted">
+                    <span>{label}</span>
+                    <span>
+                      {t('quota.used', {
+                        used: format(window.used),
+                        limit: format(window.limit),
+                      })}
+                    </span>
+                  </div>
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface">
+                    <div
+                      className="h-full bg-accent"
+                      style={{
+                        width: `${Math.min((window.used / Math.max(window.limit, 1)) * 100, 100)}%`,
+                      }}
+                    />
+                  </div>
+                  <p className="mt-1 text-[11px] text-ink-muted">
+                    {t('quota.remaining', { remaining: format(window.remaining) })} ·{' '}
+                    {t('quota.reset', { seconds: window.reset_seconds })}
+                  </p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-ink-muted">
+              {t('quota.keys')}:{' '}
+              {t('quota.keysValue', {
+                used: quota.data.active_keys,
+                limit: quota.data.max_keys,
+              })}
+            </p>
+          </section>
+        )}
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="flex flex-wrap items-center gap-2">
             {PRESETS.map((days) => (
