@@ -490,6 +490,21 @@ class AdminMemberOut(BaseModel):
     created_at: datetime
 
 
+class AdminPlanChangeIn(BaseModel):
+    plan: Literal["free", "pro"]
+
+
+class AdminRunCountsOut(BaseModel):
+    total: int
+    failed: int
+    failure_rate: float
+
+
+class AdminRunSummaryOut(BaseModel):
+    workflows: AdminRunCountsOut
+    collaborations: AdminRunCountsOut
+
+
 class AdminModelToggleIn(BaseModel):
     enabled: bool
 

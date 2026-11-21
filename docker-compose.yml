@@ -143,7 +143,24 @@ prometheus:
       api:
         condition: service_healthy
 
+caddy:
+    image: caddy:2-alpine
+    profiles: ["https"]
+    environment:
+      CADDY_DOMAIN: ${CADDY_DOMAIN:?set CADDY_DOMAIN to enable the https profile}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - web
+
 volumes:
   pgdata:
   uploads:
   backups:
+  caddy_data:
+  caddy_config:

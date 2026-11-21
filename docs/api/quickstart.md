@@ -178,7 +178,18 @@ curl -s "$BASE/metrics"
 
 Prometheus 文本包含 `ai_power_http_requests_total`、`ai_power_http_request_duration_seconds`、`ai_power_sse_active_streams`、`ai_power_tokens_total`、`ai_power_cost_usd_total`、`ai_power_ingestion_jobs`、`ai_power_circuit_open`。`/metrics` 无鉴权，仅限局域网；可选启动 `docker compose --profile observability up -d prometheus`。
 
-## 9. 常见问题
+## 9. 可选 HTTPS
+
+默认局域网 HTTP。若已有域名指向该主机：
+
+```bash
+# .env 中设置 CADDY_DOMAIN=ai.example.com
+docker compose --profile https up -d caddy
+```
+
+Caddy 会自动申请证书并反代到 `web:8080`（前端与 `/api`）。该 profile 默认不启动。
+
+## 10. 常见问题
 
 | 现象 | 排查 |
 |---|---|

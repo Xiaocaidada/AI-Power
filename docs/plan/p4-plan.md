@@ -1,6 +1,6 @@
 # P4 规划：工作流、多 Agent 协作与生产化
 
-- **Status:** In progress（D1–D9 已确认；S1–S4 已完成 2026-11-21，S5–S6 待逐片批准）
+- **Status:** In progress（D1–D9 已确认；S1–S5 已完成 2026-11-22，S6 待批准）
 - **Date:** 2026-11-21
 - **Scope source:** [`PRODUCT-BRIEF.md`](../../PRODUCT-BRIEF.md) §3 P3/P4、[`docs/plan/p3-plan.md`](./p3-plan.md)
 - **前置:** P3 已完成（2026-11-21），见 [`p3-plan.md`](./p3-plan.md)、[`p3-s6-polish.md`](../tdd/p3-s6-polish.md)
@@ -87,11 +87,13 @@ P4 仍**不做真实支付/计费**，不追求公网多租户 SaaS。
 
 > **完成证据**：`docs/tdd/p4-s4-metrics.md`。指标注册表、HTTP/SSE/token/成本/队列/熔断指标、每日预算审计与可选 Prometheus profile 已完成；预算只覆盖消息用量。
 
-### P4-S5 运营增强与可选 HTTPS（约 0.5–1 周）
+### P4-S5 运营增强与可选 HTTPS — **已完成（2026-11-22）**（约 0.5–1 周）
 
 - 管理端：修改 workspace plan、查看 run 失败率；审计扩展（plan 变更、workflow 发布）。
 - 可选：Caddy 反向代理 + 自动 HTTPS（仅当用户提供域名；默认不启用）。
 - 验收：管理员改 plan 后配额立即生效；审计可查。
+
+> **完成证据**：`docs/tdd/p4-s5-ops.md`。plan 修改与审计、run 失败率、workflow 发布审计、管理端操作与可选 Caddy HTTPS 已完成；HTTPS 未在 CI 验证。
 
 ### P4-S6 收口（约 1 周）
 

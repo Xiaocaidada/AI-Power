@@ -1,10 +1,11 @@
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 import pytest
 from sqlalchemy import select
 
 from app.db import SessionLocal
-from app.models import AuditLog, ModelCatalog, User
+from app.models import AuditLog, CollaborationRun, ModelCatalog, User, WorkflowRun
 
 
 async def _make_admin(email: str) -> None:
@@ -143,6 +144,119 @@ async def test_admin_can_paginate_audit_logs(client, api):
     next_page = await client.get(f"/admin/audit-logs?limit=1&before={cursor}", headers=admin)
     assert len(next_page.json()) == 1
     assert next_page.json()[0]["id"] != cursor
+
+
+async def test_admin_changes_workspace_plan_and_audits(client, api):
+    admin = await api.headers("admin-plan@example.com")
+    await _make_admin("admin-plan@example.com")
+    workspace = (await client.get("/workspaces", headers=admin)).json()[0]
+
+    changed = await client.patch(
+        f"/admin/workspaces/{workspace['id']}/plan",
+        json={"plan": "pro"},
+        headers=admin,
+    )
+
+    assert changed.status_code == 200
+    assert changed.json()["plan"] == "pro"
+    quota = await client.get("/usage/quota", headers=admin)
+    assert quota.json()["plan"] == "pro"
+    assert quota.json()["requests"]["limit"] == 600
+
+    logs = await client.get("/admin/audit-logs", headers=admin)
+    entry = next(item for item in logs.json() if item["action"] == "workspace.plan_change")
+    assert entry["target_id"] == workspace["id"]
+    assert entry["detail"] == {"from": "free", "to": "pro"}
+
+    invalid = await client.patch(
+        f"/admin/workspaces/{workspace['id']}/plan",
+        json={"plan": "enterprise"},
+        headers=admin,
+    )
+    assert invalid.status_code == 422
+
+
+async def test_admin_run_failure_summary(client, api, registry):
+    admin = await api.headers("admin-runs@example.com")
+    await _make_admin("admin-runs@example.com")
+    me = (await client.get("/auth/me", headers=admin)).json()
+    workspace = (await client.get("/workspaces", headers=admin)).json()[0]
+    definition = {
+        "nodes": [
+            {
+                "id": "only",
+                "type": "llm",
+                "config": {"provider_id": "fake", "model": "fake-model", "prompt": "hi"},
+            }
+        ],
+        "edges": [],
+    }
+    workflow = await client.post(
+        "/workflows",
+        json={"name": "Failed WF", "definition": definition},
+        headers=admin,
+    )
+    workflow_body = workflow.json()
+    async with SessionLocal() as session:
+        session.add(
+            WorkflowRun(
+                workflow_id=UUID(workflow_body["id"]),
+                version_id=UUID(workflow_body["versions"][0]["id"]),
+                workspace_id=UUID(workspace["id"]),
+                user_id=UUID(me["id"]),
+                status="failed",
+                input_text="x",
+            )
+        )
+        session.add(
+            CollaborationRun(
+                workspace_id=UUID(workspace["id"]),
+                user_id=UUID(me["id"]),
+                provider_id="fake",
+                model="fake-model",
+                status="failed",
+                input_text="x",
+            )
+        )
+        await session.commit()
+
+    summary = await client.get("/admin/runs/summary", headers=admin)
+
+    assert summary.status_code == 200
+    body = summary.json()
+    assert body["workflows"] == {"total": 1, "failed": 1, "failure_rate": 1.0}
+    assert body["collaborations"] == {"total": 1, "failed": 1, "failure_rate": 1.0}
+
+
+async def test_workflow_publish_writes_audit_log(client, api):
+    admin = await api.headers("admin-publish@example.com")
+    await _make_admin("admin-publish@example.com")
+    definition = {
+        "nodes": [
+            {
+                "id": "only",
+                "type": "llm",
+                "config": {"provider_id": "fake", "model": "fake-model", "prompt": "hi"},
+            }
+        ],
+        "edges": [],
+    }
+    created = await client.post(
+        "/workflows", json={"name": "Published", "definition": definition}, headers=admin
+    )
+    workflow_id = created.json()["id"]
+    second = await client.post(
+        f"/workflows/{workflow_id}/versions",
+        json={"definition": definition},
+        headers=admin,
+    )
+
+    assert second.status_code == 201
+    assert second.json()["version"] == 2
+    logs = await client.get("/admin/audit-logs", headers=admin)
+    entries = [item for item in logs.json() if item["action"] == "workflow.publish"]
+    assert [item["detail"]["version"] for item in entries] == [2, 1]
+    assert all(item["target_id"] == workflow_id for item in entries)
 
 
 async def test_cleanup_audit_logs_removes_expired():
