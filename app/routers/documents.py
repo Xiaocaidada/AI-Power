@@ -1,10 +1,11 @@
+import logging
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import (
     APIRouter,
-    BackgroundTasks,
     Depends,
     File,
     HTTPException,
@@ -21,14 +22,43 @@ from app.deps import get_current_user
 from app.models import Chunk, ChunkEmbedding, Document, IngestionJob, User
 from app.schemas import DocumentOut, DocumentUploadOut
 from app.services.access import get_owned_document, get_owned_knowledge_base
-from app.services.ingestion import ingest_document
 from app.services.parsing import UnsupportedDocumentType
+from app.services.queue import JobQueue, get_queue
 from app.services.storage import EmptyUpload, UploadTooLarge, save_upload
 
 router = APIRouter(tags=["documents"])
+logger = logging.getLogger(__name__)
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
+QueueDep = Annotated[JobQueue, Depends(get_queue)]
+
+
+async def _enqueue_or_fail(
+    session: AsyncSession,
+    document: Document,
+    job: IngestionJob,
+    queue: JobQueue,
+) -> None:
+    try:
+        await queue.enqueue_ingestion(document.id)
+    except Exception:
+        logger.exception("failed to enqueue ingestion for %s", document.id)
+        document.status = "failed"
+        document.error_code = "queue_unavailable"
+        job.status = "failed"
+        job.error = "queue_unavailable"
+        job.lease_expires_at = None
+        job.finished_at = datetime.now(UTC)
+        await session.commit()
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            {
+                "code": "queue_unavailable",
+                "message": "Ingestion queue unavailable",
+                "document_id": str(document.id),
+            },
+        ) from None
 
 
 @router.post(
@@ -38,10 +68,10 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 )
 async def upload_document(
     kb_id: UUID,
-    background_tasks: BackgroundTasks,
     file: Annotated[UploadFile, File()],
     current_user: CurrentUser,
     session: SessionDep,
+    queue: QueueDep,
     response: Response,
 ) -> DocumentUploadOut:
     await get_owned_knowledge_base(kb_id, current_user.id, session)
@@ -79,10 +109,12 @@ async def upload_document(
         status="uploaded",
         storage_path=saved.storage_name,
     )
+    job = IngestionJob(status="queued")
     try:
         session.add(document)
         await session.flush()
-        session.add(IngestionJob(document_id=document.id, status="queued"))
+        job.document_id = document.id
+        session.add(job)
         await session.commit()
         await session.refresh(document)
     except Exception:
@@ -90,8 +122,43 @@ async def upload_document(
         saved.path.unlink(missing_ok=True)
         raise
 
-    background_tasks.add_task(ingest_document, document.id)
+    await _enqueue_or_fail(session, document, job, queue)
     return DocumentUploadOut(id=document.id, status=document.status, duplicate=False)
+
+
+@router.post(
+    "/documents/{document_id}/retry",
+    response_model=DocumentUploadOut,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def retry_document(
+    document_id: UUID,
+    current_user: CurrentUser,
+    session: SessionDep,
+    queue: QueueDep,
+) -> DocumentUploadOut:
+    document = await get_owned_document(document_id, current_user.id, session)
+    job = (
+        await session.execute(select(IngestionJob).where(IngestionJob.document_id == document.id))
+    ).scalar_one_or_none()
+    if document.status != "failed" or job is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"code": "document_not_failed", "message": "Only failed documents can be retried"},
+        )
+
+    document.status = "uploaded"
+    document.error_code = None
+    job.status = "queued"
+    job.attempts = 0
+    job.error = None
+    job.started_at = None
+    job.finished_at = None
+    job.lease_expires_at = None
+    await session.commit()
+
+    await _enqueue_or_fail(session, document, job, queue)
+    return DocumentUploadOut(id=document.id, status="uploaded", duplicate=False)
 
 
 @router.get("/documents/{document_id}", response_model=DocumentOut)
@@ -111,4 +178,10 @@ async def delete_document(
     await session.execute(delete(ChunkEmbedding).where(ChunkEmbedding.chunk_id.in_(chunk_ids)))
     await session.execute(delete(Chunk).where(Chunk.document_id == document.id))
     await session.commit()
+
+    stored_path = Path(get_settings().upload_dir) / document.storage_path
+    try:
+        stored_path.unlink(missing_ok=True)
+    except OSError:
+        logger.warning("failed to delete stored file for document %s", document.id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

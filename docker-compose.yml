@@ -31,8 +31,11 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://ai_power:${POSTGRES_PASSWORD}@postgres:5432/ai_power
       REDIS_URL: redis://redis:6379/0
+      UPLOAD_DIR: /app/uploads
     ports:
       - "8002:8000"
+    volumes:
+      - uploads:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -42,6 +45,34 @@ services:
       - sh
       - -c
       - alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz')"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  worker:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://ai_power:${POSTGRES_PASSWORD}@postgres:5432/ai_power
+      REDIS_URL: redis://redis:6379/0
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    command: ["arq", "app.worker.WorkerSettings"]
 
 volumes:
   pgdata:
+  uploads:

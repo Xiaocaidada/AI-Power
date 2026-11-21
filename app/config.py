@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     embedding_model: str = "bge-m3"
     embedding_dim: int = 1024
     embedding_batch_size: int = 16
+    ingestion_max_attempts: int = 3
+    ingestion_lease_minutes: int = 15
 
     retrieval_top_k: int = 5
     retrieval_max_context_chars: int = 6000
@@ -57,6 +59,10 @@ class Settings(BaseSettings):
             raise ValueError("CHUNK_OVERLAP_CHARS must be smaller than CHUNK_MAX_CHARS")
         if self.embedding_batch_size < 1:
             raise ValueError("EMBEDDING_BATCH_SIZE must be >= 1")
+        if self.ingestion_max_attempts < 1:
+            raise ValueError("INGESTION_MAX_ATTEMPTS must be >= 1")
+        if self.ingestion_lease_minutes < 1:
+            raise ValueError("INGESTION_LEASE_MINUTES must be >= 1")
         return self
 
     @model_validator(mode="after")

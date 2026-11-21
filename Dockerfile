@@ -14,7 +14,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR /app
-RUN adduser --disabled-password --gecos "" appuser
+RUN adduser --disabled-password --gecos "" appuser \
+    && mkdir -p /app/uploads \
+    && chown -R appuser:appuser /app
 
 COPY --from=builder /wheels /wheels
 RUN pip install --no-cache-dir /wheels/*.whl && rm -rf /wheels

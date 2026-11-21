@@ -150,7 +150,12 @@ class IngestionJob(Base):
     status: Mapped[str] = mapped_column(String(20), default="queued")
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     error: Mapped[str | None] = mapped_column(String(500), default=None)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
+
+    __table_args__ = (Index("ix_ingestion_jobs_status", "status"),)

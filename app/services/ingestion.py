@@ -1,4 +1,6 @@
 import logging
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID
 
@@ -23,24 +25,36 @@ class IngestionError(Exception):
         self.message = message
 
 
+@dataclass(frozen=True, slots=True)
+class IngestionOutcome:
+    status: str
+    error_code: str | None = None
+    attempts: int = 0
+
+
 def build_parser(mime: str) -> DocumentParser:
     return parser_for_mime(mime)
 
 
-async def ingest_document(document_id: UUID) -> None:
+async def ingest_document(document_id: UUID) -> IngestionOutcome:
     settings = get_settings()
     async with SessionLocal() as session:
         document = await session.get(Document, document_id)
         if document is None or document.deleted_at is not None:
-            return
+            return IngestionOutcome(status="skipped")
 
         job = await _get_or_create_job(session, document.id)
+        now = datetime.now(UTC)
         document.status = "parsing"
         document.error_code = None
         job.status = "running"
         job.attempts += 1
         job.error = None
+        job.started_at = now
+        job.finished_at = None
+        job.lease_expires_at = now + timedelta(minutes=settings.ingestion_lease_minutes)
         await session.commit()
+        attempts = job.attempts
 
         try:
             parsed = _parse(document, settings)
@@ -103,17 +117,52 @@ async def ingest_document(document_id: UUID) -> None:
             document.error_code = None
             job.status = "succeeded"
             job.error = None
+            job.lease_expires_at = None
+            job.finished_at = datetime.now(UTC)
             await session.commit()
+            return IngestionOutcome(status="ready", attempts=attempts)
         except IngestionError as exc:
             await session.rollback()
             await _mark_failed(session, document.id, exc.code)
+            return IngestionOutcome(status="failed", error_code=exc.code, attempts=attempts)
         except ProviderError:
             await session.rollback()
             await _mark_failed(session, document.id, "embedding_failed")
+            return IngestionOutcome(
+                status="failed", error_code="embedding_failed", attempts=attempts
+            )
         except Exception:
             logger.exception("ingestion failed for document %s", document.id)
             await session.rollback()
             await _mark_failed(session, document.id, "ingestion_failed")
+            return IngestionOutcome(
+                status="failed", error_code="ingestion_failed", attempts=attempts
+            )
+
+
+async def schedule_retry(document_id: UUID) -> None:
+    """Reset a failed document/job so the worker can run another attempt."""
+    async with SessionLocal() as session:
+        document = await session.get(Document, document_id)
+        if document is None or document.deleted_at is not None:
+            return
+        job = await _get_or_create_job(session, document_id)
+        document.status = "uploaded"
+        document.error_code = None
+        job.status = "queued"
+        job.error = None
+        job.lease_expires_at = None
+        job.finished_at = None
+        await session.commit()
+
+
+async def mark_job_dead(document_id: UUID) -> None:
+    async with SessionLocal() as session:
+        job = await _get_or_create_job(session, document_id)
+        job.status = "dead"
+        job.lease_expires_at = None
+        job.finished_at = datetime.now(UTC)
+        await session.commit()
 
 
 def _parse(document: Document, settings) -> object:
@@ -159,4 +208,6 @@ async def _mark_failed(session: AsyncSession, document_id: UUID, code: str) -> N
     if job is not None:
         job.status = "failed"
         job.error = code
+        job.lease_expires_at = None
+        job.finished_at = datetime.now(UTC)
     await session.commit()

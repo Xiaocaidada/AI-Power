@@ -6,12 +6,14 @@ from fastapi import FastAPI
 from app.clients import close_redis
 from app.db import init_db
 from app.routers import auth, conversations, documents, health, knowledge_bases, providers
+from app.services.queue import close_queue
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     await init_db()
     yield
+    await close_queue()
     await close_redis()
 
 
