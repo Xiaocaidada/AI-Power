@@ -56,6 +56,7 @@ async def test_stream_sends_bearer_token_and_stream_flag():
     payload = seen["payload"]
     assert payload["model"] == "m1"
     assert payload["stream"] is True
+    assert payload["stream_options"] == {"include_usage": True}
     assert payload["messages"] == [{"role": "user", "content": "hi"}]
 
 
@@ -104,11 +105,7 @@ async def test_stream_raises_provider_error_when_unreachable():
 
 async def test_stream_ignores_malformed_sse_lines():
     ChatMessage, _ProviderError, _Usage, OpenAICompatProvider = _imports()
-    body = (
-        "data: not-json\n\n"
-        'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n'
-        "data: [DONE]\n\n"
-    )
+    body = 'data: not-json\n\ndata: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n'
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, content=body.encode())
@@ -131,3 +128,138 @@ async def test_list_models_parses_ids_and_provider():
         models = await provider.list_models()
 
     assert [(model.id, model.provider_id) for model in models] == [("m1", "p"), ("m2", "p")]
+
+
+async def test_list_models_raises_provider_error_on_http_failure():
+    _ChatMessage, ProviderError, _Usage, OpenAICompatProvider = _imports()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, text="down")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = OpenAICompatProvider("p", "https://example.test/v1", "key", client=client)
+        with pytest.raises(ProviderError) as excinfo:
+            await provider.list_models()
+
+    assert excinfo.value.code == "provider_http_error"
+
+
+async def test_list_models_raises_provider_error_on_invalid_json():
+    _ChatMessage, ProviderError, _Usage, OpenAICompatProvider = _imports()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="not-json")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = OpenAICompatProvider("p", "https://example.test/v1", "key", client=client)
+        with pytest.raises(ProviderError) as excinfo:
+            await provider.list_models()
+
+    assert excinfo.value.code == "provider_bad_response"
+
+
+async def test_list_models_rejects_missing_data():
+    _ChatMessage, ProviderError, _Usage, OpenAICompatProvider = _imports()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"object": "list"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = OpenAICompatProvider("p", "https://example.test/v1", "key", client=client)
+        with pytest.raises(ProviderError) as excinfo:
+            await provider.list_models()
+
+    assert excinfo.value.code == "provider_bad_response"
+
+
+async def test_list_models_rejects_non_object_payload():
+    _ChatMessage, ProviderError, _Usage, OpenAICompatProvider = _imports()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[{"id": "m1"}])
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = OpenAICompatProvider("p", "https://example.test/v1", "key", client=client)
+        with pytest.raises(ProviderError) as excinfo:
+            await provider.list_models()
+
+    assert excinfo.value.code == "provider_bad_response"
+
+
+async def test_non_integer_usage_is_reported_as_null():
+    ChatMessage, _ProviderError, _Usage, OpenAICompatProvider = _imports()
+    body = (
+        'data: {"choices":[],"usage":{"prompt_tokens":"x","completion_tokens":2}}\n\n'
+        "data: [DONE]\n\n"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=body.encode())
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = OpenAICompatProvider("p", "https://example.test/v1", "key", client=client)
+        chunks = await _collect(provider, [ChatMessage(role="user", content="hi")])
+
+    assert chunks[0].usage is not None
+    assert chunks[0].usage.prompt_tokens is None
+    assert chunks[0].usage.completion_tokens == 2
+
+
+async def test_stream_ignores_events_without_content():
+    ChatMessage, _ProviderError, _Usage, OpenAICompatProvider = _imports()
+    body = (
+        "data: []\n\n"
+        'data: {"choices":[]}\n\n'
+        'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n'
+        "data: [DONE]\n\n"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=body.encode())
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = OpenAICompatProvider("p", "https://example.test/v1", "key", client=client)
+        chunks = await _collect(provider, [ChatMessage(role="user", content="hi")])
+
+    assert "".join(chunk.delta for chunk in chunks) == "ok"
+
+
+async def test_provider_creates_its_own_client_when_none_injected(monkeypatch):
+    _ChatMessage, _ProviderError, _Usage, OpenAICompatProvider = _imports()
+    seen: dict[str, float | None] = {}
+
+    class FakeClient:
+        def __init__(self, timeout: float | None = None) -> None:
+            seen["timeout"] = timeout
+
+        async def __aenter__(self) -> "FakeClient":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def get(self, url: str, headers: dict[str, str] | None = None):
+            request = httpx.Request("GET", url)
+            return httpx.Response(200, json={"data": [{"id": "m1"}]}, request=request)
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
+    provider = OpenAICompatProvider("p", "https://example.test/v1", "key", timeout=7)
+
+    models = await provider.list_models()
+
+    assert [model.id for model in models] == ["m1"]
+    assert seen["timeout"] == 7
+
+
+async def test_list_models_raises_provider_error_when_unreachable():
+    _ChatMessage, ProviderError, _Usage, OpenAICompatProvider = _imports()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("down", request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = OpenAICompatProvider("p", "https://example.test/v1", "key", client=client)
+        with pytest.raises(ProviderError) as excinfo:
+            await provider.list_models()
+
+    assert excinfo.value.code == "provider_unreachable"

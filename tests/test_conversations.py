@@ -8,7 +8,9 @@ def _parse_sse(text: str) -> list[tuple[str, dict]]:
             continue
         lines = block.splitlines()
         event = next(line[len("event: ") :] for line in lines if line.startswith("event: "))
-        data = json.loads(next(line[len("data: ") :] for line in lines if line.startswith("data: ")))
+        data = json.loads(
+            next(line[len("data: ") :] for line in lines if line.startswith("data: "))
+        )
         events.append((event, data))
     return events
 
@@ -210,9 +212,7 @@ async def test_archiving_other_users_conversation_returns_404(client, api, regis
     assert response.status_code == 404
 
 
-async def test_create_conversation_with_foreign_knowledge_base_returns_404(
-    client, api, registry
-):
+async def test_create_conversation_with_foreign_knowledge_base_returns_404(client, api, registry):
     alice = await api.headers("kb-owner@example.com")
     bob = await api.headers("kb-intruder@example.com")
     kb = await client.post("/knowledge-bases", json={"name": "Alice KB"}, headers=alice)
@@ -224,3 +224,123 @@ async def test_create_conversation_with_foreign_knowledge_base_returns_404(
     )
 
     assert response.status_code == 404
+
+
+async def test_providers_endpoint_marks_unavailable_provider(client, api, registry, fake_provider):
+    from app.providers.base import ProviderError
+
+    fake_provider.list_models_error = ProviderError("provider_unreachable", "down")
+    headers = await api.headers("unavailable-provider@example.com")
+
+    response = await client.get("/providers", headers=headers)
+
+    assert response.json() == [{"id": "fake", "available": False, "models": []}]
+
+
+async def test_send_message_with_missing_provider_returns_409(client, api, registry):
+    from app.deps import get_registry
+    from app.main import app
+    from app.providers.registry import ProviderRegistry
+
+    headers = await api.headers("missing-provider@example.com")
+    created = await _create_conversation(client, headers)
+    app.dependency_overrides[get_registry] = lambda: ProviderRegistry({})
+
+    response = await _send(client, headers, created.json()["id"])
+
+    assert response.status_code == 409
+
+
+async def test_unexpected_provider_exception_emits_internal_error(
+    client, api, registry, fake_provider
+):
+    fake_provider.error = RuntimeError("boom")
+    headers = await api.headers("internal-error@example.com")
+    created = await _create_conversation(client, headers)
+
+    response = await _send(client, headers, created.json()["id"])
+
+    events = _parse_sse(response.text)
+    assert [event for event, _ in events] == ["meta", "error"]
+    assert events[1][1]["code"] == "internal_error"
+    detail = await client.get(f"/conversations/{created.json()['id']}", headers=headers)
+    assert detail.json()["messages"][1]["status"] == "failed"
+
+
+async def test_finalize_ignores_missing_message():
+    from uuid import uuid4
+
+    from app.routers.conversations import _finalize
+
+    await _finalize(uuid4(), "", "completed", None)
+
+
+async def test_finalize_swallows_database_errors(monkeypatch):
+    from uuid import uuid4
+
+    import app.routers.conversations as conversations_module
+
+    class BrokenSession:
+        async def __aenter__(self):
+            raise RuntimeError("db down")
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+    monkeypatch.setattr(conversations_module, "SessionLocal", BrokenSession)
+    await conversations_module._finalize(uuid4(), "", "completed", None)
+
+
+async def test_cancelled_stream_marks_message_cancelled(client, api, registry):
+    import asyncio
+    from uuid import UUID
+
+    from app.db import SessionLocal
+    from app.models import Message
+    from app.providers.base import ChatChunk
+    from app.routers.conversations import _stream_reply
+
+    headers = await api.headers("cancelled@example.com")
+    me = await client.get("/auth/me", headers=headers)
+    created = await _create_conversation(client, headers)
+    conversation_id = UUID(created.json()["id"])
+
+    async with SessionLocal() as session:
+        assistant = Message(
+            conversation_id=conversation_id,
+            user_id=UUID(me.json()["id"]),
+            role="assistant",
+            content="",
+            status="streaming",
+            provider_id="fake",
+            model="fake-model",
+        )
+        session.add(assistant)
+        await session.commit()
+        await session.refresh(assistant)
+        assistant_id = assistant.id
+
+    class CancellingProvider:
+        id = "cancel"
+
+        async def stream_chat(self, messages, model):
+            yield ChatChunk(delta="Hi")
+            raise asyncio.CancelledError
+
+    try:
+        async for _chunk in _stream_reply(
+            provider=CancellingProvider(),
+            conversation_id=conversation_id,
+            assistant_id=assistant_id,
+            history=[],
+            model="fake-model",
+        ):
+            pass
+    except asyncio.CancelledError:
+        pass
+
+    async with SessionLocal() as session:
+        stored = await session.get(Message, assistant_id)
+        assert stored is not None
+        assert stored.status == "cancelled"
+        assert stored.content == "Hi"

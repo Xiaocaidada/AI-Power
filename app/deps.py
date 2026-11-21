@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
 from app.models import User
+from app.providers.registry import ProviderRegistry, build_registry
 from app.security import decode_access_token
 
 _bearer = HTTPBearer(auto_error=False)
@@ -34,3 +35,13 @@ async def get_current_user(
     if user is None:
         raise _unauthorized()
     return user
+
+
+_registry: ProviderRegistry | None = None
+
+
+def get_registry() -> ProviderRegistry:
+    global _registry
+    if _registry is None:
+        _registry = build_registry()
+    return _registry

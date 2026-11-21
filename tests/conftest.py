@@ -78,9 +78,12 @@ def fake_provider():
                 ChatChunk(finish_reason="stop"),
             ]
             self.error: Exception | None = None
+            self.list_models_error: Exception | None = None
             self.calls: list[tuple[list[object], str]] = []
 
         async def list_models(self):
+            if self.list_models_error is not None:
+                raise self.list_models_error
             return list(self.models)
 
         async def stream_chat(self, messages, model, **_opts):
