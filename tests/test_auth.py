@@ -47,7 +47,9 @@ async def test_login_returns_bearer_token(client, api):
     assert response.status_code == 200
     body = response.json()
     assert body["token_type"] == "bearer"
-    assert body["expires_in"] == 1440 * 60
+    assert body["expires_in"] == 30 * 60
+    assert body["refresh_expires_in"] == 7 * 24 * 3600
+    assert body["refresh_token"]
     decoded = jwt.decode(
         body["access_token"],
         get_settings().jwt_secret,

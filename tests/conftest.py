@@ -13,6 +13,10 @@ os.environ["MAX_DOCUMENT_PAGES"] = "200"
 os.environ["CHUNK_MAX_CHARS"] = "100"
 os.environ["CHUNK_OVERLAP_CHARS"] = "20"
 os.environ["EMBEDDING_BATCH_SIZE"] = "2"
+os.environ["ACCESS_TOKEN_TTL_MINUTES"] = "30"
+os.environ["REFRESH_TOKEN_TTL_DAYS"] = "7"
+os.environ["LOGIN_RATE_LIMIT_PER_MINUTE"] = "10"
+os.environ["REDIS_URL"] = "redis://localhost:6379/15"
 
 import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402
@@ -63,6 +67,49 @@ class Api:
         if response.status_code != 200:
             raise AssertionError(f"login failed: {response.status_code} {response.text}")
         return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
+class FakeRedis:
+    def __init__(self) -> None:
+        self.counts: dict[str, int] = {}
+        self.expirations: dict[str, int] = {}
+        self.fail = False
+
+    async def incr(self, key: str) -> int:
+        if self.fail:
+            raise ConnectionError("redis down")
+        self.counts[key] = self.counts.get(key, 0) + 1
+        return self.counts[key]
+
+    async def expire(self, key: str, seconds: int) -> bool:
+        if self.fail:
+            raise ConnectionError("redis down")
+        self.expirations[key] = seconds
+        return True
+
+    async def ttl(self, key: str) -> int:
+        if self.fail:
+            raise ConnectionError("redis down")
+        return self.expirations.get(key, -1)
+
+    async def ping(self) -> bool:
+        if self.fail:
+            raise ConnectionError("redis down")
+        return True
+
+    async def aclose(self) -> None:
+        return None
+
+
+@pytest.fixture(autouse=True)
+def fake_redis():
+    from app.clients import get_redis
+    from app.main import app as app_instance
+
+    client = FakeRedis()
+    app_instance.dependency_overrides[get_redis] = lambda: client
+    yield client
+    app_instance.dependency_overrides.pop(get_redis, None)
 
 
 @pytest.fixture
