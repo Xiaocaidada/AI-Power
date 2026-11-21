@@ -65,6 +65,56 @@ class KnowledgeBaseOut(BaseModel):
     created_at: datetime
 
 
+class CollaborationRunCreate(BaseModel):
+    input: str = Field(min_length=1, max_length=20000)
+    provider_id: str = Field(min_length=1, max_length=50)
+    model: str = Field(min_length=1, max_length=200)
+    kb_id: UUID | None = None
+
+    @field_validator("input", "provider_id", "model", mode="before")
+    @classmethod
+    def strip_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class CollaborationStepOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    role: str
+    step_key: str
+    status: str
+    input_summary: str
+    output_summary: str
+    prompt_tokens: int
+    completion_tokens: int
+    cost: float
+    error_code: str | None
+    created_at: datetime
+
+
+class CollaborationRunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    provider_id: str
+    model: str
+    kb_id: UUID | None
+    status: str
+    input_text: str
+    plan: list[dict[str, object]] | None
+    final_output: str
+    rounds: int
+    error_code: str | None
+    prompt_tokens: int
+    completion_tokens: int
+    cost: float
+    total_ms: float | None
+    started_at: datetime
+    finished_at: datetime | None
+    steps: list[CollaborationStepOut] = Field(default_factory=list)
+
+
 class WorkflowCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=500)

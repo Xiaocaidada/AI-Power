@@ -58,6 +58,8 @@ class AgentRunner:
         context: ToolContext,
         quota_guard: Callable[[], Awaitable[None]] | None = None,
         system_prompt: str | None = None,
+        root_agent: str = SUPERVISOR_AGENT,
+        step_guard: Callable[[], None] | None = None,
     ) -> None:
         settings = get_settings()
         self._provider = provider
@@ -67,6 +69,8 @@ class AgentRunner:
         self._context = context
         self._quota_guard = quota_guard
         self._system_prompt_override = system_prompt
+        self._root_agent = root_agent
+        self._step_guard = step_guard
         self._max_steps = settings.agent_max_steps
         self._observation_max_chars = settings.agent_tool_output_max_chars
         self._steps = 0
@@ -87,7 +91,7 @@ class AgentRunner:
         return list(self._tool_records)
 
     async def run(self, history: Sequence[ChatMessage]) -> AsyncIterator[AgentEvent]:
-        spec = self._agent_registry.get(SUPERVISOR_AGENT)
+        spec = self._agent_registry.get(self._root_agent)
         outcome = _Outcome()
         started = time.perf_counter()
         yield AgentEvent("agent_start", {"agent": spec.name, "depth": 0})
@@ -142,6 +146,8 @@ class AgentRunner:
             exchanges.append((raw, holder.observation))
 
     async def _begin_step(self) -> None:
+        if self._step_guard is not None:
+            self._step_guard()
         if self._steps >= self._max_steps:
             raise AgentFailure(
                 "agent_step_limit", f"Agent exceeded the {self._max_steps}-step limit"

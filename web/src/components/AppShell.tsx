@@ -10,6 +10,7 @@ import {
   Settings,
   Shield,
   Sun,
+  Users,
   Workflow,
   X,
 } from 'lucide-react'
@@ -31,6 +32,7 @@ const navItems = [
   { to: '/models', labelKey: 'nav.models', icon: Boxes },
   { to: '/knowledge', labelKey: 'nav.knowledge', icon: BookOpen },
   { to: '/workflows', labelKey: 'nav.workflows', icon: Workflow },
+  { to: '/collaborations', labelKey: 'nav.collaborations', icon: Users },
   { to: '/settings/prompts', labelKey: 'nav.prompts', icon: FileText },
   { to: '/usage', labelKey: 'nav.usage', icon: BarChart3 },
   { to: '/settings/api-keys', labelKey: 'nav.settings', icon: Settings },

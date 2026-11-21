@@ -116,6 +116,31 @@ export async function streamWorkflowRun({
   )
 }
 
+export interface StreamCollaborationOptions {
+  input: string
+  providerId: string
+  model: string
+  kbId?: string | null
+  signal?: AbortSignal
+  onEvent: SseHandler
+}
+
+export async function streamCollaborationRun({
+  input,
+  providerId,
+  model,
+  kbId,
+  signal,
+  onEvent,
+}: StreamCollaborationOptions): Promise<void> {
+  return streamResponse(
+    `${API_BASE}/collaborations/runs`,
+    { input, provider_id: providerId, model, kb_id: kbId ?? null },
+    signal,
+    onEvent,
+  )
+}
+
 export async function streamChat({
   conversationId,
   content,

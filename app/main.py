@@ -12,6 +12,7 @@ from app.routers import (
     admin,
     api_keys,
     auth,
+    collaborations,
     conversations,
     documents,
     health,
@@ -50,6 +51,7 @@ OPENAPI_TAGS = [
     {"name": "workspaces", "description": "Workspace membership and switching."},
     {"name": "admin", "description": "Platform admin endpoints (admin role only)."},
     {"name": "workflows", "description": "Versioned workflow definitions and runs."},
+    {"name": "collaborations", "description": "Planner/worker/critic collaboration runs."},
     {"name": "providers", "description": "Configured provider metadata."},
     {"name": "health", "description": "Liveness and readiness probes."},
 ]
@@ -89,3 +91,4 @@ app.include_router(knowledge_bases.router)
 app.include_router(prompts.router)
 app.include_router(admin.router)
 app.include_router(workflows.router)
+app.include_router(collaborations.router)

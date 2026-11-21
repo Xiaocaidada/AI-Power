@@ -15,6 +15,7 @@ import { LoginPage } from './pages/LoginPage'
 import { ModelsPage } from './pages/models/ModelsPage'
 import { ApiKeysPage } from './pages/settings/ApiKeysPage'
 import { AdminPage } from './pages/admin/AdminPage'
+import { CollaborationsPage } from './pages/collaborations/CollaborationsPage'
 import { WorkflowsPage } from './pages/workflows/WorkflowsPage'
 import { ProfilePage } from './pages/settings/ProfilePage'
 import { PromptTemplatesPage } from './pages/settings/PromptTemplatesPage'
@@ -61,6 +62,7 @@ export function App() {
           <Route path="chat/:id" element={<ChatPage />} />
           <Route path="models" element={<ModelsPage />} />
           <Route path="workflows" element={<WorkflowsPage />} />
+          <Route path="collaborations" element={<CollaborationsPage />} />
           <Route path="admin" element={<AdminPage />} />
           <Route path="knowledge" element={<KnowledgePage />} />
           <Route path="knowledge/:id" element={<KnowledgeDetailPage />} />
