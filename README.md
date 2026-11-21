@@ -20,6 +20,7 @@
 | 模型平台 | 模型目录/广场对比、`auto` 路由与首 token 前降级、熔断 |
 | Agent | supervisor + `retrieval`/`math` 子 Agent、`kb_search` / `calculator`、JSON 工具协议、SSE 工具事件、trace 记录 |
 | Prompt 模板 | workspace 级模板与不可变版本、`{{变量}}` 渲染、会话 Prompt 快照 |
+| 界面 | 中英文切换、明暗主题（跟随系统/本地记忆） |
 | 配额 | workspace 请求/token 与 Key 限流，429 + 配额响应头 |
 | 可观测 | `traces` 记录检索/TTFT/总耗时/尝试次数，7 天保留 |
 | 管理后台 | 平台管理员查看用户/Workspace/全局用量、启停模型，操作写审计日志 |

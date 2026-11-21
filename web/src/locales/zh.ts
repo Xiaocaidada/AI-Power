@@ -8,6 +8,7 @@ export const zh = {
     save: '保存',
     create: '创建',
     loadMore: '加载更多',
+    toggleTheme: '切换深浅色',
     delete: '删除',
     close: '关闭',
     copy: '复制',

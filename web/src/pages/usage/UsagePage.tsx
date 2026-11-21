@@ -296,7 +296,7 @@ export function UsagePage() {
                 <ResponsiveContainer width="100%" height="100%">
                   {groupBy === 'day' ? (
                     <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E4E6EB" />
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#94A3B8" strokeOpacity={0.3} />
                       <XAxis dataKey="name" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} />
                       <YAxis
                         width={56}
@@ -310,13 +310,13 @@ export function UsagePage() {
                         dataKey="prompt"
                         name={t('usage.promptTokens')}
                         stackId="tokens"
-                        fill="#C7D2FE"
+                        fill="#818CF8"
                       />
                       <Bar
                         dataKey="completion"
                         name={t('usage.completionTokens')}
                         stackId="tokens"
-                        fill="#4F46E5"
+                        fill="#6366F1"
                         radius={[4, 4, 0, 0]}
                       />
                     </BarChart>
@@ -326,7 +326,7 @@ export function UsagePage() {
                       layout="vertical"
                       margin={{ top: 8, right: 16, left: 8, bottom: 0 }}
                     >
-                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#E4E6EB" />
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#94A3B8" strokeOpacity={0.3} />
                       <XAxis
                         type="number"
                         tick={{ fontSize: 12 }}
@@ -345,7 +345,7 @@ export function UsagePage() {
                       <Bar
                         dataKey="total"
                         name={t('usage.totalTokens')}
-                        fill="#4F46E5"
+                        fill="#6366F1"
                         radius={[0, 4, 4, 0]}
                       />
                     </BarChart>
@@ -360,11 +360,11 @@ export function UsagePage() {
               <div className="h-[240px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={costChartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E4E6EB" />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#94A3B8" strokeOpacity={0.3} />
                     <XAxis dataKey="name" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} />
                     <YAxis width={72} tick={{ fontSize: 12 }} tickLine={false} axisLine={false} />
                     <Tooltip formatter={(value) => formatCost(Number(value))} />
-                    <Bar dataKey="cost" name={t('usage.cost')} fill="#0EA5E9" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="cost" name={t('usage.cost')} fill="#38BDF8" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>

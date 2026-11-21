@@ -6,8 +6,10 @@ import {
   FileText,
   Menu,
   MessageSquare,
+  Moon,
   Settings,
   Shield,
+  Sun,
   X,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -16,6 +18,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { apiRequest } from '../lib/http'
 import { useI18n } from '../lib/i18n'
 import { PAGE_SIZE, mergePages, pageFromItems } from '../lib/pagination'
+import { applyTheme, storedTheme, type Theme } from '../lib/theme'
 import { useLogout } from '../lib/useLogout'
 import type { Conversation, WorkspaceItem } from '../lib/types'
 import { cn } from '../lib/utils'
@@ -40,6 +43,13 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const user = useAuthStore((state) => state.user)
   const isChat = location.pathname.startsWith('/chat')
   const [activeWorkspaceId, setActiveId] = useState<string | null>(getActiveWorkspaceId())
+  const [theme, setTheme] = useState<Theme>(() => storedTheme())
+
+  const toggleTheme = () => {
+    const next: Theme = theme === 'dark' ? 'light' : 'dark'
+    applyTheme(next)
+    setTheme(next)
+  }
 
   const workspaces = useQuery({
     queryKey: ['workspaces'],
@@ -214,7 +224,18 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
           </button>
         </div>
         <div className="flex items-center justify-between gap-2 px-1">
-          <span className="truncate text-xs text-ink-muted">{user?.email ?? ''}</span>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <button
+              type="button"
+              aria-label={t('common.toggleTheme')}
+              title={t('common.toggleTheme')}
+              className="shrink-0 rounded-md p-1 text-ink-muted hover:bg-surface-muted hover:text-ink"
+              onClick={toggleTheme}
+            >
+              {theme === 'dark' ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+            </button>
+            <span className="truncate text-xs text-ink-muted">{user?.email ?? ''}</span>
+          </div>
           <button
             type="button"
             className="shrink-0 text-xs text-ink-muted underline-offset-2 hover:text-ink hover:underline"

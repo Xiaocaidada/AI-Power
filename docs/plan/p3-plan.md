@@ -123,7 +123,7 @@ P3 必须补的差距：
 - ADR：0012（Agent 与工具协议）、0013（Prompt 版本化）、0014（成本快照）、0015（管理后台与审计）。
 - README/CLAUDE 更新；P3 TDD 证据归档。
 
-> **完成证据**：`docs/tdd/p3-s6-polish.md`。OpenAPI 元数据/错误响应、quickstart、错误契约、会话/文档/trace 加载更多、429 倒计时、Key 轮换提示与 ADR-0012–0015 已完成；暗色主题未做。
+> **完成证据**：`docs/tdd/p3-s6-polish.md`。OpenAPI 元数据/错误响应、quickstart、错误契约、会话/文档/trace 加载更多、429 倒计时、Key 轮换提示、暗色主题与 ADR-0012–0015 已完成。
 
 ## 5. 排期（约 4.5–6.5 周）
 

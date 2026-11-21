@@ -16,6 +16,24 @@
   --success: 22 163 74;
   --warning: 217 119 6;
   --danger: 220 38 38;
+  color-scheme: light;
+}
+
+html.dark {
+  --canvas: 13 16 23;
+  --surface: 23 27 36;
+  --surface-muted: 33 38 50;
+  --border: 52 59 74;
+  --ink: 230 233 239;
+  --ink-muted: 152 160 175;
+  --accent: 99 102 241;
+  --accent-soft: 43 45 92;
+  --citation: 251 191 36;
+  --citation-soft: 69 52 18;
+  --success: 74 222 128;
+  --warning: 251 191 36;
+  --danger: 248 113 113;
+  color-scheme: dark;
 }
 
 @layer base {

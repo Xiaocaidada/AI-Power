@@ -11,7 +11,7 @@
 | 后端全量 | `pytest -q` | **272 passed, 3 skipped** |
 | OpenAPI 契约 | `pytest tests/test_app.py` | 3 passed |
 | Lint/Format | `ruff check` / `ruff format --check` | 通过 |
-| 前端单测 | `npm test` | **20 passed**（新增 2 条分页） |
+| 前端单测 | `npm test` | **22 passed**（新增 2 条分页、2 条主题） |
 | 类型/构建 | `npm run typecheck` / `npm run build` | 通过 |
 | E2E | `npm run test:e2e` | 1 passed（9.0s） |
 
@@ -25,19 +25,19 @@
 - **429 倒计时**：对话页解析 `Retry-After`，显示剩余秒数并在倒计时内禁用发送。
 - **Key 轮换提示**：API Key 页提示超过 90 天的有效 Key。
 - **ADR**：0012（Agent/工具）、0013（Prompt 版本化）、0014（成本快照）、0015（管理员/审计）。
-- **未做**：暗色主题（计划中标注为可选）。
+- **暗色主题**：CSS 变量在 `html.dark` 下切换；侧栏按钮切换并写入 `localStorage.ai_power_theme`；首次访问遵循 `prefers-color-scheme`；Recharts 配色调整为深浅通用。
 
-## Test Specification（新增 3）
+## Test Specification（新增 5）
 
 | # | What is guaranteed | Test | Result |
 |---|---|---|---|
 | 1 | OpenAPI 标题/tag 与消息流、上传错误响应存在 | `test_openapi_documents_stream_and_admin_contract` | PASS |
 | 2 | 满页才产生游标，短页结束 | `pageFromItems exposes a cursor only for a full page` | PASS |
 | 3 | 多页合并保持顺序并去重 | `mergePages keeps order and drops duplicate ids` | PASS |
+| 4 | 切换主题写入 localStorage 并加 `dark` class | `applyTheme stores the theme and toggles the dark class` | PASS |
+| 5 | 已保存主题优先于系统偏好 | `storedTheme prefers a saved value` | PASS |
 
 ## Known Gaps
-
-- **暗色主题未实现**：仍为单一浅色主题。
 - **无独立 trace 列表页**：加载更多放在用量页“最近请求”，不是完整检索/筛选页。
 - **分页无总数**：只支持 `limit`/`before`，UI 不显示总条数。
 - **Key 轮换仅提示**：需手动创建新 Key 后吊销旧 Key，无自动化轮换接口。
