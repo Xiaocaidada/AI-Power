@@ -44,6 +44,67 @@ export interface PromptVersion {
   created_at: string
 }
 
+export interface WorkflowNodeDefinition {
+  id: string
+  type: 'llm' | 'kb_search' | 'tool' | 'agent' | 'condition' | 'parallel' | 'join'
+  config: Record<string, unknown>
+}
+
+export interface WorkflowEdgeDefinition {
+  from: string
+  to: string
+  when?: 'true' | 'false' | null
+}
+
+export interface WorkflowDefinition {
+  nodes: WorkflowNodeDefinition[]
+  edges: WorkflowEdgeDefinition[]
+}
+
+export interface WorkflowVersion {
+  id: string
+  version: number
+  definition: WorkflowDefinition
+  created_at: string
+}
+
+export interface Workflow {
+  id: string
+  name: string
+  description: string
+  versions: WorkflowVersion[]
+  created_at: string
+}
+
+export interface WorkflowNodeRun {
+  id: string
+  node_id: string
+  node_type: string
+  status: string
+  attempts: number
+  input_summary: string
+  output_summary: string
+  error_code: string | null
+  duration_ms: number | null
+  created_at: string
+}
+
+export interface WorkflowRun {
+  id: string
+  workflow_id: string
+  version_id: string
+  status: string
+  input_text: string
+  error_code: string | null
+  prompt_tokens: number
+  completion_tokens: number
+  cost: number
+  total_ms: number | null
+  started_at?: string
+  finished_at: string | null
+  nodes: WorkflowNodeRun[]
+}
+
 export interface AdminWorkspace {
   id: string
   name: string
