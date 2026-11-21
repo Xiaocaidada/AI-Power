@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -18,6 +18,7 @@ from app.schemas import (
     UsageSummaryOut,
 )
 from app.services.quotas import quota_snapshot
+from app.services.usage_stats import bucket_expression, resolve_range
 
 router = APIRouter(prefix="/usage", tags=["usage"])
 
@@ -25,29 +26,12 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 JwtContext = Annotated[AuthContext, Depends(get_jwt_context)]
 RedisDep = Annotated[RedisLike, Depends(get_redis)]
 
-DEFAULT_RANGE_DAYS = 30
-
-
-def _as_utc(value: datetime) -> datetime:
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
-
-
-def _bucket_expression(group_by: str):
-    if group_by == "day":
-        return func.date(UsageEvent.created_at)
-    if group_by == "provider":
-        return func.coalesce(UsageEvent.provider_id, "unknown")
-    return func.coalesce(UsageEvent.model, "unknown")
-
 
 def _range(from_ts: datetime | None, to_ts: datetime | None) -> tuple[datetime, datetime]:
-    end_at = _as_utc(to_ts) if to_ts is not None else datetime.now(UTC)
-    start_at = (
-        _as_utc(from_ts) if from_ts is not None else end_at - timedelta(days=DEFAULT_RANGE_DAYS)
-    )
-    if start_at > end_at:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "from must be earlier than or equal to to")
-    return start_at, end_at
+    try:
+        return resolve_range(from_ts, to_ts)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
 
 
 @router.get("/quota", response_model=QuotaSummaryOut)
@@ -84,10 +68,10 @@ async def usage_summary(
 ) -> UsageSummaryOut:
     start_at, end_at = _range(from_ts, to_ts)
 
-    bucket_expression = _bucket_expression(group_by)
+    bucket = bucket_expression(group_by)
     statement = (
         select(
-            bucket_expression.label("bucket"),
+            bucket.label("bucket"),
             func.count().label("requests"),
             func.coalesce(func.sum(UsageEvent.prompt_tokens), 0).label("prompt_tokens"),
             func.coalesce(func.sum(UsageEvent.completion_tokens), 0).label("completion_tokens"),
@@ -97,8 +81,8 @@ async def usage_summary(
             UsageEvent.created_at >= start_at,
             UsageEvent.created_at <= end_at,
         )
-        .group_by(bucket_expression)
-        .order_by(bucket_expression)
+        .group_by(bucket)
+        .order_by(bucket)
     )
     rows = (await session.execute(statement)).all()
 
@@ -128,10 +112,10 @@ async def usage_cost(
     group_by: Literal["day", "provider", "model"] = "day",
 ) -> UsageCostOut:
     start_at, end_at = _range(from_ts, to_ts)
-    bucket_expression = _bucket_expression(group_by)
+    bucket = bucket_expression(group_by)
     statement = (
         select(
-            bucket_expression.label("bucket"),
+            bucket.label("bucket"),
             func.count().label("requests"),
             func.coalesce(func.sum(UsageEvent.prompt_tokens), 0).label("prompt_tokens"),
             func.coalesce(func.sum(UsageEvent.completion_tokens), 0).label("completion_tokens"),
@@ -145,8 +129,8 @@ async def usage_cost(
             UsageEvent.created_at >= start_at,
             UsageEvent.created_at <= end_at,
         )
-        .group_by(bucket_expression)
-        .order_by(bucket_expression)
+        .group_by(bucket)
+        .order_by(bucket)
     )
     rows = (await session.execute(statement)).all()
     buckets = [

@@ -32,6 +32,9 @@ def test_alembic_upgrade_head_creates_schema(tmp_path):
         "usage_events",
         "message_citations",
         "api_keys",
+        "prompt_templates",
+        "prompt_versions",
+        "audit_logs",
         "alembic_version",
     } <= tables
 

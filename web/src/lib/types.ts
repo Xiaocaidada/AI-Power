@@ -44,6 +44,54 @@ export interface PromptVersion {
   created_at: string
 }
 
+export interface AdminWorkspace {
+  id: string
+  name: string
+  plan: string
+  is_personal: boolean
+  member_count: number
+  created_at: string
+}
+
+export interface AdminMember {
+  user_id: string
+  email: string
+  role: string
+  created_at: string
+}
+
+export interface AdminModel {
+  id: string
+  provider_id: string
+  model_id: string
+  display_name: string
+  enabled: boolean
+}
+
+export interface AdminUsage {
+  start: string
+  end: string
+  group_by: string
+  requests: number
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  total_cost: number
+  unpriced_requests: number
+  buckets: UsageCostBucket[]
+}
+
+export interface AuditLog {
+  id: string
+  actor_user_id: string | null
+  actor_email: string | null
+  action: string
+  target_type: string
+  target_id: string | null
+  detail: Record<string, unknown> | null
+  created_at: string
+}
+
 export interface PromptTemplate {
   id: string
   name: string

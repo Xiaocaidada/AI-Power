@@ -341,3 +341,65 @@ class ModelOut(BaseModel):
     tags: list[str]
     priority: int
     available: bool
+
+
+class AdminWorkspaceOut(BaseModel):
+    id: UUID
+    name: str
+    plan: str
+    is_personal: bool
+    member_count: int
+    created_at: datetime
+
+
+class AdminMemberOut(BaseModel):
+    user_id: UUID
+    email: EmailStr
+    role: str
+    created_at: datetime
+
+
+class AdminModelToggleIn(BaseModel):
+    enabled: bool
+
+
+class AdminModelOut(BaseModel):
+    id: UUID
+    provider_id: str
+    model_id: str
+    display_name: str
+    enabled: bool
+
+
+class AdminUsageBucketOut(BaseModel):
+    key: str
+    requests: int
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    cost: float
+    unpriced_requests: int
+
+
+class AdminUsageOut(BaseModel):
+    start: datetime
+    end: datetime
+    group_by: str
+    requests: int
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    total_cost: float
+    unpriced_requests: int
+    buckets: list[AdminUsageBucketOut] = Field(default_factory=list)
+
+
+class AuditLogOut(BaseModel):
+    id: UUID
+    actor_user_id: UUID | None
+    actor_email: EmailStr | None
+    action: str
+    target_type: str
+    target_id: str | None
+    detail: dict[str, object] | None
+    created_at: datetime

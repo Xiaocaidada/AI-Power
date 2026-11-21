@@ -5,7 +5,8 @@ from pathlib import Path
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Document, Trace
+from app.config import get_settings
+from app.models import AuditLog, Document, Trace
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,19 @@ async def cleanup_traces(
 ) -> int:
     threshold = (now or datetime.now(UTC)) - timedelta(days=max_age_days)
     result = await session.execute(delete(Trace).where(Trace.created_at < threshold))
+    await session.commit()
+    return result.rowcount or 0
+
+
+async def cleanup_audit_logs(
+    session: AsyncSession,
+    *,
+    now: datetime | None = None,
+    max_age_days: int | None = None,
+) -> int:
+    days = max_age_days if max_age_days is not None else get_settings().audit_log_retention_days
+    threshold = (now or datetime.now(UTC)) - timedelta(days=days)
+    result = await session.execute(delete(AuditLog).where(AuditLog.created_at < threshold))
     await session.commit()
     return result.rowcount or 0
 

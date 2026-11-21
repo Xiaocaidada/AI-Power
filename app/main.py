@@ -9,6 +9,7 @@ from app.config import get_settings
 from app.db import init_db
 from app.observability import RequestContextMiddleware, configure_logging
 from app.routers import (
+    admin,
     api_keys,
     auth,
     conversations,
@@ -40,7 +41,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=get_settings().cors_origin_list,
     allow_credentials=False,
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-API-Key"],
     expose_headers=["Retry-After"],
     max_age=600,
@@ -58,3 +59,4 @@ app.include_router(conversations.router)
 app.include_router(documents.router)
 app.include_router(knowledge_bases.router)
 app.include_router(prompts.router)
+app.include_router(admin.router)

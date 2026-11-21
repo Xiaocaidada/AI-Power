@@ -62,6 +62,7 @@ class Settings(BaseSettings):
     agent_max_steps: int = 8
     agent_tool_timeout_seconds: float = 10.0
     agent_tool_output_max_chars: int = 4000
+    audit_log_retention_days: int = 90
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -101,6 +102,8 @@ class Settings(BaseSettings):
             raise ValueError("AGENT_TOOL_TIMEOUT_SECONDS must be > 0")
         if self.agent_tool_output_max_chars < 1:
             raise ValueError("AGENT_TOOL_OUTPUT_MAX_CHARS must be >= 1")
+        if self.audit_log_retention_days < 1:
+            raise ValueError("AUDIT_LOG_RETENTION_DAYS must be >= 1")
         return self
 
     @model_validator(mode="after")

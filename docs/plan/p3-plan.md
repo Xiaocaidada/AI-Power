@@ -1,6 +1,6 @@
 # P3 规划：从平台化到 Agent 与应用层
 
-- **Status:** In progress（S1–S4 已完成 2026-11-21；S5–S6 待逐片批准）
+- **Status:** In progress（S1–S5 已完成 2026-11-21；S6 待批准）
 - **Date:** 2026-11-21
 - **Scope source:** [`PRODUCT-BRIEF.md`](../../PRODUCT-BRIEF.md) §3 P3、[`docs/product/CAPABILITY.md`](../product/CAPABILITY.md)
 - **前置:** P2 已完成（2026-11-21），见 [`p2-plan.md`](./p2-plan.md)、[`p2-s6-hardening.md`](../tdd/p2-s6-hardening.md)
@@ -103,7 +103,7 @@ P3 必须补的差距：
 
 > **完成证据**：`docs/tdd/p3-s4-cost.md`。价格快照、`/usage/cost`、未定价标记与前端成本卡片/趋势已完成；历史事件未回填。
 
-### P3-S5 管理后台（约 1–1.5 周）
+### P3-S5 管理后台 — **已完成（2026-11-21）**（约 1–1.5 周）
 
 - `require_admin` 依赖（`users.role == "admin"`），非管理员一律 404。
 - 管理员脚本：`scripts/grant_admin.py <email>`（无默认管理员/密码）。
@@ -111,6 +111,8 @@ P3 必须补的差距：
 - `audit_logs(id, actor_user_id, action, target_type, target_id, detail, created_at)`；管理员写操作落库；worker 清理 90 天前记录（可配置）。
 - 前端：`/admin` 页面组（仅管理员导航可见）：用户、workspace、模型管理、全局用量。
 - 验收：禁用模型后 `/models` 与 `auto` 路由立即排除，广场不可见；非管理员访问 404；审计记录可查。
+
+> **完成证据**：`docs/tdd/p3-s5-admin.md`。`require_admin`、用户/Workspace/全局用量、模型启停、审计与 90 天清理、前端 `/admin` 已完成；目录全停用时不再回退实时列表。
 
 ### P3-S6 开放 API 与收口（约 1 周）
 
