@@ -1,6 +1,6 @@
 # P4 规划：工作流、多 Agent 协作与生产化
 
-- **Status:** Draft（D1–D9 待确认）
+- **Status:** In progress（D1–D9 已确认；S1 已完成 2026-11-21，S2–S6 待逐片批准）
 - **Date:** 2026-11-21
 - **Scope source:** [`PRODUCT-BRIEF.md`](../../PRODUCT-BRIEF.md) §3 P3/P4、[`docs/plan/p3-plan.md`](./p3-plan.md)
 - **前置:** P3 已完成（2026-11-21），见 [`p3-plan.md`](./p3-plan.md)、[`p3-s6-polish.md`](../tdd/p3-s6-polish.md)
@@ -50,13 +50,15 @@ P4 仍**不做真实支付/计费**，不追求公网多租户 SaaS。
 
 原则：先工作流数据模型与引擎，再节点/可视化，再多 Agent 协作，再可观测与运营，最后收口。
 
-### P4-S1 工作流模型与执行引擎（约 1.5–2 周）
+### P4-S1 工作流模型与执行引擎 — **已完成（2026-11-21）**（约 1.5–2 周）
 
 - 表：`workflows(id, workspace_id, name, description, created_by, deleted_at)`、`workflow_versions(id, workflow_id, version, definition JSON, created_at)`（不可变）、`workflow_runs(id, workflow_id, version_id, workspace_id, user_id, status, error_code, started_at, finished_at, total_ms)`、`workflow_node_runs(id, run_id, node_id, node_type, status, attempts, input_summary, output_summary, error_code, duration_ms)`。
 - `definition`：`{nodes:[{id,type,config}], edges:[{from,to,condition?}]}`；启动时校验 DAG（无环、入口唯一、节点配置 Pydantic）。
 - 引擎（`app/services/workflow/`）：按拓扑执行；节点超时/重试；`llm` 复用 provider + AgentRunner 的计量；`kb_search` 复用工具；运行结果持久化，SSE `workflow_start/node_start/node_end/workflow_end`。
 - API：workflow CRUD、版本创建、`POST /workflows/{id}/runs`、`GET /workflows/runs/{run_id}`、`GET /workflows/{id}/runs`。
 - 测试：DAG 校验（环、孤儿节点）、顺序执行、节点失败重试、run 状态机、workspace 隔离。
+
+> **完成证据**：`docs/tdd/p4-s1-workflows.md`。线性 DAG 的 `llm`/`kb_search` 节点、版本化定义、run/node 持久化、SSE 与 API 已完成；分支/并行留待 S2。
 
 ### P4-S2 节点类型与运行可视化（约 1.5 周）
 
