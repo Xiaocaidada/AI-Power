@@ -18,6 +18,7 @@ P0 complete. **S1**: auth + per-user isolation. **S2**: provider abstraction + S
 - [docs/tdd/p0-s3-ingestion.md](./docs/tdd/p0-s3-ingestion.md) — S3 的入库状态机、真实 bge-m3 与 pgvector 证据。
 - [docs/tdd/p0-s4-retrieval.md](./docs/tdd/p0-s4-retrieval.md) — S4 的检索/引用证据、真实 bge-m3 排序与 HNSW 集成。
 - [docs/eval/retrieval-baseline.md](./docs/eval/retrieval-baseline.md) — 20 文档 / 50 题中文评测集与 Recall@1/3/5 基线。
+- [docs/plan/p1-plan.md](./docs/plan/p1-plan.md) — P1 规划：基础设施、队列、用量、API Key、前端与部署切片。
 
 ## Commands
 
