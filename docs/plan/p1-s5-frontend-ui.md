@@ -1,6 +1,6 @@
 # P1-S5 前端 UI 规划（React + TS）
 
-- **Status:** S5-pre、S5a、S5b、S5c 已完成（2026-11-21）；下一步 S6 部署
+- **Status:** S5-pre、S5a、S5b、S5c 已完成（2026-11-21）；S6 部署已完成，P1 收口
 - **Date:** 2026-11-21
 - **Scope source:** [`p1-plan.md`](./p1-plan.md) S5、[`CAPABILITY.md`](../product/CAPABILITY.md)、[`ADR-0004`](../adr/0004-auth-sessions.md)、[`ADR-0007`](../adr/0007-api-keys.md)
 - **No code:** 本文只做 UI/交互/契约规划。

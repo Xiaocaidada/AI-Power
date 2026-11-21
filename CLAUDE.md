@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-P0 complete. **S1**: auth + per-user isolation. **S2**: provider abstraction + SSE chat. **S3**: document upload + async ingestion (PDF/MD/TXT → chunks → bge-m3 → pgvector). **S4**: retrieval + citations + RAG chat (HNSW, `citation` SSE). **Eval**: 20-document / 50-question Chinese set with a measured Recall@5 baseline (real bge-m3). **P1-S1 complete**: Alembic migrations, refresh tokens (30m access / 7d refresh, rotation + revocation), login rate limiting, `/readyz`, Dockerfile + compose `api` + CI. **P1-S2 complete**: Arq durable ingestion queue (leases, retries, dead letters), manual document retry, file deletion + orphan cleanup, compose `worker`. **P1-S3 complete**: append-only `usage_events`, `GET /usage/summary`, and persisted `message_citations` replayed on conversation history. **P1-S4 complete**: API keys (`X-API-Key`) with `chat:write`/`kb:read` scopes, one-time plaintext, SHA-256 storage, revocation, and throttled `last_used_at`. **P1-S5 complete**: frontend covers login/refresh, chat (SSE, citations, history), knowledge management, usage charts, API keys and profile. Next: P1-S6 deployment (nginx-served `web`, compose full stack, backups, 20-concurrency load test). See the capability contract before starting any slice.
+P0 complete. **S1**: auth + per-user isolation. **S2**: provider abstraction + SSE chat. **S3**: document upload + async ingestion (PDF/MD/TXT → chunks → bge-m3 → pgvector). **S4**: retrieval + citations + RAG chat (HNSW, `citation` SSE). **Eval**: 20-document / 50-question Chinese set with a measured Recall@5 baseline (real bge-m3). **P1-S1 complete**: Alembic migrations, refresh tokens (30m access / 7d refresh, rotation + revocation), login rate limiting, `/readyz`, Dockerfile + compose `api` + CI. **P1-S2 complete**: Arq durable ingestion queue (leases, retries, dead letters), manual document retry, file deletion + orphan cleanup, compose `worker`. **P1-S3 complete**: append-only `usage_events`, `GET /usage/summary`, and persisted `message_citations` replayed on conversation history. **P1-S4 complete**: API keys (`X-API-Key`) with `chat:write`/`kb:read` scopes, one-time plaintext, SHA-256 storage, revocation, and throttled `last_used_at`. **P1 complete**: auth + refresh, chat/SSE + citations, knowledge base + durable ingestion, usage metering, API keys, full frontend (chat, KB, usage, keys, profile, zh/en), and LAN Docker deployment with nginx, structured logs, daily backups, and a 20-concurrency load test (20/20, TTFT P95 46.9s on local Qwen). Next: P2 planning. See the capability contract before starting any slice.
 
 ## Documents
 
@@ -32,6 +32,8 @@ P0 complete. **S1**: auth + per-user isolation. **S2**: provider abstraction + S
 - [docs/tdd/p1-s5a-frontend.md](./docs/tdd/p1-s5a-frontend.md) — S5a 前端骨架、认证与对话证据（含真实浏览器验证）。
 - [docs/tdd/p1-s5b-knowledge.md](./docs/tdd/p1-s5b-knowledge.md) — S5b 知识库与文档管理证据。
 - [docs/tdd/p1-s5c-console.md](./docs/tdd/p1-s5c-console.md) — S5c 用量、API Key 与个人资料证据。
+- [docs/adr/0008-deployment.md](./docs/adr/0008-deployment.md) — compose 全栈、nginx、日志、连接池、备份与压测决策。
+- [docs/tdd/p1-s6-deploy.md](./docs/tdd/p1-s6-deploy.md) — P1-S6 的 RED/GREEN、全栈验证与 20 并发压测证据。
 
 ## Commands
 
@@ -46,6 +48,10 @@ All Python commands use the project venv. On Windows that is `.venv/Scripts/pyth
 - Run app: `.venv/Scripts/python.exe -m uvicorn app.main:app --reload --port 8000`
 - Migrations: `.venv/Scripts/python.exe -m alembic upgrade head` (new revision: `... revision --autogenerate -m "..."`; requires a DB whose schema matches the models)
 - Docker API + worker: `docker compose up -d api worker` (API runs `alembic upgrade head` before uvicorn; host port **8002**, because the VM's 8000/8001 are occupied by vLLM)
+- Docker full stack: `docker compose up -d --build` (adds `web` on **8080** and `backup`; web serves the built SPA and proxies `/api` to `api:8000`)
+- Logs: `docker compose logs -f api worker web`
+- Manual backup now: `docker compose exec -e RUN_ONCE=1 backup /bin/sh /usr/local/bin/backup_postgres.sh`
+- Load test: `.venv/Scripts/python.exe scripts/loadtest.py --base-url http://192.168.29.100:8080/api --concurrency 20`
 - Docker build uses the Tsinghua PyPI mirror by default; override with `docker compose build --build-arg PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ api`
 - Local worker (needs Redis): `.venv/Scripts/python.exe -m arq app.worker.WorkerSettings`
 - Postgres + Redis: `docker compose up -d postgres redis` (Docker runs in WSL; use host `192.168.29.100`, **not** `localhost`, from Windows)
@@ -73,6 +79,7 @@ All Python commands use the project venv. On Windows that is `.venv/Scripts/pyth
 - **Retrieval/RAG flow**: `retrieve_chunks` embeds the query once, filters `chunk.user_id`, `chunk.kb_id`, `document.status='ready'`, `document.deleted_at IS NULL`, and orders by L2. Postgres uses SQL `<->`; SQLite scores candidates in Python (test-only path). `fit_context` greedily keeps ranked chunks within `RETRIEVAL_MAX_CONTEXT_CHARS`; citations are built **from the chunks actually placed in the prompt** (never parsed from model text); `build_rag_messages` prepends a system prompt that declares `<reference_material>` untrusted data.
 - **Vector storage**: `EmbeddingVector` maps to pgvector `vector(1024)` on Postgres and JSON on SQLite. `init_db()` creates the `vector` extension and the idempotent HNSW index (`ix_chunk_embeddings_embedding_hnsw`, `vector_l2_ops`) on Postgres. Distance queries use `EmbeddingVector` comparators (`l2_distance`, `cosine_distance`).
 - **Persistence**: dev/tests use SQLite (`aiosqlite`, `NullPool`); production targets Postgres + pgvector via `DATABASE_URL`. Schema changes go through Alembic (`alembic/versions/`); `init_db()` still creates tables for tests and local dev. The Docker API command runs `alembic upgrade head` before uvicorn.
+- **Deployment**: compose runs `postgres`, `redis`, `api`, `worker`, `web`, `backup`. nginx serves `web/dist`, falls back to `index.html`, and proxies `/api/` to `api:8000` with proxy buffering off for SSE; host ports are 8080 (web) and 8002 (api). `backup` runs `pg_dump -Fc` daily into the `backups` volume and keeps 7 days. API/worker use `LOG_FORMAT=json`; every request carries `X-Request-ID` and logs `method/path/status/duration_ms/user_id`. Streaming endpoints close their request-scoped DB session before returning, and the Postgres pool is 10+20 with `PROVIDER_TIMEOUT_SECONDS=180` in compose to survive 20 concurrent local-model streams.
 - **Health**: `/healthz` is liveness; `/readyz` checks `SELECT 1` and Redis `PING` and returns 503 with per-check status when a dependency is down.
 - **File lifecycle**: deleting a document also removes its stored file; a daily worker cron deletes unreferenced files older than 24h. API and worker share the `uploads` compose volume.
 - **Tests**: `tests/conftest.py` sets DB/JWT/upload/chunk env before importing the app, recreates the schema per test, and drives the ASGI app with `httpx.ASGITransport`. Conversation tests override `get_registry`; ingestion tests override `build_parser`/`build_embedder` via the `fake_ingestion` fixture. Coverage requires `concurrency = ["greenlet", "thread"]`.
