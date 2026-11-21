@@ -1,6 +1,6 @@
 # P4 规划：工作流、多 Agent 协作与生产化
 
-- **Status:** In progress（D1–D9 已确认；S1–S5 已完成 2026-11-22，S6 待批准）
+- **Status:** Complete（S1–S6 已完成 2026-11-22）
 - **Date:** 2026-11-21
 - **Scope source:** [`PRODUCT-BRIEF.md`](../../PRODUCT-BRIEF.md) §3 P3/P4、[`docs/plan/p3-plan.md`](./p3-plan.md)
 - **前置:** P3 已完成（2026-11-21），见 [`p3-plan.md`](./p3-plan.md)、[`p3-s6-polish.md`](../tdd/p3-s6-polish.md)
@@ -95,12 +95,14 @@ P4 仍**不做真实支付/计费**，不追求公网多租户 SaaS。
 
 > **完成证据**：`docs/tdd/p4-s5-ops.md`。plan 修改与审计、run 失败率、workflow 发布审计、管理端操作与可选 Caddy HTTPS 已完成；HTTPS 未在 CI 验证。
 
-### P4-S6 收口（约 1 周）
+### P4-S6 收口 — **已完成（2026-11-22）**（约 1 周）
 
 - 工作流 SDK/示例脚本、quickstart 扩展、压测脚本覆盖 workflow run。
 - ADR：0016（工作流引擎）、0017（多 Agent 协作）、0018（指标与预算）。
 - README/CLAUDE 更新；P4 TDD 证据；Playwright 覆盖 workflow run 时间线。
 - 不做：暗色主题已完成；不新增移动端。
+
+> **完成证据**：`docs/tdd/p4-s6-final.md`。工作流 API 文档/示例脚本、压测脚本、workflow Playwright、ADR-0016–0018 已完成；P4 全部切片收口。
 
 ## 5. 排期（约 5–7 周）
 
