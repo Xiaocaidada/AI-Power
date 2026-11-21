@@ -144,6 +144,8 @@ P1 必须补的现有缺口：
 > **S5a 已完成（2026-11-21）**：`web/` 脚手架、设计令牌、中英双语、登录/静默刷新、对话 SSE/引用/历史/取消；证据见 [`docs/tdd/p1-s5a-frontend.md`](../tdd/p1-s5a-frontend.md)。
 >
 > **S5b 已完成（2026-11-21）**：知识库列表/详情、上传进度、状态轮询、失败原因、重试与删除；证据见 [`docs/tdd/p1-s5b-knowledge.md`](../tdd/p1-s5b-knowledge.md)。
+>
+> **S5c 已完成（2026-11-21）**：用量图表、API Key 一次性展示与吊销、个人资料与中英切换；证据见 [`docs/tdd/p1-s5c-console.md`](../tdd/p1-s5c-console.md)。前端 S5 全部完成，下一步 S6 部署。
 
 分三个可独立演示的子片：
 
