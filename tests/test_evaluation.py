@@ -68,6 +68,7 @@ async def test_recall_counts_questions_with_a_relevant_hit(keyword_embedder):
         assert report.total == 2
         assert report.hits == 1
         assert report.recall == 0.5
+        assert report.missed == ("发票怎么开？",)
 
 
 async def test_recall_is_zero_for_empty_dataset(keyword_embedder):
@@ -87,3 +88,4 @@ async def test_recall_is_zero_for_empty_dataset(keyword_embedder):
 
         assert report.total == 0
         assert report.recall == 0.0
+        assert report.missed == ()
