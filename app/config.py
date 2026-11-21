@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     agent_tool_timeout_seconds: float = 10.0
     agent_tool_output_max_chars: int = 4000
     audit_log_retention_days: int = 90
+    workflow_node_timeout_seconds: float = 120.0
+    workflow_node_attempts: int = 2
+    workflow_max_nodes: int = 20
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -104,6 +107,12 @@ class Settings(BaseSettings):
             raise ValueError("AGENT_TOOL_OUTPUT_MAX_CHARS must be >= 1")
         if self.audit_log_retention_days < 1:
             raise ValueError("AUDIT_LOG_RETENTION_DAYS must be >= 1")
+        if self.workflow_node_timeout_seconds <= 0:
+            raise ValueError("WORKFLOW_NODE_TIMEOUT_SECONDS must be > 0")
+        if self.workflow_node_attempts < 1:
+            raise ValueError("WORKFLOW_NODE_ATTEMPTS must be >= 1")
+        if self.workflow_max_nodes < 1:
+            raise ValueError("WORKFLOW_MAX_NODES must be >= 1")
         return self
 
     @model_validator(mode="after")

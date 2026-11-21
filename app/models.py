@@ -118,6 +118,81 @@ class PromptVersion(Base):
     )
 
 
+class Workflow(Base):
+    __tablename__ = "workflows"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    created_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), default=None
+    )
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+
+class WorkflowVersion(Base):
+    __tablename__ = "workflow_versions"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workflow_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workflows.id", ondelete="CASCADE"), index=True
+    )
+    version: Mapped[int] = mapped_column(Integer)
+    definition: Mapped[dict[str, object]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("workflow_id", "version", name="uq_workflow_versions_workflow_version"),
+    )
+
+
+class WorkflowRun(Base):
+    __tablename__ = "workflow_runs"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workflow_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workflows.id", ondelete="CASCADE"), index=True
+    )
+    version_id: Mapped[UUID] = mapped_column(ForeignKey("workflow_versions.id", ondelete="CASCADE"))
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    status: Mapped[str] = mapped_column(String(20), default="running")
+    input_text: Mapped[str] = mapped_column(Text, default="")
+    error_code: Mapped[str | None] = mapped_column(String(50), default=None)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost: Mapped[float] = mapped_column(Float, default=0.0)
+    total_ms: Mapped[float | None] = mapped_column(Float, default=None)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+    __table_args__ = (Index("ix_workflow_runs_workspace_started", "workspace_id", "started_at"),)
+
+
+class WorkflowNodeRun(Base):
+    __tablename__ = "workflow_node_runs"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workflow_runs.id", ondelete="CASCADE"), index=True
+    )
+    node_id: Mapped[str] = mapped_column(String(80))
+    node_type: Mapped[str] = mapped_column(String(30))
+    status: Mapped[str] = mapped_column(String(20), default="running")
+    attempts: Mapped[int] = mapped_column(Integer, default=1)
+    input_summary: Mapped[str] = mapped_column(String(500), default="")
+    output_summary: Mapped[str] = mapped_column(String(500), default="")
+    error_code: Mapped[str | None] = mapped_column(String(50), default=None)
+    duration_ms: Mapped[float | None] = mapped_column(Float, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class KnowledgeBase(Base):
     __tablename__ = "knowledge_bases"
 

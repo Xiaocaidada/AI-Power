@@ -65,6 +65,82 @@ class KnowledgeBaseOut(BaseModel):
     created_at: datetime
 
 
+class WorkflowCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=500)
+    definition: dict[str, object]
+
+    @field_validator("name", "description", mode="before")
+    @classmethod
+    def strip_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class WorkflowVersionCreate(BaseModel):
+    definition: dict[str, object]
+
+
+class WorkflowVersionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    version: int
+    definition: dict[str, object]
+    created_at: datetime
+
+
+class WorkflowOut(BaseModel):
+    id: UUID
+    name: str
+    description: str
+    created_at: datetime
+    versions: list[WorkflowVersionOut] = Field(default_factory=list)
+
+
+class WorkflowRunCreate(BaseModel):
+    version: int | None = None
+    input: str = Field(min_length=1, max_length=20000)
+    kb_id: UUID | None = None
+
+    @field_validator("input", mode="before")
+    @classmethod
+    def strip_input(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class WorkflowNodeRunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    node_id: str
+    node_type: str
+    status: str
+    attempts: int
+    input_summary: str
+    output_summary: str
+    error_code: str | None
+    duration_ms: float | None
+    created_at: datetime
+
+
+class WorkflowRunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    workflow_id: UUID
+    version_id: UUID
+    status: str
+    input_text: str
+    error_code: str | None
+    prompt_tokens: int
+    completion_tokens: int
+    cost: float
+    total_ms: float | None
+    started_at: datetime
+    finished_at: datetime | None
+    nodes: list[WorkflowNodeRunOut] = Field(default_factory=list)
+
+
 class PromptVersionCreate(BaseModel):
     system_prompt: str = Field(min_length=1, max_length=20000)
 
