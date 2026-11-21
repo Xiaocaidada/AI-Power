@@ -81,7 +81,7 @@ P2 必须补的差距：
 
 > **完成证据**：`docs/tdd/p2-s2-routing.md`。真实环境验证目录/对比/单 provider `auto`；双 provider 降级与 503 由单测覆盖。
 
-### P2-S3 配额与限流（约 1 周）
+### P2-S3 配额与限流 — **已完成（2026-11-21）**（约 1 周）
 
 - 计划配置：`free` / `pro`（请求/分钟、token/天、最大 Key 数）；workspace.plan 决定默认值。
 - Redis 计数器：`quota:req:{workspace}:{minute}`、`quota:tokens:{workspace}:{day}`、`quota:key:{key_id}:{minute}`。
@@ -91,6 +91,8 @@ P2 必须补的差距：
 - API Key 增加可选 `expires_at` 与 `rate_limit_per_minute`。
 
 验收：连续请求触发 429；窗口过后恢复；不同 workspace/Key 互不影响；配额头准确。
+
+> **完成证据**：`docs/tdd/p2-s3-quotas.md`。真实环境验证 Key 级 429、Key 数量上限与过期 401；workspace/token 配额由单测覆盖。
 
 ### P2-S4 Trace 可观测（约 1 周）
 
