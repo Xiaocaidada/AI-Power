@@ -313,6 +313,7 @@ async def _stream_agent_reply(
     trace_id: UUID | None = None,
     started: float | None = None,
 ) -> AsyncIterator[str]:
+    tool_citations: list[Citation] = []
     runner = AgentRunner(
         provider=provider,
         model=model,
@@ -323,6 +324,7 @@ async def _stream_agent_reply(
             user_id=user_id,
             kb_id=kb_id,
             redis=redis,
+            citations=tool_citations,
         ),
         quota_guard=lambda: enforce_quota(redis, context),
     )
@@ -373,6 +375,17 @@ async def _stream_agent_reply(
                     yield _sse("delta", {"text": text})
                 continue
             yield _sse(event.kind, event.data)
+        for citation in tool_citations:
+            yield _sse(
+                "citation",
+                {
+                    "index": citation.index,
+                    "document_id": str(citation.document_id),
+                    "chunk_id": str(citation.chunk_id),
+                    "page_no": citation.page_no,
+                    "snippet": citation.snippet,
+                },
+            )
         usage = await finish()
         yield _sse(
             "usage",
@@ -389,7 +402,9 @@ async def _stream_agent_reply(
                 total_ms=round((time.perf_counter() - started) * 1000, 1),
                 agents=runner.tool_records or None,
             )
-        await _finalize(assistant_id, "".join(parts), "completed", usage, workspace_id, citations)
+        await _finalize(
+            assistant_id, "".join(parts), "completed", usage, workspace_id, tool_citations
+        )
     except asyncio.CancelledError:
         usage = await finish()
         if trace_id is not None and started is not None:
@@ -399,7 +414,9 @@ async def _stream_agent_reply(
                 total_ms=round((time.perf_counter() - started) * 1000, 1),
                 agents=runner.tool_records or None,
             )
-        await _finalize(assistant_id, "".join(parts), "cancelled", usage, workspace_id, citations)
+        await _finalize(
+            assistant_id, "".join(parts), "cancelled", usage, workspace_id, tool_citations
+        )
         raise
     except AgentFailure as exc:
         usage = await finish()
@@ -412,7 +429,7 @@ async def _stream_agent_reply(
                 agents=runner.tool_records or None,
             )
         yield _sse("error", {"code": exc.code, "message": exc.message})
-        await _finalize(assistant_id, "".join(parts), "failed", usage, workspace_id, citations)
+        await _finalize(assistant_id, "".join(parts), "failed", usage, workspace_id, tool_citations)
     except ProviderError as exc:
         usage = await finish()
         await record_failure(redis, provider.id)
@@ -425,7 +442,7 @@ async def _stream_agent_reply(
                 agents=runner.tool_records or None,
             )
         yield _sse("error", {"code": exc.code, "message": exc.message})
-        await _finalize(assistant_id, "".join(parts), "failed", usage, workspace_id, citations)
+        await _finalize(assistant_id, "".join(parts), "failed", usage, workspace_id, tool_citations)
     except Exception:
         usage = await finish()
         await record_failure(redis, provider.id)
@@ -439,7 +456,7 @@ async def _stream_agent_reply(
             )
         logger.exception("agent streaming failed for message %s", assistant_id)
         yield _sse("error", {"code": "internal_error", "message": "Agent run failed"})
-        await _finalize(assistant_id, "".join(parts), "failed", usage, workspace_id, citations)
+        await _finalize(assistant_id, "".join(parts), "failed", usage, workspace_id, tool_citations)
 
 
 @router.post("", response_model=ConversationOut, status_code=status.HTTP_201_CREATED)
@@ -621,7 +638,7 @@ async def send_message(
     chat_history = chat_history[-HISTORY_MESSAGE_LIMIT:]
 
     citations: list[Citation] = []
-    if conversation.kb_id is not None:
+    if conversation.kb_id is not None and not conversation.agent:
         retrieval_started = time.perf_counter()
         try:
             retrieved = await retrieve_chunks(

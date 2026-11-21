@@ -1,6 +1,6 @@
 # P3 规划：从平台化到 Agent 与应用层
 
-- **Status:** In progress（S1 已完成 2026-11-21；S2–S6 待逐片批准）
+- **Status:** In progress（S1–S2 已完成 2026-11-21；S3–S6 待逐片批准）
 - **Date:** 2026-11-21
 - **Scope source:** [`PRODUCT-BRIEF.md`](../../PRODUCT-BRIEF.md) §3 P3、[`docs/product/CAPABILITY.md`](../product/CAPABILITY.md)
 - **前置:** P2 已完成（2026-11-21），见 [`p2-plan.md`](./p2-plan.md)、[`p2-s6-hardening.md`](../tdd/p2-s6-hardening.md)
@@ -69,9 +69,9 @@ P3 必须补的差距：
 - 测试使用 D10 的脚本化假 provider；真机验证为 best-effort。
 - 验收：`agent=true` 的会话问"知识库里 X 是什么？帮我算一下 Y"，SSE 可见 supervisor 委派 `retrieval` 与 `math`，回答带引用，trace 记录各 Agent 与工具耗时。
 
-> **完成证据**：`docs/tdd/p3-s1-agents.md`。框架、委派、SSE/trace 元数据、前端开关与流程展示已完成；真实 `kb_search` / `calculator` 留待 S2。
+> **完成证据**：`docs/tdd/p3-s1-agents.md`。框架、委派、SSE/trace 元数据、前端开关与流程展示已完成；`kb_search` / `calculator` 已在 S2 补齐。
 
-### P3-S2 内置工具与安全（约 1 周）
+### P3-S2 内置工具与安全 — **已完成（2026-11-21）**（约 1 周）
 
 - 工具挂载：`retrieval` Agent → `kb_search` / `current_time`；`math` Agent → `calculator`；supervisor 只持 `delegate_to_agent`。
 - `kb_search`：调用现有 `retrieve_chunks`，强制当前 workspace + 会话 `kb_id`，返回 chunk 摘要（截断），引用随最终回答持久化。
@@ -80,6 +80,8 @@ P3 必须补的差距：
 - 工具参数用 Pydantic 校验；单工具超时（默认 10s）、输出上限（默认 4k 字符）；异常转成 `tool_result(error=...)` 回给模型，不中断整个流。
 - 可选 `http_fetch`：仅当 `TOOL_HTTP_ALLOWLIST` 非空时注册，校验 scheme/域名/IP（拒绝私网与重定向到私网）。
 - 测试：跨 workspace 的 `kb_search` 不可见；`calculator` 拒绝 `__import__`、`().__class__`、超长表达式；子 Agent 再委派被拒绝；超时/总步数上限；工具失败仍产出回答。
+
+> **完成证据**：`docs/tdd/p3-s2-tools.md`。`kb_search`（workspace + KB 双重过滤、引用回传）与 `calculator`（AST 白名单）已完成；`http_fetch` 按默认关闭处理，未注册。
 
 ### P3-S3 Prompt 模板（约 1 周）
 
