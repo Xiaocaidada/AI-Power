@@ -46,6 +46,7 @@ export function ChatPage() {
   const [drawerCitations, setDrawerCitations] = useState<Citation[]>([])
   const [confirmArchive, setConfirmArchive] = useState(false)
   const [traceRequestId, setTraceRequestId] = useState<string | null>(null)
+  const [cooldown, setCooldown] = useState(0)
   const abortRef = useRef<AbortController | null>(null)
   const activityIdRef = useRef(0)
   const startedRef = useRef(false)
@@ -162,6 +163,9 @@ export function ChatPage() {
         } else {
           const code =
             caught instanceof ApiError ? (caught.code ?? `http_${caught.status}`) : 'network'
+          if (caught instanceof ApiError && caught.status === 429) {
+            setCooldown(caught.retryAfter ?? 60)
+          }
           setPending((prev) => (prev ? { ...prev, status: 'failed', errorCode: code } : prev))
         }
       } finally {
@@ -170,6 +174,14 @@ export function ChatPage() {
     },
     [conversationId, queryClient],
   )
+
+  useEffect(() => {
+    if (cooldown <= 0) return
+    const timer = window.setInterval(() => {
+      setCooldown((seconds) => Math.max(seconds - 1, 0))
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [cooldown])
 
   useEffect(() => {
     const pendingMessage = (location.state as { pendingMessage?: string } | null)?.pendingMessage
@@ -334,10 +346,16 @@ export function ChatPage() {
 
       <div className="shrink-0 border-t border-border bg-canvas px-4 py-3">
         <div className="mx-auto w-full max-w-3xl">
+          {cooldown > 0 && (
+            <p role="status" className="mb-2 rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
+              {t('errors.rateLimitedWait', { seconds: cooldown })}
+            </p>
+          )}
           <Composer
             value={input}
             onValueChange={setInput}
             onSend={start}
+            disabled={cooldown > 0}
             streaming={pending?.status === 'streaming'}
             onStop={() => abortRef.current?.abort()}
           />

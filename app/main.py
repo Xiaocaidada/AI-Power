@@ -36,7 +36,33 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
 
 configure_logging()
 
-app = FastAPI(title="ai_power", version="0.1.0", lifespan=lifespan)
+OPENAPI_TAGS = [
+    {"name": "auth", "description": "Registration, login, refresh, and account lookup."},
+    {"name": "api-keys", "description": "Workspace API keys with chat/kb scopes."},
+    {"name": "conversations", "description": "Chat sessions and SSE streaming messages."},
+    {"name": "documents", "description": "Upload, list, retry, and delete documents."},
+    {"name": "knowledge-bases", "description": "Workspace knowledge bases."},
+    {"name": "models", "description": "Model catalog, health, and comparison."},
+    {"name": "prompt-templates", "description": "Versioned workspace prompt templates."},
+    {"name": "usage", "description": "Quota, token usage, and cost summaries."},
+    {"name": "traces", "description": "Per-request timing and routing metadata."},
+    {"name": "workspaces", "description": "Workspace membership and switching."},
+    {"name": "admin", "description": "Platform admin endpoints (admin role only)."},
+    {"name": "providers", "description": "Configured provider metadata."},
+    {"name": "health", "description": "Liveness and readiness probes."},
+]
+
+app = FastAPI(
+    title="AI Power API",
+    version="0.3.0",
+    description=(
+        "Multi-tenant AI platform: streaming chat, RAG knowledge bases, model catalog "
+        "with auto routing, quotas, traces, multi-agent tools, prompt templates, cost "
+        "reporting, and an admin console. See docs/api/quickstart.md for examples."
+    ),
+    openapi_tags=OPENAPI_TAGS,
+    lifespan=lifespan,
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_settings().cors_origin_list,

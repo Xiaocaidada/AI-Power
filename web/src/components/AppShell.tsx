@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   BarChart3,
   BookOpen,
@@ -15,6 +15,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 
 import { apiRequest } from '../lib/http'
 import { useI18n } from '../lib/i18n'
+import { PAGE_SIZE, mergePages, pageFromItems } from '../lib/pagination'
 import { useLogout } from '../lib/useLogout'
 import type { Conversation, WorkspaceItem } from '../lib/types'
 import { cn } from '../lib/utils'
@@ -68,12 +69,21 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
       ? [...navItems, { to: '/admin', labelKey: 'nav.admin', icon: Shield }]
       : navItems
 
-  const conversations = useQuery({
+  const conversations = useInfiniteQuery({
     queryKey: ['conversations'],
-    queryFn: () => apiRequest<Conversation[]>('/conversations'),
+    queryFn: async ({ pageParam }) =>
+      pageFromItems(
+        await apiRequest<Conversation[]>(
+          `/conversations?limit=${PAGE_SIZE}${pageParam ? `&before=${pageParam}` : ''}`,
+        ),
+        PAGE_SIZE,
+      ),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.next,
     enabled: isChat,
     staleTime: 30_000,
   })
+  const conversationRows = mergePages(conversations.data?.pages)
 
   return (
     <aside
@@ -144,10 +154,10 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
             {t('nav.conversations')}
           </p>
           <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-            {conversations.data !== undefined && conversations.data.length === 0 && (
+            {conversationRows.length === 0 && (
               <p className="px-3 py-2 text-xs text-ink-muted">{t('nav.noConversations')}</p>
             )}
-            {conversations.data?.map((conversation) => {
+            {conversationRows.map((conversation) => {
               const active = location.pathname === `/chat/${conversation.id}`
               return (
                 <NavLink
@@ -164,6 +174,18 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
                 </NavLink>
               )
             })}
+            {conversations.hasNextPage && (
+              <button
+                type="button"
+                className="mt-1 w-full rounded-lg px-3 py-2 text-left text-xs text-accent hover:bg-surface-muted disabled:opacity-60"
+                disabled={conversations.isFetchingNextPage}
+                onClick={() => void conversations.fetchNextPage()}
+              >
+                {conversations.isFetchingNextPage
+                  ? t('common.loading')
+                  : t('common.loadMore')}
+              </button>
+            )}
           </div>
         </div>
       )}

@@ -112,7 +112,9 @@ docs/           产品契约、ADR、TDD 证据与规划
 
 - [PRODUCT-BRIEF.md](./PRODUCT-BRIEF.md)
 - [docs/product/CAPABILITY.md](./docs/product/CAPABILITY.md)
-- [docs/plan/p1-plan.md](./docs/plan/p1-plan.md)
+- [docs/plan/p3-plan.md](./docs/plan/p3-plan.md)
+- [docs/api/quickstart.md](./docs/api/quickstart.md)
+- [docs/api/errors.md](./docs/api/errors.md)
 - [docs/adr/](./docs/adr/)
 - [docs/tdd/](./docs/tdd/)
 

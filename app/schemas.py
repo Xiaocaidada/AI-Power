@@ -5,6 +5,11 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 
+class ErrorOut(BaseModel):
+    code: str
+    message: str
+
+
 class _NormalizedEmailModel(BaseModel):
     email: EmailStr
 

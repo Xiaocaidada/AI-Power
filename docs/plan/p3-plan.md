@@ -1,6 +1,6 @@
 # P3 规划：从平台化到 Agent 与应用层
 
-- **Status:** In progress（S1–S5 已完成 2026-11-21；S6 待批准）
+- **Status:** Complete（S1–S6 已完成 2026-11-21）
 - **Date:** 2026-11-21
 - **Scope source:** [`PRODUCT-BRIEF.md`](../../PRODUCT-BRIEF.md) §3 P3、[`docs/product/CAPABILITY.md`](../product/CAPABILITY.md)
 - **前置:** P2 已完成（2026-11-21），见 [`p2-plan.md`](./p2-plan.md)、[`p2-s6-hardening.md`](../tdd/p2-s6-hardening.md)
@@ -114,7 +114,7 @@ P3 必须补的差距：
 
 > **完成证据**：`docs/tdd/p3-s5-admin.md`。`require_admin`、用户/Workspace/全局用量、模型启停、审计与 90 天清理、前端 `/admin` 已完成；目录全停用时不再回退实时列表。
 
-### P3-S6 开放 API 与收口（约 1 周）
+### P3-S6 开放 API 与收口 — **已完成（2026-11-21）**（约 1 周）
 
 - OpenAPI 补齐：tags、summary/description、错误响应模型、示例；`/docs` 可用。
 - `docs/api/quickstart.md`：注册/登录、上传文档、流式对话（curl + Python `httpx`）、错误码表、配额头说明。
@@ -122,6 +122,8 @@ P3 必须补的差距：
 - 前端欠账：会话/文档/trace "加载更多"、429 倒计时、API Key 轮换提示；暗色主题可选。
 - ADR：0012（Agent 与工具协议）、0013（Prompt 版本化）、0014（成本快照）、0015（管理后台与审计）。
 - README/CLAUDE 更新；P3 TDD 证据归档。
+
+> **完成证据**：`docs/tdd/p3-s6-polish.md`。OpenAPI 元数据/错误响应、quickstart、错误契约、会话/文档/trace 加载更多、429 倒计时、Key 轮换提示与 ADR-0012–0015 已完成；暗色主题未做。
 
 ## 5. 排期（约 4.5–6.5 周）
 

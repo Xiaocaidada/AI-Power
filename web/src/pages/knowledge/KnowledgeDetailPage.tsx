@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, FileUp, Loader2, RotateCw, Trash2 } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -19,6 +19,7 @@ import { errorTextKey } from '../../lib/errorText'
 import { formatBytes, formatDate } from '../../lib/format'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
+import { PAGE_SIZE, mergePages, pageFromItems } from '../../lib/pagination'
 import type { DocumentItem, KnowledgeBase } from '../../lib/types'
 import { uploadDocument } from '../../lib/upload'
 
@@ -41,11 +42,22 @@ export function KnowledgeDetailPage() {
     queryFn: () => apiRequest<KnowledgeBase>(`/knowledge-bases/${id}`),
     enabled: id !== '',
   })
-  const documents = useQuery({
+  const documents = useInfiniteQuery({
     queryKey: ['documents', id],
-    queryFn: () => apiRequest<DocumentItem[]>(`/knowledge-bases/${id}/documents`),
+    queryFn: async ({ pageParam }) =>
+      pageFromItems(
+        await apiRequest<DocumentItem[]>(
+          `/knowledge-bases/${id}/documents?limit=${PAGE_SIZE}${
+            pageParam ? `&before=${pageParam}` : ''
+          }`,
+        ),
+        PAGE_SIZE,
+      ),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.next,
     enabled: id !== '',
-    refetchInterval: (query) => (shouldPollDocuments(query.state.data) ? 2000 : false),
+    refetchInterval: (query) =>
+      shouldPollDocuments(mergePages(query.state.data?.pages)) ? 2000 : false,
   })
 
   const upload = async (file: File) => {
@@ -117,7 +129,7 @@ export function KnowledgeDetailPage() {
     )
   }
 
-  const rows = documents.data ?? []
+  const rows = mergePages(documents.data?.pages)
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -283,6 +295,19 @@ export function KnowledgeDetailPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {documents.hasNextPage && (
+          <div className="flex justify-center">
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={documents.isFetchingNextPage}
+              onClick={() => void documents.fetchNextPage()}
+            >
+              {documents.isFetchingNextPage ? t('common.loading') : t('common.loadMore')}
+            </Button>
           </div>
         )}
       </div>
