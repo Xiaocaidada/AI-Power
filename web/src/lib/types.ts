@@ -32,6 +32,23 @@ export interface Conversation {
   model: string
   kb_id: string | null
   agent: boolean
+  prompt_version_id?: string | null
+  created_at: string
+}
+
+export interface PromptVersion {
+  id: string
+  version: number
+  system_prompt: string
+  variables: string[]
+  created_at: string
+}
+
+export interface PromptTemplate {
+  id: string
+  name: string
+  description: string
+  versions: PromptVersion[]
   created_at: string
 }
 

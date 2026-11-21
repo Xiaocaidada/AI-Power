@@ -85,6 +85,39 @@ class ModelCatalog(Base):
     )
 
 
+class PromptTemplate(Base):
+    __tablename__ = "prompt_templates"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(String(500), default="")
+    created_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), default=None
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+
+class PromptVersion(Base):
+    __tablename__ = "prompt_versions"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    template_id: Mapped[UUID] = mapped_column(
+        ForeignKey("prompt_templates.id", ondelete="CASCADE"), index=True
+    )
+    version: Mapped[int] = mapped_column(Integer)
+    system_prompt: Mapped[str] = mapped_column(Text)
+    variables: Mapped[list[str]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("template_id", "version", name="uq_prompt_versions_template_version"),
+    )
+
+
 class KnowledgeBase(Base):
     __tablename__ = "knowledge_bases"
 
@@ -126,6 +159,10 @@ class Conversation(Base):
     kb_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("knowledge_bases.id", ondelete="SET NULL"), default=None
     )
+    prompt_version_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("prompt_versions.id", ondelete="SET NULL"), default=None
+    )
+    system_prompt: Mapped[str | None] = mapped_column(Text, default=None)
     agent: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)

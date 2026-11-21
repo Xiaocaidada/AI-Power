@@ -3,11 +3,17 @@ import { useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { Button } from '../../components/ui/button'
+import { Input } from '../../components/ui/input'
 import { Spinner } from '../../components/ui/spinner'
 import { errorTextKey } from '../../lib/errorText'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
-import type { Conversation, KnowledgeBase, ModelEntry } from '../../lib/types'
+import type {
+  Conversation,
+  KnowledgeBase,
+  ModelEntry,
+  PromptTemplate,
+} from '../../lib/types'
 import { Composer } from './Composer'
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -29,6 +35,8 @@ export function NewChatPage() {
   const [modelId, setModelId] = useState('auto')
   const [kbId, setKbId] = useState('')
   const [agent, setAgent] = useState(false)
+  const [templateId, setTemplateId] = useState('')
+  const [variables, setVariables] = useState<Record<string, string>>({})
   const [value, setValue] = useState('')
   const [error, setError] = useState<string | null>(null)
 
@@ -42,11 +50,27 @@ export function NewChatPage() {
     queryFn: () => apiRequest<KnowledgeBase[]>('/knowledge-bases'),
     staleTime: 60_000,
   })
+  const templatesQuery = useQuery({
+    queryKey: ['prompt-templates'],
+    queryFn: () => apiRequest<PromptTemplate[]>('/prompt-templates'),
+    staleTime: 60_000,
+  })
 
   const availableModels = (modelsQuery.data ?? []).filter((model) => model.available)
+  const selectedTemplate = (templatesQuery.data ?? []).find(
+    (template) => template.id === templateId,
+  )
+  const selectedVersion = selectedTemplate?.versions[0]
   const selected = availableModels.find((model) => model.id === modelId)
   const isAuto = modelId === 'auto'
   const canChat = isAuto || selected !== undefined
+
+  const selectTemplate = (nextId: string) => {
+    setTemplateId(nextId)
+    const template = (templatesQuery.data ?? []).find((item) => item.id === nextId)
+    const declared = template?.versions[0]?.variables ?? []
+    setVariables(Object.fromEntries(declared.map((variable) => [variable, ''])))
+  }
 
   const send = async (content: string) => {
     setError(null)
@@ -64,6 +88,8 @@ export function NewChatPage() {
           model: modelName,
           kb_id: kbId === '' ? null : kbId,
           agent,
+          prompt_version_id: selectedVersion?.id ?? null,
+          prompt_variables: selectedVersion !== undefined ? variables : {},
         },
       })
       await queryClient.invalidateQueries({ queryKey: ['conversations'] })
@@ -119,6 +145,37 @@ export function NewChatPage() {
             </Field>
           </div>
         )}
+
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <Field label={t('prompts.select')}>
+            <select
+              className={selectClass}
+              value={templateId}
+              onChange={(event) => selectTemplate(event.target.value)}
+            >
+              <option value="">{t('prompts.none')}</option>
+              {(templatesQuery.data ?? []).map((template) => (
+                <option key={template.id} value={template.id}>
+                  {template.name} · v{template.versions[0]?.version ?? 1}
+                </option>
+              ))}
+            </select>
+          </Field>
+          {(selectedVersion?.variables ?? []).length > 0 && (
+            <div className="space-y-2 sm:col-span-2">
+              {selectedVersion?.variables.map((variable) => (
+                <Input
+                  key={variable}
+                  value={variables[variable] ?? ''}
+                  onChange={(event) =>
+                    setVariables((prev) => ({ ...prev, [variable]: event.target.value }))
+                  }
+                  placeholder={`{{${variable}}}`}
+                />
+              ))}
+            </div>
+          )}
+        </div>
 
         <label className="mt-4 flex items-start gap-2 rounded-lg border border-border bg-surface px-3 py-2.5 text-sm">
           <input

@@ -269,6 +269,10 @@ export function ChatPage() {
           <p className="truncate text-xs text-ink-muted">
             {conversation.data?.provider_id} · {conversation.data?.model}
             {kbName !== undefined ? ` · ${kbName}` : ''}
+            {conversation.data?.prompt_version_id !== null &&
+            conversation.data?.prompt_version_id !== undefined
+              ? ` · ${t('prompts.active')}`
+              : ''}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
