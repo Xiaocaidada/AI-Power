@@ -82,6 +82,10 @@ async def test_rag_conversation_emits_citations_for_retrieved_chunks(
     assert citation["snippet"] == "hello world"
     assert set(citation) == {"index", "document_id", "chunk_id", "page_no", "snippet"}
 
+    detail = await client.get(f"/conversations/{conversation.json()['id']}", headers=headers)
+    assistant_message = detail.json()["messages"][1]
+    assert assistant_message["citations"] == [citation]
+
 
 async def test_rag_system_prompt_contains_reference_and_injection_guard(
     client, api, registry, fake_provider, fake_ingestion, fake_retrieval
@@ -131,6 +135,10 @@ async def test_plain_conversation_has_no_citations(client, api, registry, fake_p
     assert [event for event, _ in events] == ["meta", "delta", "delta", "usage", "done"]
     messages, _ = fake_provider.calls[-1]
     assert messages[0].role == "user"
+
+    detail = await client.get(f"/conversations/{conversation.json()['id']}", headers=headers)
+    assistant_message = detail.json()["messages"][1]
+    assert assistant_message["citations"] == []
 
 
 async def test_rag_retrieval_failure_returns_502_before_persisting(
