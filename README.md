@@ -18,7 +18,7 @@
 | API Key | `X-API-Key`，`chat:write` / `kb:read` scope，一次性展示、可吊销、过期与限流 |
 | 多租户 | Workspace/成员、`X-Workspace-Id`、跨租户 404 |
 | 模型平台 | 模型目录/广场对比、`auto` 路由与首 token 前降级、熔断 |
-| Agent | supervisor + `retrieval`/`math` 子 Agent、JSON 工具协议、SSE 工具事件、trace 记录 |
+| Agent | supervisor + `retrieval`/`math` 子 Agent、`kb_search` / `calculator`、JSON 工具协议、SSE 工具事件、trace 记录 |
 | 配额 | workspace 请求/token 与 Key 限流，429 + 配额响应头 |
 | 可观测 | `traces` 记录检索/TTFT/总耗时/尝试次数，7 天保留 |
 | 运维 | `/healthz`、`/readyz`、请求 ID、结构化日志、每日备份、压测脚本 |

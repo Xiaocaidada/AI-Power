@@ -43,8 +43,8 @@
 
 ## Known Gaps
 
-- **工具集不完整**：`kb_search` 与 `calculator` 在 P3-S2 实现；当前 `retrieval` / `math` 仅 `current_time` 可用。
-- **Agent + 知识库仍走预检索**：带 `kb_id` 的 Agent 会话先按旧逻辑把检索结果放进 system prompt；S2 增加 `kb_search` 后改为由 retrieval 子 Agent 主动检索。
+- ~~**工具集不完整**~~：已由 P3-S2 实现 `kb_search` 与 `calculator`。
+- ~~**Agent + 知识库仍走预检索**~~：已由 P3-S2 解决——Agent 会话改由 retrieval 子 Agent 调用 `kb_search` 检索。
 - **Agent 回答非逐 token 流式**：每步缓冲完整 JSON 后再决定下一步，最终回答一次性发 `delta`（`meta/usage/done` 契约不变）。
 - **auto 路由不做流中降级**：Agent 会话选首个健康 provider；单步失败不会切换 provider。
 - **前端仅有基础展示**：Agent 流程折叠列表，无独立时间线/取消单步。
