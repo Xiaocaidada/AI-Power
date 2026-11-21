@@ -60,3 +60,45 @@ class Api:
 @pytest.fixture
 def api(client: AsyncClient) -> Api:
     return Api(client)
+
+
+@pytest.fixture
+def fake_provider():
+    from app.providers.base import ChatChunk, ModelInfo, Usage
+
+    class FakeProvider:
+        id = "fake"
+
+        def __init__(self) -> None:
+            self.models = [ModelInfo(id="fake-model", provider_id="fake")]
+            self.chunks = [
+                ChatChunk(delta="Hel"),
+                ChatChunk(delta="lo"),
+                ChatChunk(usage=Usage(prompt_tokens=1, completion_tokens=2)),
+                ChatChunk(finish_reason="stop"),
+            ]
+            self.error: Exception | None = None
+            self.calls: list[tuple[list[object], str]] = []
+
+        async def list_models(self):
+            return list(self.models)
+
+        async def stream_chat(self, messages, model, **_opts):
+            self.calls.append((list(messages), model))
+            if self.error is not None:
+                raise self.error
+            for chunk in self.chunks:
+                yield chunk
+
+    return FakeProvider()
+
+
+@pytest.fixture
+def registry(fake_provider):
+    from app.deps import get_registry
+    from app.providers.registry import ProviderRegistry
+
+    provider_registry = ProviderRegistry({"fake": fake_provider})
+    app.dependency_overrides[get_registry] = lambda: provider_registry
+    yield provider_registry
+    app.dependency_overrides.pop(get_registry, None)
