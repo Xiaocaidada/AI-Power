@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-P0 complete. **S1**: auth + per-user isolation. **S2**: provider abstraction + SSE chat. **S3**: document upload + async ingestion (PDF/MD/TXT → chunks → bge-m3 → pgvector). **S4**: retrieval + citations + RAG chat (HNSW, `citation` SSE). **Eval**: 20-document / 50-question Chinese set with a measured Recall@5 baseline (real bge-m3). **P1-S1 complete**: Alembic migrations, refresh tokens (30m access / 7d refresh, rotation + revocation), login rate limiting, `/readyz`, Dockerfile + compose `api` + CI. **P1-S2 complete**: Arq durable ingestion queue (leases, retries, dead letters), manual document retry, file deletion + orphan cleanup, compose `worker`. **P1-S3 complete**: append-only `usage_events`, `GET /usage/summary`, and persisted `message_citations` replayed on conversation history. **P1-S4 complete**: API keys (`X-API-Key`) with `chat:write`/`kb:read` scopes, one-time plaintext, SHA-256 storage, revocation, and throttled `last_used_at`. Next: P1-S5 (frontend) — **the frontend slice requires a second explicit approval before any code.** See the capability contract before starting any slice.
+P0 complete. **S1**: auth + per-user isolation. **S2**: provider abstraction + SSE chat. **S3**: document upload + async ingestion (PDF/MD/TXT → chunks → bge-m3 → pgvector). **S4**: retrieval + citations + RAG chat (HNSW, `citation` SSE). **Eval**: 20-document / 50-question Chinese set with a measured Recall@5 baseline (real bge-m3). **P1-S1 complete**: Alembic migrations, refresh tokens (30m access / 7d refresh, rotation + revocation), login rate limiting, `/readyz`, Dockerfile + compose `api` + CI. **P1-S2 complete**: Arq durable ingestion queue (leases, retries, dead letters), manual document retry, file deletion + orphan cleanup, compose `worker`. **P1-S3 complete**: append-only `usage_events`, `GET /usage/summary`, and persisted `message_citations` replayed on conversation history. **P1-S4 complete**: API keys (`X-API-Key`) with `chat:write`/`kb:read` scopes, one-time plaintext, SHA-256 storage, revocation, and throttled `last_used_at`. **P1-S5 planned**: UI/UX plan in `docs/plan/p1-s5-frontend-ui.md` (Soft 产品化, zh/en, S5-pre backend gaps: CORS + `GET /knowledge-bases/{kb_id}/documents`). Next: P1-S5 implementation — **the frontend slice requires a second explicit approval before any code.** See the capability contract before starting any slice.
 
 ## Documents
 
@@ -19,6 +19,7 @@ P0 complete. **S1**: auth + per-user isolation. **S2**: provider abstraction + S
 - [docs/tdd/p0-s4-retrieval.md](./docs/tdd/p0-s4-retrieval.md) — S4 的检索/引用证据、真实 bge-m3 排序与 HNSW 集成。
 - [docs/eval/retrieval-baseline.md](./docs/eval/retrieval-baseline.md) — 20 文档 / 50 题中文评测集与 Recall@1/3/5 基线。
 - [docs/plan/p1-plan.md](./docs/plan/p1-plan.md) — P1 规划：基础设施、队列、用量、API Key、前端与部署切片。
+- [docs/plan/p1-s5-frontend-ui.md](./docs/plan/p1-s5-frontend-ui.md) — P1-S5 前端 UI 规划：设计令牌、页面规格、SSE 客户端、i18n 与 S5-pre 缺口。
 - [docs/adr/0004-auth-sessions.md](./docs/adr/0004-auth-sessions.md) — refresh token、轮换/吊销与登录限流决策。
 - [docs/tdd/p1-s1-infra.md](./docs/tdd/p1-s1-infra.md) — P1-S1 的 RED/GREEN 证据、Alembic 与健康检查。
 - [docs/adr/0005-ingestion-queue.md](./docs/adr/0005-ingestion-queue.md) — Arq 队列、租约/重试/死信与文件生命周期。
