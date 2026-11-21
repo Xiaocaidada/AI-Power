@@ -247,6 +247,7 @@ class QuotaSummaryOut(BaseModel):
 class TraceOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+    id: UUID
     request_id: str
     conversation_id: UUID | None
     message_id: UUID | None

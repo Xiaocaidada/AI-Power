@@ -1,6 +1,7 @@
 from typing import Annotated
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +14,22 @@ router = APIRouter(prefix="/traces", tags=["traces"])
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 JwtContext = Annotated[AuthContext, Depends(get_jwt_context)]
+
+
+@router.get("", response_model=list[TraceOut])
+async def list_traces(
+    context: JwtContext,
+    session: SessionDep,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    before: UUID | None = None,
+) -> list[Trace]:
+    conditions = [Trace.workspace_id == context.workspace.id]
+    if before is not None:
+        conditions.append(Trace.id < before)
+    result = await session.execute(
+        select(Trace).where(*conditions).order_by(Trace.id.desc()).limit(limit)
+    )
+    return list(result.scalars())
 
 
 @router.get("/{request_id}", response_model=TraceOut)

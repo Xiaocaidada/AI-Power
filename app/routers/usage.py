@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients import RedisLike, get_redis
@@ -25,12 +25,12 @@ def _as_utc(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
-def _bucket_key(event: UsageEvent, group_by: str) -> str:
+def _bucket_expression(group_by: str):
     if group_by == "day":
-        return _as_utc(event.created_at).date().isoformat()
+        return func.date(UsageEvent.created_at)
     if group_by == "provider":
-        return event.provider_id or "unknown"
-    return event.model or "unknown"
+        return func.coalesce(UsageEvent.provider_id, "unknown")
+    return func.coalesce(UsageEvent.model, "unknown")
 
 
 @router.get("/quota", response_model=QuotaSummaryOut)
@@ -72,33 +72,36 @@ async def usage_summary(
     if start_at > end_at:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "from must be earlier than or equal to to")
 
-    events = (
-        await session.execute(
-            select(UsageEvent).where(
-                UsageEvent.workspace_id == context.workspace.id,
-                UsageEvent.created_at >= start_at,
-                UsageEvent.created_at <= end_at,
-            )
+    bucket_expression = _bucket_expression(group_by)
+    statement = (
+        select(
+            bucket_expression.label("bucket"),
+            func.count().label("requests"),
+            func.coalesce(func.sum(UsageEvent.prompt_tokens), 0).label("prompt_tokens"),
+            func.coalesce(func.sum(UsageEvent.completion_tokens), 0).label("completion_tokens"),
         )
-    ).scalars()
-
-    buckets: dict[str, dict[str, int]] = {}
-    for event in events:
-        key = _bucket_key(event, group_by)
-        bucket = buckets.setdefault(
-            key,
-            {"requests": 0, "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        .where(
+            UsageEvent.workspace_id == context.workspace.id,
+            UsageEvent.created_at >= start_at,
+            UsageEvent.created_at <= end_at,
         )
-        prompt = event.prompt_tokens or 0
-        completion = event.completion_tokens or 0
-        bucket["requests"] += 1
-        bucket["prompt_tokens"] += prompt
-        bucket["completion_tokens"] += completion
-        bucket["total_tokens"] += prompt + completion
+        .group_by(bucket_expression)
+        .order_by(bucket_expression)
+    )
+    rows = (await session.execute(statement)).all()
 
     return UsageSummaryOut(
         start=start_at,
         end=end_at,
         group_by=group_by,
-        buckets=[UsageBucketOut(key=key, **values) for key, values in sorted(buckets.items())],
+        buckets=[
+            UsageBucketOut(
+                key=str(row.bucket),
+                requests=row.requests,
+                prompt_tokens=row.prompt_tokens,
+                completion_tokens=row.completion_tokens,
+                total_tokens=row.prompt_tokens + row.completion_tokens,
+            )
+            for row in rows
+        ],
     )

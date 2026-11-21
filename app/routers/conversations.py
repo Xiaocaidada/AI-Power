@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -311,14 +311,20 @@ async def create_conversation(
 
 
 @router.get("", response_model=list[ConversationOut])
-async def list_conversations(context: ReadContext, session: SessionDep) -> list[Conversation]:
+async def list_conversations(
+    context: ReadContext,
+    session: SessionDep,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    before: UUID | None = None,
+) -> list[Conversation]:
+    conditions = [
+        Conversation.workspace_id == context.workspace.id,
+        Conversation.archived_at.is_(None),
+    ]
+    if before is not None:
+        conditions.append(Conversation.id < before)
     result = await session.execute(
-        select(Conversation)
-        .where(
-            Conversation.workspace_id == context.workspace.id,
-            Conversation.archived_at.is_(None),
-        )
-        .order_by(Conversation.created_at.desc())
+        select(Conversation).where(*conditions).order_by(Conversation.id.desc()).limit(limit)
     )
     return list(result.scalars())
 
