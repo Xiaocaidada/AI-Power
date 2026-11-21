@@ -9,6 +9,7 @@ from fastapi import (
     Depends,
     File,
     HTTPException,
+    Query,
     Response,
     UploadFile,
     status,
@@ -136,16 +137,23 @@ async def upload_document(
 
 
 @router.get("/knowledge-bases/{kb_id}/documents", response_model=list[DocumentOut])
-async def list_documents(kb_id: UUID, context: ReadContext, session: SessionDep) -> list[Document]:
+async def list_documents(
+    kb_id: UUID,
+    context: ReadContext,
+    session: SessionDep,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    before: UUID | None = None,
+) -> list[Document]:
     await get_owned_knowledge_base(kb_id, context.workspace.id, session)
+    conditions = [
+        Document.kb_id == kb_id,
+        Document.workspace_id == context.workspace.id,
+        Document.deleted_at.is_(None),
+    ]
+    if before is not None:
+        conditions.append(Document.id < before)
     result = await session.execute(
-        select(Document)
-        .where(
-            Document.kb_id == kb_id,
-            Document.workspace_id == context.workspace.id,
-            Document.deleted_at.is_(None),
-        )
-        .order_by(Document.created_at.desc(), Document.id.desc())
+        select(Document).where(*conditions).order_by(Document.id.desc()).limit(limit)
     )
     return list(result.scalars())
 

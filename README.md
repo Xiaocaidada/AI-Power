@@ -15,7 +15,11 @@
 | 知识库 | PDF/MD/TXT 上传、持久化入库队列、失败重试、状态轮询、删除清理 |
 | RAG | bge-m3 + pgvector HNSW 检索；回答只引用真正进入 prompt 的 chunk |
 | 用量 | 按日/Provider/模型聚合 token 与请求数 |
-| API Key | `X-API-Key`，`chat:write` / `kb:read` scope，一次性展示、可吊销 |
+| API Key | `X-API-Key`，`chat:write` / `kb:read` scope，一次性展示、可吊销、过期与限流 |
+| 多租户 | Workspace/成员、`X-Workspace-Id`、跨租户 404 |
+| 模型平台 | 模型目录/广场对比、`auto` 路由与首 token 前降级、熔断 |
+| 配额 | workspace 请求/token 与 Key 限流，429 + 配额响应头 |
+| 可观测 | `traces` 记录检索/TTFT/总耗时/尝试次数，7 天保留 |
 | 运维 | `/healthz`、`/readyz`、请求 ID、结构化日志、每日备份、压测脚本 |
 
 ## 快速开始（本地开发）
@@ -58,6 +62,7 @@ docker compose up -d --build
 - `web` 使用 nginx，SSE 已关闭代理缓冲。
 - `backup` 服务每天 `pg_dump -Fc` 到 `backups` 卷，保留 7 天。
 - 未开放公网、未配置 HTTPS；CORS 白名单由 `CORS_ORIGINS` 控制。
+- 首次部署后运行 `scripts/seed_models.py` 填充模型目录（见 CLAUDE.md 命令）。
 
 ## 测试
 
@@ -66,6 +71,7 @@ docker compose up -d --build
 .venv/Scripts/python.exe -m ruff check .
 .venv/Scripts/python.exe -m ruff format --check .
 cd web && npm test && npm run build
+cd web && npx playwright install chromium && npm run test:e2e
 ```
 
 ## 运维

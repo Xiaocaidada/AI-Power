@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-P0 complete. **S1**: auth + per-user isolation. **S2**: provider abstraction + SSE chat. **S3**: document upload + async ingestion (PDF/MD/TXT → chunks → bge-m3 → pgvector). **S4**: retrieval + citations + RAG chat (HNSW, `citation` SSE). **Eval**: 20-document / 50-question Chinese set with a measured Recall@5 baseline (real bge-m3). **P1-S1 complete**: Alembic migrations, refresh tokens (30m access / 7d refresh, rotation + revocation), login rate limiting, `/readyz`, Dockerfile + compose `api` + CI. **P1-S2 complete**: Arq durable ingestion queue (leases, retries, dead letters), manual document retry, file deletion + orphan cleanup, compose `worker`. **P1-S3 complete**: append-only `usage_events`, `GET /usage/summary`, and persisted `message_citations` replayed on conversation history. **P1-S4 complete**: API keys (`X-API-Key`) with `chat:write`/`kb:read` scopes, one-time plaintext, SHA-256 storage, revocation, and throttled `last_used_at`. **P1 complete**: auth + refresh, chat/SSE + citations, knowledge base + durable ingestion, usage metering, API keys, full frontend (chat, KB, usage, keys, profile, zh/en), and LAN Docker deployment with nginx, structured logs, daily backups, and a 20-concurrency load test (20/20, TTFT P95 46.9s on local Qwen). **P2-S5 complete**: frontend now has a workspace switcher and member management, model marketplace with compare, `auto` model selection, a quota panel (`GET /usage/quota`) and a per-message trace drawer. Next: P2-S6 (pagination, SQL usage aggregation, Playwright in CI, docs). See `docs/plan/p2-plan.md`; code per slice needs approval.
+P0 complete. **S1**: auth + per-user isolation. **S2**: provider abstraction + SSE chat. **S3**: document upload + async ingestion (PDF/MD/TXT → chunks → bge-m3 → pgvector). **S4**: retrieval + citations + RAG chat (HNSW, `citation` SSE). **Eval**: 20-document / 50-question Chinese set with a measured Recall@5 baseline (real bge-m3). **P1-S1 complete**: Alembic migrations, refresh tokens (30m access / 7d refresh, rotation + revocation), login rate limiting, `/readyz`, Dockerfile + compose `api` + CI. **P1-S2 complete**: Arq durable ingestion queue (leases, retries, dead letters), manual document retry, file deletion + orphan cleanup, compose `worker`. **P1-S3 complete**: append-only `usage_events`, `GET /usage/summary`, and persisted `message_citations` replayed on conversation history. **P1-S4 complete**: API keys (`X-API-Key`) with `chat:write`/`kb:read` scopes, one-time plaintext, SHA-256 storage, revocation, and throttled `last_used_at`. **P1 complete**: auth + refresh, chat/SSE + citations, knowledge base + durable ingestion, usage metering, API keys, full frontend (chat, KB, usage, keys, profile, zh/en), and LAN Docker deployment with nginx, structured logs, daily backups, and a 20-concurrency load test (20/20, TTFT P95 46.9s on local Qwen). **P2 complete**: workspace tenancy, model catalog + `auto` routing/fallback, workspace/Key quotas, traces, platform frontend (workspace/model marketplace/quotas/trace), cursor pagination (`limit`/`before` on conversations, documents, traces), SQL usage aggregation, and a Playwright smoke in CI. Next: P3 planning (Agent/tools, prompt management, admin console). See `docs/plan/p2-plan.md`.
 
 ## Documents
 
@@ -40,6 +40,10 @@ P0 complete. **S1**: auth + per-user isolation. **S2**: provider abstraction + S
 - [docs/tdd/p2-s3-quotas.md](./docs/tdd/p2-s3-quotas.md) — P2-S3 的 workspace/Key 配额与 Key 过期证据。
 - [docs/tdd/p2-s4-traces.md](./docs/tdd/p2-s4-traces.md) — P2-S4 的 trace 阶段耗时、隔离与清理证据。
 - [docs/tdd/p2-s5-frontend-platform.md](./docs/tdd/p2-s5-frontend-platform.md) — P2-S5 的 workspace/广场/配额/trace 前端证据。
+- [docs/tdd/p2-s6-hardening.md](./docs/tdd/p2-s6-hardening.md) — P2-S6 的分页、SQL 聚合与 Playwright 证据。
+- [docs/adr/0009-multi-tenancy.md](./docs/adr/0009-multi-tenancy.md) — workspace 租户模型。
+- [docs/adr/0010-routing-and-quotas.md](./docs/adr/0010-routing-and-quotas.md) — 模型目录、自动路由与配额。
+- [docs/adr/0011-traces.md](./docs/adr/0011-traces.md) — trace 阶段记录与 7 天保留。
 
 ## Commands
 
@@ -69,6 +73,7 @@ All Python commands use the project venv. On Windows that is `.venv/Scripts/pyth
 - Frontend install: `cd web && npm install`
 - Frontend dev: `cd web && npm run dev` (port 5173; `/api` proxies to `VITE_PROXY_TARGET`, default `http://192.168.29.100:8002`). If `/api/*` returns SPA HTML, a stale Vite process still owns port 5173 — kill it and restart.
 - Frontend tests: `cd web && npm test`
+- Frontend E2E: `cd web && npm run test:e2e` (Playwright; first run needs `npx playwright install chromium`)
 - Frontend build: `cd web && npm run build` (runs `tsc --noEmit` first)
 - Frontend typecheck: `cd web && npm run typecheck`
 

@@ -1,6 +1,6 @@
 # P2 规划：从“单用户可用”到“平台化”
 
-- **Status:** Confirmed（决策已锁定，2026-11-21；编码需按切片逐片确认）
+- **Status:** Complete（S1–S6 已完成，2026-11-21）
 - **Date:** 2026-11-21
 - **Scope source:** [`PRODUCT-BRIEF.md`](../../PRODUCT-BRIEF.md) §3 P2、[`docs/product/CAPABILITY.md`](../product/CAPABILITY.md)
 - **前置:** P1 已完成（2026-11-21），见 [`p1-plan.md`](./p1-plan.md)、[`p1-s6-deploy.md`](../tdd/p1-s6-deploy.md)
@@ -116,13 +116,15 @@ P2 必须补的差距：
 
 > **完成证据**：`docs/tdd/p2-s5-frontend-platform.md`。workspace 切换/成员、模型广场/对比、配额面板、`auto` 选择与 trace 抽屉已实现；Playwright 顺延到 S6。
 
-### P2-S6 收口与欠账（约 0.5–1 周，可与 S5 并行）
+### P2-S6 收口与欠账 — **已完成（2026-11-21）**（约 0.5–1 周，可与 S5 并行）
 
 - 分页：conversations/documents/usage/traces（`limit/cursor`）。
 - 用量聚合改 SQL（数据量增长前）。
 - API Key 过期与轮换提示。
 - Playwright 接入 CI（mock provider，避免真实模型依赖）。
 - 文档：ADR-0009（租户）、0010（路由/配额）、0011（trace）；README 更新。
+
+> **完成证据**：`docs/tdd/p2-s6-hardening.md`。分页 + SQL 聚合 + Playwright（CI 接入）+ 三份 ADR 已完成；P2 全部切片收口。
 
 ## 5. 排期（4–6 周）
 
