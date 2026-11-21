@@ -139,7 +139,7 @@ P1 必须补的现有缺口：
 >
 > 详细 UI 规划见 [`p1-s5-frontend-ui.md`](./p1-s5-frontend-ui.md)（视觉令牌、页面规格、SSE 客户端、i18n、测试与切片）。已确认视觉方向为 **Soft 产品化**，界面支持中/英双语。
 >
-> 编码前有一个 **S5-pre** 后端前置片：补 CORS 中间件与 `GET /knowledge-bases/{kb_id}/documents`（当前缺失，知识库详情页无法渲染）。
+> 编码前的 **S5-pre** 后端前置片已 **完成（2026-11-21）**：CORS 中间件与 `GET /knowledge-bases/{kb_id}/documents`，证据见 [`docs/tdd/p1-s5-pre-frontend-contract.md`](../tdd/p1-s5-pre-frontend-contract.md)。
 
 分三个可独立演示的子片：
 

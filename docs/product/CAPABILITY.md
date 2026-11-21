@@ -114,6 +114,7 @@
 | GET | `/knowledge-bases` | ✓ | 列出本人知识库 |
 | DELETE | `/knowledge-bases/{id}` | ✓ | 软删（级联文档） |
 | POST | `/knowledge-bases/{id}/documents` | ✓ | multipart 上传 → 202 + `document_id` |
+| GET | `/knowledge-bases/{id}/documents` | ✓ | 列出该知识库未删除文档（新建优先） |
 | GET | `/documents/{id}` | ✓ | 状态 / 错误 / 统计 |
 | DELETE | `/documents/{id}` | ✓ | 软删 + 删除 chunks/embeddings/磁盘文件 |
 | POST | `/documents/{id}/retry` | ✓ | 仅失败文档；重置任务并重新入队 |
@@ -209,7 +210,7 @@ class CitationBuilder(Protocol):
 - 密码哈希 argon2id；登录失败统一错误信息；登录限流（Redis，10 次/分钟/IP，FIXED）。
 - JWT：HS256；access TTL 30 分钟 + refresh 7 天（一次性轮换、可吊销；FIXED，见 [`ADR-0004`](../adr/0004-auth-sessions.md)）。
 - API Key：`ap_<8hex>_<secret>`，只存 SHA-256 + prefix；`X-API-Key` 认证；scope `chat:write`/`kb:read`；Key 管理/上传/删除仅 JWT（FIXED，见 [`ADR-0007`](../adr/0007-api-keys.md)）。
-- CORS 仅允许前端 origin（env 配置）。
+- CORS 仅允许前端 origin（`CORS_ORIGINS`，逗号分隔；默认 Vite `5173` 与 LAN `8080`）。
 - 上传：MIME 白名单 + 扩展名双检；UUID 文件名；解析超时 60s/文件。
 - 日志脱敏：不记录 `Authorization`、API key、完整文档内容；只记 chunk 数/字符数。
 - Prompt 注入：系统提示明确"以下为不可信参考资料"；不把模型输出当引用来源。

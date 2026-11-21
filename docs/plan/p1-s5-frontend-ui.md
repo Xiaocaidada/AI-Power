@@ -300,7 +300,7 @@ Vite + React 18 + TypeScript、React Router v6、TanStack Query v5、Zustand（�
 | 502 | `retrieval_failed` | “知识库检索失败，请重试或关闭知识库” |
 | 503 | `queue_unavailable` | “入库队列暂不可用，文档已标记失败，可稍后重试” |
 
-## 9. 后端前置缺口（S5-pre，建议 0.5–1 天）
+## 9. 后端前置缺口（S5-pre）— **已完成（2026-11-21）**
 
 | 优先级 | 缺口 | 影响 | 建议 |
 |---|---|---|---|
@@ -312,6 +312,8 @@ Vite + React 18 + TypeScript、React Router v6、TanStack Query v5、Zustand（�
 | P2 | 上传无进度事件 | 大文件体验差 | 前端用 XHR 进度；后端无需改 |
 
 **门禁**：S5-pre 属于后端改动，需在 S5a 编码前单独确认。
+
+**已完成**：CORS 中间件（`CORS_ORIGINS`）与文档列表接口均已实现，证据见 [`docs/tdd/p1-s5-pre-frontend-contract.md`](../tdd/p1-s5-pre-frontend-contract.md)。
 
 ## 10. i18n
 
@@ -353,7 +355,7 @@ Vite + React 18 + TypeScript、React Router v6、TanStack Query v5、Zustand（�
 
 | 切片 | 内容 | 验收 |
 |---|---|---|
-| **S5-pre** | CORS + 文档列表接口 + 测试 | 前端 `:5173` 可跨域登录；`GET /knowledge-bases/{id}/documents` 返回本人文档；两用户隔离 404 |
+| **S5-pre** — 已完成 | CORS + 文档列表接口 + 测试 | 前端 `:5173` 可跨域登录；`GET /knowledge-bases/{id}/documents` 返回本人文档；两用户隔离 404 |
 | **S5a**（2–3 天） | 脚手架、设计令牌、i18n、App Shell、登录/注册、刷新、对话（SSE/引用/取消/历史）、空状态 | 浏览器完成 登录 → 选模型/KB → 提问 → 引用可见 → 刷新后历史含引用；取消生成不报错 |
 | **S5b**（1.5–2 天） | 知识库列表/详情、上传（进度）、状态轮询、失败原因、重试、删除 | 上传 3 种格式；失败文件显示原因并可重试；删除后表格消失 |
 | **S5c**（1.5–2 天） | 用量（范围/分组/图表/明细）、API Key（创建一次性展示/吊销）、个人资料、语言切换、可选暗色 | 用量与 `curl` 聚合一致；Key 关闭后无法再看；吊销后 401 |
@@ -381,8 +383,8 @@ Vite + React 18 + TypeScript、React Router v6、TanStack Query v5、Zustand（�
 | 中英文案维护成本 | key 对齐测试 + 只翻译用户可见文案，技术术语保留英文 |
 | 演示环境字体/图标缺失 | 系统字体栈 + lucide 内联 SVG，不依赖 CDN |
 
-## 16. 待确认
+## 16. 已确认（2026-11-21）
 
-1. S5-pre（CORS + 文档列表接口）是否随本切片一起开工。
-2. 暗色主题：本切片是否必须（建议 S5c 有余量再做，不阻塞）。
-3. 用量图表库：默认 Recharts（建议），若希望零图表依赖可改为纯 CSS 条形图。
+1. S5-pre（CORS + 文档列表接口）随本切片一起开工 —— 已完成。
+2. 暗色主题不阻塞：先做浅色 + 暗色令牌变量，S5c 有余量再开开关。
+3. 用量图表使用 **Recharts**。
