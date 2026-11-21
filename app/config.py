@@ -15,8 +15,11 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./ai_power.db"
     jwt_secret: str = "dev-only-insecure-secret-change-me-0123456789"
     jwt_algorithm: str = "HS256"
-    access_token_ttl_minutes: int = 1440
+    access_token_ttl_minutes: int = 30
+    refresh_token_ttl_days: int = 7
     password_min_length: int = 8
+    redis_url: str = "redis://localhost:6379/0"
+    login_rate_limit_per_minute: int = 10
 
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_api_key: str = ""
@@ -62,6 +65,16 @@ class Settings(BaseSettings):
             raise ValueError("RETRIEVAL_TOP_K must be >= 1")
         if self.retrieval_max_context_chars < 1:
             raise ValueError("RETRIEVAL_MAX_CONTEXT_CHARS must be >= 1")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_auth_settings(self) -> "Settings":
+        if self.access_token_ttl_minutes < 1:
+            raise ValueError("ACCESS_TOKEN_TTL_MINUTES must be >= 1")
+        if self.refresh_token_ttl_days < 1:
+            raise ValueError("REFRESH_TOKEN_TTL_DAYS must be >= 1")
+        if self.login_rate_limit_per_minute < 1:
+            raise ValueError("LOGIN_RATE_LIMIT_PER_MINUTE must be >= 1")
         return self
 
 

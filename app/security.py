@@ -1,5 +1,7 @@
+import hashlib
+import secrets
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import jwt
 from argon2 import PasswordHasher
@@ -24,6 +26,16 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
+def generate_refresh_token() -> tuple[str, str]:
+    """Return (plaintext token, sha256 hash). Only the hash is stored."""
+    token = secrets.token_urlsafe(48)
+    return token, hash_refresh_token(token)
+
+
+def hash_refresh_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 def create_access_token(user_id: UUID, expires_delta: timedelta | None = None) -> str:
     settings = get_settings()
     now = datetime.now(UTC)
@@ -37,6 +49,7 @@ def create_access_token(user_id: UUID, expires_delta: timedelta | None = None) -
         "iat": now,
         "exp": now + ttl,
         "type": "access",
+        "jti": str(uuid4()),
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
