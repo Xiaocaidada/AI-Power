@@ -94,7 +94,7 @@ P2 必须补的差距：
 
 > **完成证据**：`docs/tdd/p2-s3-quotas.md`。真实环境验证 Key 级 429、Key 数量上限与过期 401；workspace/token 配额由单测覆盖。
 
-### P2-S4 Trace 可观测（约 1 周）
+### P2-S4 Trace 可观测 — **已完成（2026-11-21）**（约 1 周）
 
 - `traces(id, request_id, workspace_id, user_id, conversation_id, message_id, provider_id, model, retrieval_ms, ttft_ms, total_ms, status, error_code, attempts, created_at)`；`messages.request_id`。
 - 对话链路写入：检索耗时、首 token、总耗时、provider 尝试次数、错误码。
@@ -103,6 +103,8 @@ P2 必须补的差距：
 - 可选：`/metrics` Prometheus 文本（不作为 P2 阻塞项）。
 
 验收：一次 RAG 回答可看到检索与生成分段耗时；失败请求带 error_code；跨用户 404。
+
+> **完成证据**：`docs/tdd/p2-s4-traces.md`。真实环境验证 completed trace（TTFT 6.7s / 总 8.1s）与跨租户 404；失败/auto/清理由单测覆盖。
 
 ### P2-S5 前端平台化（约 1 周）
 
