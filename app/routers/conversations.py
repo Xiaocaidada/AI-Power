@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from collections import defaultdict
 from collections.abc import AsyncIterator, Sequence
 from datetime import UTC, datetime
 from typing import Annotated
@@ -14,10 +15,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.db import SessionLocal, get_session
 from app.deps import get_current_user, get_registry
-from app.models import Conversation, Message, User
+from app.models import Conversation, Message, MessageCitation, UsageEvent, User
 from app.providers.base import ChatMessage, LLMProvider, ProviderError, Usage
 from app.providers.registry import ProviderRegistry
 from app.schemas import (
+    CitationOut,
     ConversationCreate,
     ConversationDetailOut,
     ConversationOut,
@@ -63,6 +65,7 @@ async def _finalize(
     content: str,
     message_status: str,
     usage: Usage | None,
+    citations: Sequence[Citation] = (),
 ) -> None:
     try:
         async with SessionLocal() as session:
@@ -73,6 +76,43 @@ async def _finalize(
             message.status = message_status
             message.prompt_tokens = usage.prompt_tokens if usage else None
             message.completion_tokens = usage.completion_tokens if usage else None
+
+            if message.role == "assistant":
+                existing_event = await session.execute(
+                    select(UsageEvent.id).where(UsageEvent.message_id == message_id)
+                )
+                if existing_event.scalar_one_or_none() is None:
+                    session.add(
+                        UsageEvent(
+                            user_id=message.user_id,
+                            conversation_id=message.conversation_id,
+                            message_id=message.id,
+                            provider_id=message.provider_id,
+                            model=message.model,
+                            prompt_tokens=message.prompt_tokens,
+                            completion_tokens=message.completion_tokens,
+                        )
+                    )
+                if citations:
+                    existing_citations = await session.execute(
+                        select(MessageCitation.id)
+                        .where(MessageCitation.message_id == message_id)
+                        .limit(1)
+                    )
+                    if existing_citations.scalar_one_or_none() is None:
+                        session.add_all(
+                            [
+                                MessageCitation(
+                                    message_id=message.id,
+                                    citation_index=citation.index,
+                                    document_id=citation.document_id,
+                                    chunk_id=citation.chunk_id,
+                                    page_no=citation.page_no,
+                                    snippet=citation.snippet,
+                                )
+                                for citation in citations
+                            ]
+                        )
             await session.commit()
     except Exception:
         logger.exception("failed to finalize message %s", message_id)
@@ -128,17 +168,17 @@ async def _stream_reply(
             },
         )
         yield _sse("done", {"finish_reason": finish_reason})
-        await _finalize(assistant_id, "".join(parts), "completed", usage)
+        await _finalize(assistant_id, "".join(parts), "completed", usage, citations)
     except asyncio.CancelledError:
-        await _finalize(assistant_id, "".join(parts), "cancelled", usage)
+        await _finalize(assistant_id, "".join(parts), "cancelled", usage, citations)
         raise
     except ProviderError as exc:
         yield _sse("error", {"code": exc.code, "message": exc.message})
-        await _finalize(assistant_id, "".join(parts), "failed", usage)
+        await _finalize(assistant_id, "".join(parts), "failed", usage, citations)
     except Exception:
         logger.exception("streaming failed for message %s", assistant_id)
         yield _sse("error", {"code": "internal_error", "message": "Streaming failed"})
-        await _finalize(assistant_id, "".join(parts), "failed", usage)
+        await _finalize(assistant_id, "".join(parts), "failed", usage, citations)
 
 
 @router.post("", response_model=ConversationOut, status_code=status.HTTP_201_CREATED)
@@ -193,9 +233,38 @@ async def get_conversation(
         .order_by(Message.created_at)
     )
     messages = list(result.scalars())
+
+    citations_by_message: dict[UUID, list[MessageCitation]] = defaultdict(list)
+    if messages:
+        citation_rows = (
+            await session.execute(
+                select(MessageCitation)
+                .where(MessageCitation.message_id.in_([message.id for message in messages]))
+                .order_by(MessageCitation.message_id, MessageCitation.citation_index)
+            )
+        ).scalars()
+        for citation in citation_rows:
+            citations_by_message[citation.message_id].append(citation)
+
     return ConversationDetailOut(
         **ConversationOut.model_validate(conversation).model_dump(),
-        messages=[MessageOut.model_validate(message) for message in messages],
+        messages=[
+            MessageOut.model_validate(message).model_copy(
+                update={
+                    "citations": [
+                        CitationOut(
+                            index=citation.citation_index,
+                            document_id=citation.document_id,
+                            chunk_id=citation.chunk_id,
+                            page_no=citation.page_no,
+                            snippet=citation.snippet,
+                        )
+                        for citation in citations_by_message.get(message.id, [])
+                    ]
+                }
+            )
+            for message in messages
+        ],
     )
 
 

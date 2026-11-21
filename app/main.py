@@ -5,7 +5,15 @@ from fastapi import FastAPI
 
 from app.clients import close_redis
 from app.db import init_db
-from app.routers import auth, conversations, documents, health, knowledge_bases, providers
+from app.routers import (
+    auth,
+    conversations,
+    documents,
+    health,
+    knowledge_bases,
+    providers,
+    usage,
+)
 from app.services.queue import close_queue
 
 
@@ -20,6 +28,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
 app = FastAPI(title="ai_power", version="0.1.0", lifespan=lifespan)
 app.include_router(auth.router)
 app.include_router(health.router)
+app.include_router(usage.router)
 app.include_router(providers.router)
 app.include_router(conversations.router)
 app.include_router(documents.router)

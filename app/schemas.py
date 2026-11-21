@@ -81,6 +81,14 @@ class ConversationOut(BaseModel):
     created_at: datetime
 
 
+class CitationOut(BaseModel):
+    index: int
+    document_id: UUID
+    chunk_id: UUID
+    page_no: int | None
+    snippet: str
+
+
 class MessageOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -93,6 +101,7 @@ class MessageOut(BaseModel):
     prompt_tokens: int | None
     completion_tokens: int | None
     created_at: datetime
+    citations: list[CitationOut] = Field(default_factory=list)
 
 
 class ConversationDetailOut(ConversationOut):
@@ -131,3 +140,18 @@ class DocumentUploadOut(BaseModel):
     id: UUID
     status: str
     duplicate: bool = False
+
+
+class UsageBucketOut(BaseModel):
+    key: str
+    requests: int
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+
+class UsageSummaryOut(BaseModel):
+    start: datetime
+    end: datetime
+    group_by: str
+    buckets: list[UsageBucketOut] = Field(default_factory=list)

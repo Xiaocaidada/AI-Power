@@ -1,7 +1,16 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, text
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from uuid6 import uuid7
 
@@ -81,6 +90,45 @@ class Message(Base):
     prompt_tokens: Mapped[int | None] = mapped_column(default=None)
     completion_tokens: Mapped[int | None] = mapped_column(default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class UsageEvent(Base):
+    __tablename__ = "usage_events"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    conversation_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="SET NULL"), default=None, index=True
+    )
+    message_id: Mapped[UUID] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    provider_id: Mapped[str | None] = mapped_column(String(50), default=None)
+    model: Mapped[str | None] = mapped_column(String(200), default=None)
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer, default=None)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (Index("ix_usage_events_user_created", "user_id", "created_at"),)
+
+
+class MessageCitation(Base):
+    __tablename__ = "message_citations"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    message_id: Mapped[UUID] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), index=True
+    )
+    citation_index: Mapped[int] = mapped_column(Integer)
+    document_id: Mapped[UUID] = mapped_column(default=uuid7)
+    chunk_id: Mapped[UUID] = mapped_column(default=uuid7)
+    page_no: Mapped[int | None] = mapped_column(Integer, default=None)
+    snippet: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("message_id", "citation_index", name="uq_message_citations_message_index"),
+    )
 
 
 class Document(Base):
