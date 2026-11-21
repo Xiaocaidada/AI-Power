@@ -132,31 +132,31 @@ services:
     restart: unless-stopped
     command: ["/bin/sh", "/usr/local/bin/backup_postgres.sh"]
 
-prometheus:
-    image: prom/prometheus:latest
-    profiles: ["observability"]
-    volumes:
-      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-    ports:
-      - "9090:9090"
-    depends_on:
-      api:
-        condition: service_healthy
+  prometheus:
+      image: prom/prometheus:latest
+      profiles: ["observability"]
+      volumes:
+        - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      ports:
+        - "9090:9090"
+      depends_on:
+        api:
+          condition: service_healthy
 
-caddy:
-    image: caddy:2-alpine
-    profiles: ["https"]
-    environment:
-      CADDY_DOMAIN: ${CADDY_DOMAIN:-}
-    volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    ports:
-      - "80:80"
-      - "443:443"
-    depends_on:
-      - web
+  caddy:
+      image: caddy:2-alpine
+      profiles: ["https"]
+      environment:
+        CADDY_DOMAIN: ${CADDY_DOMAIN:-}
+      volumes:
+        - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+        - caddy_data:/data
+        - caddy_config:/config
+      ports:
+        - "80:80"
+        - "443:443"
+      depends_on:
+        - web
 
 volumes:
   pgdata:
