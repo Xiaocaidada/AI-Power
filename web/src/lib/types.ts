@@ -1,0 +1,77 @@
+export interface User {
+  id: string
+  email: string
+  role: string
+  created_at: string
+}
+
+export interface TokenResponse {
+  access_token: string
+  token_type: string
+  expires_in: number
+  refresh_token: string
+  refresh_expires_in: number
+}
+
+export interface Provider {
+  id: string
+  available: boolean
+  models: string[]
+}
+
+export interface KnowledgeBase {
+  id: string
+  name: string
+  created_at: string
+}
+
+export interface Conversation {
+  id: string
+  title: string
+  provider_id: string
+  model: string
+  kb_id: string | null
+  created_at: string
+}
+
+export interface Citation {
+  index: number
+  document_id: string
+  chunk_id: string
+  page_no: number | null
+  snippet: string
+}
+
+export interface Message {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  status: string
+  provider_id: string | null
+  model: string | null
+  prompt_tokens: number | null
+  completion_tokens: number | null
+  created_at: string
+  citations: Citation[]
+}
+
+export interface ConversationDetail extends Conversation {
+  messages: Message[]
+}
+
+export interface ChatUsage {
+  prompt_tokens: number | null
+  completion_tokens: number | null
+}
+
+export interface SseMeta {
+  message_id: string
+  provider: string
+  model: string
+  conversation_id: string
+}
+
+export interface SseError {
+  code: string
+  message: string
+}

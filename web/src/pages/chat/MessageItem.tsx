@@ -1,0 +1,141 @@
+import { Check, Copy, Quote } from 'lucide-react'
+import { useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+
+import { Badge } from '../../components/ui/badge'
+import { useI18n } from '../../lib/i18n'
+import type { Citation } from '../../lib/types'
+
+export interface DisplayMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  status: string
+  citations: Citation[]
+  streaming?: boolean
+  errorCode?: string
+  provider_id?: string | null
+  model?: string | null
+  prompt_tokens?: number | null
+  completion_tokens?: number | null
+}
+
+interface MessageItemProps {
+  message: DisplayMessage
+  onOpenCitations: (citations: Citation[]) => void
+  onResend?: () => void
+}
+
+export function MessageItem({ message, onOpenCitations, onResend }: MessageItemProps) {
+  const { t } = useI18n()
+  const [copied, setCopied] = useState(false)
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(message.content)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  if (message.role === 'user') {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-surface-muted px-4 py-2.5 text-sm leading-6 text-ink">
+          {message.content}
+        </div>
+      </div>
+    )
+  }
+
+  const interrupted =
+    message.status === 'cancelled' || (message.status === 'streaming' && !message.streaming)
+  const failed = message.status === 'failed'
+  const hasTokens =
+    message.prompt_tokens !== null && message.prompt_tokens !== undefined
+      ? true
+      : message.completion_tokens !== null && message.completion_tokens !== undefined
+
+  return (
+    <div className="space-y-2">
+      {message.content !== '' &&
+        (message.streaming ? (
+          <p className="whitespace-pre-wrap text-[15px] leading-7 text-ink">
+            {message.content}
+            <span className="ml-0.5 inline-block h-4 w-[2px] animate-pulse bg-accent align-text-bottom" />
+          </p>
+        ) : (
+          <div className="markdown text-[15px] text-ink">
+            <ReactMarkdown>{message.content}</ReactMarkdown>
+          </div>
+        ))}
+
+      {message.streaming && message.content === '' && (
+        <p className="text-sm text-ink-muted">{t('chat.generating')}</p>
+      )}
+
+      {interrupted && <Badge tone="warning">{t('chat.interrupted')}</Badge>}
+
+      {failed && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">
+          <span>{t('chat.failed')}</span>
+          {message.errorCode !== undefined && (
+            <code className="font-mono text-xs opacity-80">{message.errorCode}</code>
+          )}
+          {onResend !== undefined && (
+            <button
+              type="button"
+              className="ml-auto text-xs font-medium underline underline-offset-2"
+              onClick={onResend}
+            >
+              {t('chat.resend')}
+            </button>
+          )}
+        </div>
+      )}
+
+      {message.citations.length > 0 && (
+        <button
+          type="button"
+          onClick={() => onOpenCitations(message.citations)}
+          className="inline-flex items-center gap-1.5 rounded-full bg-citation-soft px-2.5 py-1 text-xs font-medium text-citation hover:bg-citation-soft/70"
+        >
+          <Quote className="h-3 w-3" />
+          {t('chat.citations')} {message.citations.length}
+        </button>
+      )}
+
+      {(message.provider_id !== null && message.provider_id !== undefined) ||
+      hasTokens ||
+      message.content !== '' ? (
+        <div className="flex flex-wrap items-center gap-3 text-[11px] text-ink-muted">
+          {message.model !== null && message.model !== undefined && (
+            <span className="font-mono">
+              {message.provider_id} · {message.model}
+            </span>
+          )}
+          {hasTokens && (
+            <span>
+              {t('chat.tokens', {
+                prompt: message.prompt_tokens ?? 0,
+                completion: message.completion_tokens ?? 0,
+              })}
+            </span>
+          )}
+          {message.content !== '' && (
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 hover:text-ink"
+              onClick={() => void copy()}
+            >
+              {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+              {copied ? t('common.copied') : t('common.copy')}
+            </button>
+          )}
+        </div>
+      ) : null}
+    </div>
+  )
+}
