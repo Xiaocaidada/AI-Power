@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.clients import close_redis
 from app.config import get_settings
 from app.db import init_db
+from app.observability import RequestContextMiddleware, configure_logging
 from app.routers import (
     api_keys,
     auth,
@@ -28,6 +29,8 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     await close_redis()
 
 
+configure_logging()
+
 app = FastAPI(title="ai_power", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
@@ -38,6 +41,7 @@ app.add_middleware(
     expose_headers=["Retry-After"],
     max_age=600,
 )
+app.add_middleware(RequestContextMiddleware)
 app.include_router(auth.router)
 app.include_router(api_keys.router)
 app.include_router(health.router)

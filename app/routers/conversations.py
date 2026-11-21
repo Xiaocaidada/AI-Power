@@ -356,6 +356,10 @@ async def send_message(
     await session.commit()
     await session.refresh(assistant_message)
 
+    # Streaming responses outlive the endpoint; release the request connection now so
+    # long-running streams cannot exhaust the pool under concurrency.
+    await session.close()
+
     return StreamingResponse(
         _stream_reply(
             provider=provider,

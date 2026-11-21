@@ -55,6 +55,25 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://ai_power:ai_power@localhost:5432/ai_power_test
         run: alembic upgrade head
 
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Unit tests
+        run: npm test
+      - name: Build
+        run: npm run build
+
   docker:
     runs-on: ubuntu-latest
     steps:

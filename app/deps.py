@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,22 +45,29 @@ async def _resolve_jwt(
 
 
 async def get_current_user(
+    request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> User:
     """JWT-only authentication for account management endpoints."""
-    return await _resolve_jwt(credentials, session)
+    user = await _resolve_jwt(credentials, session)
+    request.state.user_id = str(user.id)
+    return user
 
 
 async def get_auth_context(
+    request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
     session: Annotated[AsyncSession, Depends(get_session)],
     x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
 ) -> AuthContext:
     if x_api_key:
         user, scopes = await authenticate_api_key(x_api_key, session)
+        request.state.user_id = str(user.id)
         return AuthContext(user=user, scopes=scopes)
-    return AuthContext(user=await _resolve_jwt(credentials, session), scopes=None)
+    user = await _resolve_jwt(credentials, session)
+    request.state.user_id = str(user.id)
+    return AuthContext(user=user, scopes=None)
 
 
 def require_scope(scope: str):

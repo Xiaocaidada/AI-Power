@@ -32,6 +32,9 @@ services:
       DATABASE_URL: postgresql+asyncpg://ai_power:${POSTGRES_PASSWORD}@postgres:5432/ai_power
       REDIS_URL: redis://redis:6379/0
       UPLOAD_DIR: /app/uploads
+      LOG_FORMAT: json
+      LOG_LEVEL: INFO
+      PROVIDER_TIMEOUT_SECONDS: ${PROVIDER_TIMEOUT_SECONDS:-180}
     ports:
       - "8002:8000"
     volumes:
@@ -62,6 +65,9 @@ services:
       DATABASE_URL: postgresql+asyncpg://ai_power:${POSTGRES_PASSWORD}@postgres:5432/ai_power
       REDIS_URL: redis://redis:6379/0
       UPLOAD_DIR: /app/uploads
+      LOG_FORMAT: json
+      LOG_LEVEL: INFO
+      PROVIDER_TIMEOUT_SECONDS: ${PROVIDER_TIMEOUT_SECONDS:-180}
     volumes:
       - uploads:/app/uploads
     depends_on:
@@ -73,6 +79,43 @@ services:
         condition: service_healthy
     command: ["arq", "app.worker.WorkerSettings"]
 
+  web:
+    build:
+      context: ./web
+      args:
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  backup:
+    image: postgres:16-alpine
+    env_file: .env
+    environment:
+      PGHOST: postgres
+      PGUSER: ai_power
+      PGDATABASE: ai_power
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      BACKUP_DIR: /backups
+      BACKUP_RETENTION_DAYS: "7"
+      BACKUP_INTERVAL_SECONDS: "86400"
+    volumes:
+      - backups:/backups
+      - ./scripts/backup_postgres.sh:/usr/local/bin/backup_postgres.sh:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    command: ["/bin/sh", "/usr/local/bin/backup_postgres.sh"]
+
 volumes:
   pgdata:
   uploads:
+  backups:

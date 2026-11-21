@@ -12,7 +12,12 @@ class Settings(BaseSettings):
     )
 
     app_env: str = "dev"
+    log_level: str = "INFO"
+    log_format: str = "text"
     database_url: str = "sqlite+aiosqlite:///./ai_power.db"
+    db_pool_size: int = 10
+    db_max_overflow: int = 20
+    db_pool_timeout_seconds: int = 30
     jwt_secret: str = "dev-only-insecure-secret-change-me-0123456789"
     jwt_algorithm: str = "HS256"
     access_token_ttl_minutes: int = 30
@@ -76,6 +81,24 @@ class Settings(BaseSettings):
             raise ValueError("RETRIEVAL_TOP_K must be >= 1")
         if self.retrieval_max_context_chars < 1:
             raise ValueError("RETRIEVAL_MAX_CONTEXT_CHARS must be >= 1")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_db_pool_settings(self) -> "Settings":
+        if self.db_pool_size < 1:
+            raise ValueError("DB_POOL_SIZE must be >= 1")
+        if self.db_max_overflow < 0:
+            raise ValueError("DB_MAX_OVERFLOW must be >= 0")
+        if self.db_pool_timeout_seconds < 1:
+            raise ValueError("DB_POOL_TIMEOUT_SECONDS must be >= 1")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_logging_settings(self) -> "Settings":
+        if self.log_format not in {"text", "json"}:
+            raise ValueError("LOG_FORMAT must be 'text' or 'json'")
+        if self.log_level.upper() not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+            raise ValueError("LOG_LEVEL must be a standard Python log level")
         return self
 
     @model_validator(mode="after")
