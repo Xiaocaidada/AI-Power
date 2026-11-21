@@ -9,8 +9,8 @@ from app.config import get_settings
 from app.db import SessionLocal
 from app.models import Chunk, ChunkEmbedding, Document, IngestionJob
 from app.providers.base import ProviderError
-from app.providers.embedding import OpenAICompatEmbeddingProvider
 from app.services.chunking import chunk_pages
+from app.services.embedding_factory import build_embedder
 from app.services.parsing import DocumentParser, UnsupportedDocumentType, parser_for_mime
 
 logger = logging.getLogger(__name__)
@@ -25,17 +25,6 @@ class IngestionError(Exception):
 
 def build_parser(mime: str) -> DocumentParser:
     return parser_for_mime(mime)
-
-
-def build_embedder() -> OpenAICompatEmbeddingProvider:
-    settings = get_settings()
-    return OpenAICompatEmbeddingProvider(
-        settings.embedding_base_url,
-        settings.embedding_api_key,
-        model=settings.embedding_model,
-        dimensions=settings.embedding_dim,
-        timeout=settings.provider_timeout_seconds,
-    )
 
 
 async def ingest_document(document_id: UUID) -> None:

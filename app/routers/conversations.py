@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.db import SessionLocal, get_session
 from app.deps import get_current_user, get_registry
 from app.models import Conversation, Message, User
@@ -24,6 +25,8 @@ from app.schemas import (
     SendMessageIn,
 )
 from app.services.access import get_owned_knowledge_base
+from app.services.rag import build_rag_messages, fit_context
+from app.services.retrieval import Citation, build_citations, retrieve_chunks
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 logger = logging.getLogger(__name__)
@@ -82,6 +85,7 @@ async def _stream_reply(
     assistant_id: UUID,
     history: list[ChatMessage],
     model: str,
+    citations: Sequence[Citation] = (),
 ) -> AsyncIterator[str]:
     parts: list[str] = []
     usage: Usage | None = None
@@ -96,6 +100,17 @@ async def _stream_reply(
                 "conversation_id": str(conversation_id),
             },
         )
+        for citation in citations:
+            yield _sse(
+                "citation",
+                {
+                    "index": citation.index,
+                    "document_id": str(citation.document_id),
+                    "chunk_id": str(citation.chunk_id),
+                    "page_no": citation.page_no,
+                    "snippet": citation.snippet,
+                },
+            )
         async for chunk in provider.stream_chat(history, model):
             if chunk.delta:
                 parts.append(chunk.delta)
@@ -218,6 +233,33 @@ async def send_message(
     )
     prior_messages = list(history_result.scalars())
 
+    chat_history = [
+        ChatMessage(role=message.role, content=message.content)
+        for message in prior_messages
+        if message.content
+    ]
+    chat_history.append(ChatMessage(role="user", content=payload.content))
+    chat_history = chat_history[-HISTORY_MESSAGE_LIMIT:]
+
+    citations: list[Citation] = []
+    if conversation.kb_id is not None:
+        try:
+            retrieved = await retrieve_chunks(
+                session,
+                user_id=current_user.id,
+                kb_id=conversation.kb_id,
+                query=payload.content,
+            )
+        except ProviderError:
+            logger.warning("retrieval failed for conversation %s", conversation.id)
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                {"code": "retrieval_failed", "message": "Retrieval failed"},
+            ) from None
+        used_chunks = fit_context(retrieved, get_settings().retrieval_max_context_chars)
+        citations = build_citations(used_chunks)
+        chat_history = build_rag_messages(used_chunks, chat_history)
+
     if not conversation.title:
         conversation.title = payload.content[:TITLE_MAX_LENGTH]
 
@@ -243,19 +285,14 @@ async def send_message(
     await session.commit()
     await session.refresh(assistant_message)
 
-    history = [
-        ChatMessage(role=message.role, content=message.content)
-        for message in [*prior_messages, user_message]
-        if message.content
-    ][-HISTORY_MESSAGE_LIMIT:]
-
     return StreamingResponse(
         _stream_reply(
             provider=provider,
             conversation_id=conversation.id,
             assistant_id=assistant_message.id,
-            history=history,
+            history=chat_history,
             model=conversation.model,
+            citations=citations,
         ),
         media_type="text/event-stream",
         headers={
