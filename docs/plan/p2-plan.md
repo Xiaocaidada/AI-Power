@@ -55,7 +55,7 @@ P2 必须补的差距：
 
 原则：先数据模型，再目录/路由，再配额，再可观测，最后前端与收口；每片可独立演示。
 
-### P2-S1 多租户数据模型与隔离（约 1.5 周）
+### P2-S1 多租户数据模型与隔离 — **已完成（2026-11-21）**（约 1.5 周）
 
 - `workspaces(id, name, plan, created_at)`、`workspace_members(workspace_id, user_id, role)`。
 - 现有资源加 `workspace_id`：`knowledge_bases`、`conversations`、`documents`、`ingestion_jobs`、`usage_events`、`api_keys`。
@@ -65,6 +65,8 @@ P2 必须补的差距：
 - API Key 归属 workspace，scope 增加 `workspace:read`（可选）。
 
 验收：两用户同 workspace 可见共享 KB/会话；第三方 workspace 404；成员移除后立即失去访问；迁移可重复执行。
+
+> **完成证据**：`docs/tdd/p2-s1-workspaces.md`。Postgres 实库 17 用户 → 17 个人 workspace，回填无 NULL；真实 API 验证共享/隔离/成员移除/Key 绑定。
 
 ### P2-S2 模型目录、广场与路由降级（约 1.5 周）
 
