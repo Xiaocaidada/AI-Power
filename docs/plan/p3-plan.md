@@ -1,6 +1,6 @@
 # P3 规划：从平台化到 Agent 与应用层
 
-- **Status:** In progress（S1–S3 已完成 2026-11-21；S4–S6 待逐片批准）
+- **Status:** In progress（S1–S4 已完成 2026-11-21；S5–S6 待逐片批准）
 - **Date:** 2026-11-21
 - **Scope source:** [`PRODUCT-BRIEF.md`](../../PRODUCT-BRIEF.md) §3 P3、[`docs/product/CAPABILITY.md`](../product/CAPABILITY.md)
 - **前置:** P2 已完成（2026-11-21），见 [`p2-plan.md`](./p2-plan.md)、[`p2-s6-hardening.md`](../tdd/p2-s6-hardening.md)
@@ -93,13 +93,15 @@ P3 必须补的差距：
 
 > **完成证据**：`docs/tdd/p3-s3-prompts.md`。模板/版本/渲染 API、会话 Prompt 快照、Agent/RAG 接入与前端管理页已完成；软删除保留已绑定会话。
 
-### P3-S4 成本面板（约 1 周）
+### P3-S4 成本面板 — **已完成（2026-11-21）**（约 1 周）
 
 - 迁移：`usage_events` 增加 `input_price`, `output_price`, `cost`, `unpriced`。
 - 写入：finalize 时按 `(provider_id, model)` 查 `model_catalog` 快照价格；`cost = prompt_tokens/1e6*input_price + completion_tokens/1e6*output_price`；查不到记 0 + `unpriced=true`。
 - API：`GET /usage/cost?from&to&group_by=day|model|provider`，返回 buckets + `total_cost` + `unpriced_requests`。
 - 前端：成本卡片与趋势图（复用 Recharts），标注未定价模型。
 - 测试：成本算式、改价后历史不变、workspace 隔离、NULL token 记 0。
+
+> **完成证据**：`docs/tdd/p3-s4-cost.md`。价格快照、`/usage/cost`、未定价标记与前端成本卡片/趋势已完成；历史事件未回填。
 
 ### P3-S5 管理后台（约 1–1.5 周）
 

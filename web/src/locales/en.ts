@@ -155,7 +155,10 @@ export const en: Dictionary = {
   },
   usage: {
     title: 'Usage',
-    lead: 'Token consumption and request trends.',
+    lead: 'Token consumption, request trends, and cost.',
+    cost: 'Cost (USD)',
+    costChartTitle: 'Cost trend',
+    unpricedHint: '{count} requests used an unpriced model and count as $0',
     range7: 'Last 7 days',
     range30: 'Last 30 days',
     range90: 'Last 90 days',

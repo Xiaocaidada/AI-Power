@@ -18,7 +18,7 @@ import { Input } from '../../components/ui/input'
 import { Spinner } from '../../components/ui/spinner'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
-import type { QuotaSummary, UsageSummary } from '../../lib/types'
+import type { QuotaSummary, UsageCost, UsageSummary } from '../../lib/types'
 import {
   defaultRange,
   fillDailyBuckets,
@@ -39,6 +39,12 @@ export function UsagePage() {
 
   const numberFormat = new Intl.NumberFormat(language === 'zh' ? 'zh-CN' : 'en')
   const format = (value: number) => numberFormat.format(value)
+  const costFormat = new Intl.NumberFormat(language === 'zh' ? 'zh-CN' : 'en', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 6,
+  })
+  const formatCost = (value: number) => costFormat.format(value)
 
   const validRange = range.from <= range.to
   const usage = useQuery({
@@ -59,6 +65,20 @@ export function UsagePage() {
     queryFn: () => apiRequest<QuotaSummary>('/usage/quota'),
   })
 
+  const cost = useQuery({
+    queryKey: ['usage-cost', range.from, range.to, groupBy],
+    queryFn: () => {
+      const bounds = rangeQuery(range)
+      return apiRequest<UsageCost>(
+        `/usage/cost?from=${encodeURIComponent(bounds.from)}&to=${encodeURIComponent(
+          bounds.to,
+        )}&group_by=${groupBy}`,
+      )
+    },
+    enabled: validRange,
+  })
+  const costByKey = new Map((cost.data?.buckets ?? []).map((bucket) => [bucket.key, bucket]))
+
   const buckets = usage.data?.buckets ?? []
   const totals = sumBuckets(buckets)
   const chartBuckets =
@@ -72,6 +92,10 @@ export function UsagePage() {
     total: bucket.total_tokens,
   }))
   const tableRows = buckets.filter((bucket) => bucket.requests > 0 || bucket.total_tokens > 0)
+  const costChartData = (cost.data?.buckets ?? []).map((bucket) => ({
+    name: groupBy === 'day' ? bucket.key.slice(5) : bucket.key,
+    cost: bucket.cost,
+  }))
 
   const selectPreset = (days: number) => {
     setPreset(days)
@@ -216,7 +240,7 @@ export function UsagePage() {
           </div>
         )}
 
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           {kpis.map((kpi) => (
             <div key={kpi.label} className="rounded-card border border-border bg-surface p-4">
               <p className="text-xs text-ink-muted">{kpi.label}</p>
@@ -225,6 +249,17 @@ export function UsagePage() {
               </p>
             </div>
           ))}
+          <div className="rounded-card border border-border bg-surface p-4">
+            <p className="text-xs text-ink-muted">{t('usage.cost')}</p>
+            <p className="mt-1 font-mono text-xl text-ink">
+              {cost.isLoading || cost.data === undefined ? '—' : formatCost(cost.data.total_cost)}
+            </p>
+            {cost.data !== undefined && cost.data.unpriced_requests > 0 && (
+              <p className="mt-1 text-[11px] text-warning">
+                {t('usage.unpricedHint', { count: cost.data.unpriced_requests })}
+              </p>
+            )}
+          </div>
         </div>
 
         {usage.isLoading ? (
@@ -303,6 +338,21 @@ export function UsagePage() {
               <p className="mt-2 text-[11px] text-ink-muted">{t('usage.nullUsageHint')}</p>
             </section>
 
+            <section className="rounded-card border border-border bg-surface p-4">
+              <h2 className="mb-3 text-sm font-medium">{t('usage.costChartTitle')}</h2>
+              <div className="h-[240px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={costChartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E4E6EB" />
+                    <XAxis dataKey="name" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} />
+                    <YAxis width={72} tick={{ fontSize: 12 }} tickLine={false} axisLine={false} />
+                    <Tooltip formatter={(value) => formatCost(Number(value))} />
+                    <Bar dataKey="cost" name={t('usage.cost')} fill="#0EA5E9" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </section>
+
             <section className="overflow-x-auto rounded-card border border-border bg-surface">
               <table className="w-full min-w-[560px] text-left text-sm">
                 <thead className="border-b border-border text-xs uppercase tracking-wide text-ink-muted">
@@ -314,6 +364,7 @@ export function UsagePage() {
                       {t('usage.completionTokens')}
                     </th>
                     <th className="px-3 py-2 text-right font-medium">{t('usage.totalTokens')}</th>
+                    <th className="px-3 py-2 text-right font-medium">{t('usage.cost')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -325,6 +376,9 @@ export function UsagePage() {
                       <td className="px-3 py-2 text-right">{format(bucket.completion_tokens)}</td>
                       <td className="px-3 py-2 text-right font-medium">
                         {format(bucket.total_tokens)}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono text-xs">
+                        {formatCost(costByKey.get(bucket.key)?.cost ?? 0)}
                       </td>
                     </tr>
                   ))}

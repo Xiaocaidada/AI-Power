@@ -2,14 +2,21 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients import RedisLike, get_redis
 from app.db import get_session
 from app.deps import AuthContext, get_jwt_context
 from app.models import UsageEvent
-from app.schemas import QuotaSummaryOut, QuotaWindowOut, UsageBucketOut, UsageSummaryOut
+from app.schemas import (
+    QuotaSummaryOut,
+    QuotaWindowOut,
+    UsageBucketOut,
+    UsageCostBucketOut,
+    UsageCostOut,
+    UsageSummaryOut,
+)
 from app.services.quotas import quota_snapshot
 
 router = APIRouter(prefix="/usage", tags=["usage"])
@@ -31,6 +38,16 @@ def _bucket_expression(group_by: str):
     if group_by == "provider":
         return func.coalesce(UsageEvent.provider_id, "unknown")
     return func.coalesce(UsageEvent.model, "unknown")
+
+
+def _range(from_ts: datetime | None, to_ts: datetime | None) -> tuple[datetime, datetime]:
+    end_at = _as_utc(to_ts) if to_ts is not None else datetime.now(UTC)
+    start_at = (
+        _as_utc(from_ts) if from_ts is not None else end_at - timedelta(days=DEFAULT_RANGE_DAYS)
+    )
+    if start_at > end_at:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "from must be earlier than or equal to to")
+    return start_at, end_at
 
 
 @router.get("/quota", response_model=QuotaSummaryOut)
@@ -65,12 +82,7 @@ async def usage_summary(
     to_ts: Annotated[datetime | None, Query(alias="to")] = None,
     group_by: Literal["day", "provider", "model"] = "day",
 ) -> UsageSummaryOut:
-    end_at = _as_utc(to_ts) if to_ts is not None else datetime.now(UTC)
-    start_at = (
-        _as_utc(from_ts) if from_ts is not None else end_at - timedelta(days=DEFAULT_RANGE_DAYS)
-    )
-    if start_at > end_at:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "from must be earlier than or equal to to")
+    start_at, end_at = _range(from_ts, to_ts)
 
     bucket_expression = _bucket_expression(group_by)
     statement = (
@@ -104,4 +116,56 @@ async def usage_summary(
             )
             for row in rows
         ],
+    )
+
+
+@router.get("/cost", response_model=UsageCostOut)
+async def usage_cost(
+    context: JwtContext,
+    session: SessionDep,
+    from_ts: Annotated[datetime | None, Query(alias="from")] = None,
+    to_ts: Annotated[datetime | None, Query(alias="to")] = None,
+    group_by: Literal["day", "provider", "model"] = "day",
+) -> UsageCostOut:
+    start_at, end_at = _range(from_ts, to_ts)
+    bucket_expression = _bucket_expression(group_by)
+    statement = (
+        select(
+            bucket_expression.label("bucket"),
+            func.count().label("requests"),
+            func.coalesce(func.sum(UsageEvent.prompt_tokens), 0).label("prompt_tokens"),
+            func.coalesce(func.sum(UsageEvent.completion_tokens), 0).label("completion_tokens"),
+            func.coalesce(func.sum(UsageEvent.cost), 0.0).label("cost"),
+            func.coalesce(func.sum(case((UsageEvent.unpriced.is_(True), 1), else_=0)), 0).label(
+                "unpriced_requests"
+            ),
+        )
+        .where(
+            UsageEvent.workspace_id == context.workspace.id,
+            UsageEvent.created_at >= start_at,
+            UsageEvent.created_at <= end_at,
+        )
+        .group_by(bucket_expression)
+        .order_by(bucket_expression)
+    )
+    rows = (await session.execute(statement)).all()
+    buckets = [
+        UsageCostBucketOut(
+            key=str(row.bucket),
+            requests=row.requests,
+            prompt_tokens=row.prompt_tokens,
+            completion_tokens=row.completion_tokens,
+            total_tokens=row.prompt_tokens + row.completion_tokens,
+            cost=round(float(row.cost), 6),
+            unpriced_requests=row.unpriced_requests,
+        )
+        for row in rows
+    ]
+    return UsageCostOut(
+        start=start_at,
+        end=end_at,
+        group_by=group_by,
+        total_cost=round(sum(bucket.cost for bucket in buckets), 6),
+        unpriced_requests=sum(bucket.unpriced_requests for bucket in buckets),
+        buckets=buckets,
     )
