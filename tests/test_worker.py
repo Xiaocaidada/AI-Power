@@ -39,8 +39,8 @@ async def test_worker_retries_failed_ingestion_with_backoff(monkeypatch):
     name, args, kwargs = pool.jobs[0]
     assert name == "ingest_document_job"
     assert args == (str(document_id),)
-    assert kwargs["_defer"] == 2
-    assert kwargs["_job_id"].endswith(":retry:1")
+    assert kwargs["_defer_by"] == 2
+    assert kwargs["_job_id"].startswith(f"ingest:{document_id}:retry:")
 
 
 async def test_worker_marks_dead_after_max_attempts(monkeypatch):

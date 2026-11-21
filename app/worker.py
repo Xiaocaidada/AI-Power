@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from arq import cron
 from arq.connections import RedisSettings
@@ -30,8 +30,8 @@ async def ingest_document_job(ctx: dict[str, Any], document_id: str) -> None:
     await ctx["redis"].enqueue_job(
         "ingest_document_job",
         str(document_uuid),
-        _job_id=f"ingest:{document_uuid}:retry:{outcome.attempts}",
-        _defer=2**outcome.attempts,
+        _job_id=f"ingest:{document_uuid}:retry:{uuid4().hex[:12]}",
+        _defer_by=2**outcome.attempts,
     )
 
 

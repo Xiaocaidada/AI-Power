@@ -60,6 +60,19 @@ async def test_arq_queue_enqueues_with_deduplicated_job_id():
     assert kwargs["_job_id"] == f"ingest:{document_id}"
 
 
+async def test_arq_queue_unique_enqueue_uses_fresh_job_id():
+    from app.services.queue import ArqJobQueue
+
+    pool = FakePool()
+    document_id = uuid4()
+
+    await ArqJobQueue(pool).enqueue_ingestion(document_id, unique=True)
+
+    _name, _args, kwargs = pool.jobs[0]
+    assert kwargs["_job_id"].startswith(f"ingest:{document_id}:")
+    assert kwargs["_job_id"] != f"ingest:{document_id}"
+
+
 async def test_recover_stale_jobs_requeues_only_expired_leases():
     from app.services.queue import ArqJobQueue, recover_stale_jobs
 

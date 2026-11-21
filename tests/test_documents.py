@@ -238,6 +238,7 @@ async def test_retry_failed_document_reingests(client, api, fake_ingestion, fake
     assert detail.json()["status"] == "ready"
     assert detail.json()["error_code"] is None
     assert fake_queue.calls == [UUID(document_id), UUID(document_id)]
+    assert fake_queue.unique_flags == [False, True]
 
 
 async def test_retry_ready_document_returns_409(client, api, fake_ingestion):

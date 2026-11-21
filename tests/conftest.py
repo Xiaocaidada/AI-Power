@@ -117,10 +117,12 @@ class InlineQueue:
 
     def __init__(self) -> None:
         self.calls: list[object] = []
+        self.unique_flags: list[bool] = []
         self.fail = False
 
-    async def enqueue_ingestion(self, document_id) -> None:
+    async def enqueue_ingestion(self, document_id, *, unique: bool = False) -> None:
         self.calls.append(document_id)
+        self.unique_flags.append(unique)
         if self.fail:
             raise ConnectionError("queue down")
         from app.services.ingestion import ingest_document

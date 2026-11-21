@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 from typing import Any, Protocol
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from arq import create_pool
 from arq.connections import ArqRedis, RedisSettings
@@ -12,18 +12,19 @@ from app.models import IngestionJob
 
 
 class JobQueue(Protocol):
-    async def enqueue_ingestion(self, document_id: UUID) -> None: ...
+    async def enqueue_ingestion(self, document_id: UUID, *, unique: bool = False) -> None: ...
 
 
 class ArqJobQueue:
     def __init__(self, pool: Any) -> None:
         self._pool = pool
 
-    async def enqueue_ingestion(self, document_id: UUID) -> None:
+    async def enqueue_ingestion(self, document_id: UUID, *, unique: bool = False) -> None:
+        job_id = f"ingest:{document_id}:{uuid4().hex[:12]}" if unique else f"ingest:{document_id}"
         await self._pool.enqueue_job(
             "ingest_document_job",
             str(document_id),
-            _job_id=f"ingest:{document_id}",
+            _job_id=job_id,
         )
 
 
@@ -66,5 +67,5 @@ async def recover_stale_jobs(
     await session.flush()
 
     for job in stale:
-        await queue.enqueue_ingestion(job.document_id)
+        await queue.enqueue_ingestion(job.document_id, unique=True)
     return len(stale)

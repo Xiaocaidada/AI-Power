@@ -39,9 +39,11 @@ async def _enqueue_or_fail(
     document: Document,
     job: IngestionJob,
     queue: JobQueue,
+    *,
+    unique: bool = False,
 ) -> None:
     try:
-        await queue.enqueue_ingestion(document.id)
+        await queue.enqueue_ingestion(document.id, unique=unique)
     except Exception:
         logger.exception("failed to enqueue ingestion for %s", document.id)
         document.status = "failed"
@@ -157,7 +159,7 @@ async def retry_document(
     job.lease_expires_at = None
     await session.commit()
 
-    await _enqueue_or_fail(session, document, job, queue)
+    await _enqueue_or_fail(session, document, job, queue, unique=True)
     return DocumentUploadOut(id=document.id, status="uploaded", duplicate=False)
 
 
