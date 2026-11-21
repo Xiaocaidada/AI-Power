@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import {
   BarChart3,
   BookOpen,
@@ -8,11 +8,11 @@ import {
   X,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 
 import { apiRequest } from '../lib/http'
 import { useI18n } from '../lib/i18n'
-import { clearTokens, getRefreshToken } from '../lib/tokens'
+import { useLogout } from '../lib/useLogout'
 import type { Conversation } from '../lib/types'
 import { cn } from '../lib/utils'
 import { useAuthStore } from '../store/auth'
@@ -27,10 +27,8 @@ const navItems = [
 function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t, language, setLanguage } = useI18n()
   const location = useLocation()
-  const navigate = useNavigate()
-  const queryClient = useQueryClient()
+  const logout = useLogout()
   const user = useAuthStore((state) => state.user)
-  const setAnonymous = useAuthStore((state) => state.setAnonymous)
   const isChat = location.pathname.startsWith('/chat')
 
   const conversations = useQuery({
@@ -39,25 +37,6 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
     enabled: isChat,
     staleTime: 30_000,
   })
-
-  const handleLogout = async () => {
-    const refreshToken = getRefreshToken()
-    try {
-      if (refreshToken !== null) {
-        await apiRequest('/auth/logout', {
-          method: 'POST',
-          body: { refresh_token: refreshToken },
-          auth: false,
-        })
-      }
-    } catch {
-      // Local logout is authoritative even when the server call fails.
-    }
-    clearTokens()
-    queryClient.clear()
-    setAnonymous()
-    navigate('/login', { replace: true })
-  }
 
   return (
     <aside
@@ -157,7 +136,7 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
           <button
             type="button"
             className="shrink-0 text-xs text-ink-muted underline-offset-2 hover:text-ink hover:underline"
-            onClick={() => void handleLogout()}
+            onClick={() => void logout()}
           >
             {t('nav.logout')}
           </button>

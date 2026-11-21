@@ -1,8 +1,9 @@
-import { useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 
 import { AppShell } from './components/AppShell'
 import { RequireAuth } from './components/RequireAuth'
+import { Spinner } from './components/ui/spinner'
 import { apiRequest } from './lib/http'
 import { clearTokens, hasSession, refreshAccessToken } from './lib/tokens'
 import type { User } from './lib/types'
@@ -11,8 +12,13 @@ import { NewChatPage } from './pages/chat/NewChatPage'
 import { KnowledgeDetailPage } from './pages/knowledge/KnowledgeDetailPage'
 import { KnowledgePage } from './pages/knowledge/KnowledgePage'
 import { LoginPage } from './pages/LoginPage'
-import { PlaceholderPage } from './pages/PlaceholderPage'
+import { ApiKeysPage } from './pages/settings/ApiKeysPage'
+import { ProfilePage } from './pages/settings/ProfilePage'
 import { useAuthStore } from './store/auth'
+
+const UsagePage = lazy(() =>
+  import('./pages/usage/UsagePage').then((module) => ({ default: module.UsagePage })),
+)
 
 export function App() {
   const setUser = useAuthStore((state) => state.setUser)
@@ -52,17 +58,21 @@ export function App() {
           <Route path="knowledge/:id" element={<KnowledgeDetailPage />} />
           <Route
             path="usage"
-            element={<PlaceholderPage titleKey="usage.title" leadKey="usage.lead" />}
+            element={
+              <Suspense
+                fallback={
+                  <div className="flex flex-1 items-center justify-center">
+                    <Spinner className="h-6 w-6 text-accent" />
+                  </div>
+                }
+              >
+                <UsagePage />
+              </Suspense>
+            }
           />
           <Route path="settings" element={<Navigate to="/settings/api-keys" replace />} />
-          <Route
-            path="settings/api-keys"
-            element={<PlaceholderPage titleKey="nav.apiKeys" leadKey="settings.lead" />}
-          />
-          <Route
-            path="settings/profile"
-            element={<PlaceholderPage titleKey="nav.profile" leadKey="settings.lead" />}
-          />
+          <Route path="settings/api-keys" element={<ApiKeysPage />} />
+          <Route path="settings/profile" element={<ProfilePage />} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/chat" replace />} />
