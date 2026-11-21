@@ -63,7 +63,7 @@ P1 必须补的现有缺口：
 
 原则：先补基础设施，再做新功能，最后前端与部署；每片独立可演示、可停止。
 
-### P1-S1 基础设施：Alembic + CI + 容器化 API
+### P1-S1 基础设施：Alembic + CI + 容器化 API — **已完成（2026-11-21）**
 
 **为什么先做**：P1 新增 `api_keys`、`usage_events`、`message_citations` 与 `ingestion_jobs` 字段，没有迁移会不断手改 schema。
 
@@ -159,7 +159,7 @@ P1 必须补的现有缺口：
 范围：
 
 - compose 全栈：`postgres`、`redis`、`api`、`worker`、`web`（nginx 提供静态前端）。
-- **局域网访问**：`http://192.168.29.100:8080`（web）与 `:8000`（api）；Docker 端口映射到 VM。
+- **局域网访问**：`http://192.168.29.100:8080`（web）与 `:8002`（api）；Docker 端口映射到 VM（8000/8001 已被 vLLM 占用）。
 - 不做公网、不做 HTTPS（后续需要时再加 Caddy/隧道）。
 - CORS 仅允许 `http://192.168.29.100:8080`；安全响应头。
 - 结构化日志落地文件/容器日志；记录 `request_id, user_id, provider, model, latency_ms, ttft_ms, error_code`。
@@ -210,7 +210,7 @@ P1 必须补的现有缺口：
 1. 局域网 URL（`http://192.168.29.100:8080`）可访问；`docker compose up -d` 可重建环境。
 2. 3 分钟 demo：注册 → 上传 → 带引用提问 → 历史回放引用 → 用量 → API Key → 用 Key 调用。
 3. CI 绿灯；后端覆盖率 ≥ 80%；RAG 评测基线不下降。
-4. 产出：`ADR-0004`（队列）、`ADR-0005`（API Key）、`ADR-0006`（部署）；P1 TDD 证据；README quickstart。
+4. 产出：`ADR-0005`（队列）、`ADR-0006`（API Key）、`ADR-0007`（部署）；`ADR-0004` 已用于会话认证；P1 TDD 证据；README quickstart。
 5. 安全检查：仓库无密钥、Key 明文不落库/日志、登录限流生效、CORS 收紧。
 
 ## 9. 已确认事项（2026-11-21）

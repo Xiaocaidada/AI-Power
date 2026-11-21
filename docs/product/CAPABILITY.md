@@ -100,7 +100,9 @@
 | Method | Path | Auth | 说明 |
 |---|---|---|---|
 | POST | `/auth/register` | — | email + password → user |
-| POST | `/auth/login` | — | → `access_token, token_type, expires_in` |
+| POST | `/auth/login` | — | → `access_token, token_type, expires_in, refresh_token, refresh_expires_in` |
+| POST | `/auth/refresh` | — | refresh token 轮换 → 新 access + refresh；旧 token 失效 |
+| POST | `/auth/logout` | — | 吊销 refresh token，幂等 204 |
 | GET | `/auth/me` | ✓ | 当前用户 |
 | GET | `/providers` | ✓ | 可用 provider/model 元数据（无密钥） |
 | POST | `/conversations` | ✓ | 创建会话（title/provider/model/kb_id?） |
@@ -197,8 +199,8 @@ class CitationBuilder(Protocol):
 
 ### 3.6 安全 / 策略
 
-- 密码哈希 argon2id；登录失败统一错误信息；登录限流（Redis，PROPOSED：10 次/分钟/IP）。
-- JWT：HS256（单服务，PROPOSED）；TTL 24h（PROPOSED）。
+- 密码哈希 argon2id；登录失败统一错误信息；登录限流（Redis，10 次/分钟/IP，FIXED）。
+- JWT：HS256；access TTL 30 分钟 + refresh 7 天（一次性轮换、可吊销；FIXED，见 [`ADR-0004`](../adr/0004-auth-sessions.md)）。
 - CORS 仅允许前端 origin（env 配置）。
 - 上传：MIME 白名单 + 扩展名双检；UUID 文件名；解析超时 60s/文件。
 - 日志脱敏：不记录 `Authorization`、API key、完整文档内容；只记 chunk 数/字符数。
@@ -282,5 +284,5 @@ class CitationBuilder(Protocol):
 4. S3 证据：[`docs/tdd/p0-s3-ingestion.md`](../tdd/p0-s3-ingestion.md)（105 tests, 96% coverage，含真实 bge-m3 冒烟与 pgvector 集成）。
 5. S4 证据：[`docs/tdd/p0-s4-retrieval.md`](../tdd/p0-s4-retrieval.md)（133 tests, 96% coverage，含真实 bge-m3 检索排序、HNSW 与 SQL 检索集成）。
 6. 评测基线：50 题中文评测集（20 文档），真实 bge-m3 下 Recall@5=1.000、Recall@1=0.960，见 [`docs/eval/retrieval-baseline.md`](../eval/retrieval-baseline.md)。
-7. P0 剩余：前端与用户控制台（P1）；每片后跑 `verification-loop`。
-8. P1 启动时用 `dashboard-builder` 做用户控制台。
+7. P1-S1 已完成：Alembic 迁移、refresh token（轮换/吊销）、登录限流、`/readyz`、Dockerfile/compose `api`/CI；证据见 [`docs/tdd/p1-s1-infra.md`](../tdd/p1-s1-infra.md)。
+8. P1 剩余：S2 队列、S3 用量/引用、S4 API Key、S5 前端（需二次确认）、S6 部署；每片后跑 `verification-loop`。
