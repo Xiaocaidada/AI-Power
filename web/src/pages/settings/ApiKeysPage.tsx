@@ -86,6 +86,13 @@ export function ApiKeysPage() {
     }
   }
 
+  const rotationThresholdMs = 90 * 24 * 3600 * 1000
+  const staleKeys = (keys.data ?? []).filter(
+    (key) =>
+      key.revoked_at === null &&
+      Date.now() - new Date(key.created_at).getTime() > rotationThresholdMs,
+  )
+
   return (
     <div className="flex-1 overflow-y-auto">
       <header className="flex items-center justify-between gap-4 border-b border-border bg-surface px-6 py-4">
@@ -103,6 +110,12 @@ export function ApiKeysPage() {
         {error !== null && (
           <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">
             {error}
+          </p>
+        )}
+
+        {staleKeys.length > 0 && (
+          <p role="status" className="rounded-lg bg-warning/10 px-3 py-2 text-sm text-warning">
+            {t('apiKeys.rotationHint', { count: staleKeys.length })}
           </p>
         )}
 

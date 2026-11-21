@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -18,7 +18,9 @@ import { Input } from '../../components/ui/input'
 import { Spinner } from '../../components/ui/spinner'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
-import type { QuotaSummary, UsageCost, UsageSummary } from '../../lib/types'
+import { mergePages, pageFromItems } from '../../lib/pagination'
+import type { QuotaSummary, TraceRecord, UsageCost, UsageSummary } from '../../lib/types'
+import { cn } from '../../lib/utils'
 import {
   defaultRange,
   fillDailyBuckets,
@@ -78,6 +80,21 @@ export function UsagePage() {
     enabled: validRange,
   })
   const costByKey = new Map((cost.data?.buckets ?? []).map((bucket) => [bucket.key, bucket]))
+
+  const traces = useInfiniteQuery({
+    queryKey: ['traces', 'recent'],
+    queryFn: async ({ pageParam }) =>
+      pageFromItems(
+        await apiRequest<TraceRecord[]>(
+          `/traces?limit=10${pageParam ? `&before=${pageParam}` : ''}`,
+        ),
+        10,
+      ),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.next,
+    enabled: validRange,
+  })
+  const traceRows = mergePages(traces.data?.pages)
 
   const buckets = usage.data?.buckets ?? []
   const totals = sumBuckets(buckets)
@@ -351,6 +368,50 @@ export function UsagePage() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
+            </section>
+
+            <section className="rounded-card border border-border bg-surface p-4">
+              <h2 className="mb-3 text-sm font-medium">{t('usage.recentRequests')}</h2>
+              <ul className="divide-y divide-border text-sm">
+                {traceRows.map((trace) => (
+                  <li key={trace.id} className="flex flex-wrap items-center gap-2 py-2">
+                    <span className="font-mono text-xs text-ink">
+                      {trace.request_id.slice(0, 8)}
+                    </span>
+                    <span
+                      className={cn(
+                        'text-xs',
+                        trace.status === 'completed' ? 'text-success' : 'text-danger',
+                      )}
+                    >
+                      {trace.status}
+                    </span>
+                    <span className="text-xs text-ink-muted">
+                      {trace.ttft_ms === null ? '—' : `${Math.round(trace.ttft_ms)} ms`}
+                      {' / '}
+                      {trace.total_ms === null ? '—' : `${Math.round(trace.total_ms)} ms`}
+                    </span>
+                    <span className="ml-auto text-[11px] text-ink-muted">
+                      {trace.created_at.slice(0, 19).replace('T', ' ')}
+                    </span>
+                  </li>
+                ))}
+                {traceRows.length === 0 && (
+                  <li className="py-2 text-sm text-ink-muted">{t('usage.noRequests')}</li>
+                )}
+              </ul>
+              {traces.hasNextPage && (
+                <div className="mt-2 flex justify-center">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={traces.isFetchingNextPage}
+                    onClick={() => void traces.fetchNextPage()}
+                  >
+                    {traces.isFetchingNextPage ? t('common.loading') : t('common.loadMore')}
+                  </Button>
+                </div>
+              )}
             </section>
 
             <section className="overflow-x-auto rounded-card border border-border bg-surface">

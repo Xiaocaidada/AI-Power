@@ -34,6 +34,7 @@ from app.schemas import (
     ConversationCreate,
     ConversationDetailOut,
     ConversationOut,
+    ErrorOut,
     MessageOut,
     SendMessageIn,
 )
@@ -633,7 +634,18 @@ async def _open_auto_stream(
     )
 
 
-@router.post("/{conversation_id}/messages")
+@router.post(
+    "/{conversation_id}/messages",
+    responses={
+        401: {"model": ErrorOut, "description": "Missing or invalid credentials"},
+        404: {"model": ErrorOut, "description": "Conversation not found"},
+        429: {
+            "model": ErrorOut,
+            "description": "Quota exceeded; includes Retry-After and X-Quota-* headers",
+        },
+        503: {"model": ErrorOut, "description": "No provider available"},
+    },
+)
 async def send_message(
     conversation_id: UUID,
     payload: SendMessageIn,

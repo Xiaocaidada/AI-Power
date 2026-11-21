@@ -22,7 +22,7 @@ from app.config import get_settings
 from app.db import get_session
 from app.deps import AuthContext, get_jwt_context, require_scope
 from app.models import Chunk, ChunkEmbedding, Document, IngestionJob
-from app.schemas import DocumentOut, DocumentUploadOut
+from app.schemas import DocumentOut, DocumentUploadOut, ErrorOut
 from app.services.access import get_owned_document, get_owned_knowledge_base
 from app.services.parsing import UnsupportedDocumentType
 from app.services.queue import JobQueue, get_queue
@@ -72,6 +72,13 @@ async def _enqueue_or_fail(
     "/knowledge-bases/{kb_id}/documents",
     response_model=DocumentUploadOut,
     status_code=status.HTTP_202_ACCEPTED,
+    responses={
+        404: {"model": ErrorOut, "description": "Knowledge base not found"},
+        413: {"model": ErrorOut, "description": "Upload exceeds MAX_UPLOAD_BYTES"},
+        415: {"model": ErrorOut, "description": "Unsupported document type"},
+        429: {"model": ErrorOut, "description": "Quota exceeded"},
+        503: {"model": ErrorOut, "description": "Ingestion queue unavailable"},
+    },
 )
 async def upload_document(
     kb_id: UUID,

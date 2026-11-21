@@ -190,7 +190,7 @@ export interface QuotaSummary {
 }
 
 export interface TraceRecord {
-  id?: string
+  id: string
   request_id: string
   conversation_id: string | null
   message_id: string | null
