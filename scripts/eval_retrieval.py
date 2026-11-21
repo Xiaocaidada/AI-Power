@@ -56,6 +56,8 @@ async def _run(args: argparse.Namespace) -> int:
         )
 
     print(f"Recall@{args.top_k}: {report.recall:.3f} ({report.hits}/{report.total})")
+    for question in report.missed:
+        print(f"  miss: {question}")
     return 0 if report.recall >= args.min_recall else 1
 
 
