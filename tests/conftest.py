@@ -115,6 +115,38 @@ def registry(fake_provider):
     app.dependency_overrides.pop(get_registry, None)
 
 
+class KeywordEmbedder:
+    """Deterministic 1024-dim embedder: each known keyword maps to one axis."""
+
+    def __init__(self, mapping: dict[str, int] | None = None) -> None:
+        self.mapping = dict(mapping or {})
+        self.calls: list[list[str]] = []
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        self.calls.append(list(texts))
+        return [self._vector(text) for text in texts]
+
+    def _vector(self, text: str) -> list[float]:
+        vector = [0.0] * 1024
+        for keyword, position in self.mapping.items():
+            if keyword in text:
+                vector[position] = 1.0
+        return vector
+
+
+@pytest.fixture
+def keyword_embedder() -> KeywordEmbedder:
+    return KeywordEmbedder()
+
+
+@pytest.fixture
+def fake_retrieval(monkeypatch, keyword_embedder):
+    from app.services import retrieval
+
+    monkeypatch.setattr(retrieval, "build_embedder", lambda: keyword_embedder)
+    return keyword_embedder
+
+
 @pytest.fixture
 def fake_ingestion(monkeypatch):
     from app.services import ingestion
