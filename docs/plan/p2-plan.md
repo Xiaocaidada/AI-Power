@@ -106,13 +106,15 @@ P2 必须补的差距：
 
 > **完成证据**：`docs/tdd/p2-s4-traces.md`。真实环境验证 completed trace（TTFT 6.7s / 总 8.1s）与跨租户 404；失败/auto/清理由单测覆盖。
 
-### P2-S5 前端平台化（约 1 周）
+### P2-S5 前端平台化 — **已完成（2026-11-21）**（约 1 周）
 
 - Workspace 切换器与成员管理页。
 - 模型广场：卡片、筛选标签、对比表；会话页支持 `auto`。
 - 配额页：余量、重置时间、计划说明。
 - Trace 抽屉：阶段耗时、provider 尝试。
 - 全部新增文案中英对齐；关键组件 Vitest；1 条 Playwright（workspace 隔离 + auto 降级）。
+
+> **完成证据**：`docs/tdd/p2-s5-frontend-platform.md`。workspace 切换/成员、模型广场/对比、配额面板、`auto` 选择与 trace 抽屉已实现；Playwright 顺延到 S6。
 
 ### P2-S6 收口与欠账（约 0.5–1 周，可与 S5 并行）
 
