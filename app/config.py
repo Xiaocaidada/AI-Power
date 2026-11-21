@@ -28,10 +28,29 @@ class Settings(BaseSettings):
     )
     provider_timeout_seconds: float = 60.0
 
+    upload_dir: str = "./uploads"
+    max_upload_bytes: int = 20 * 1024 * 1024
+    max_document_pages: int = 200
+    chunk_max_chars: int = 1000
+    chunk_overlap_chars: int = 150
+    embedding_base_url: str = "http://192.168.29.100:8000/v1"
+    embedding_api_key: str = ""
+    embedding_model: str = "bge-m3"
+    embedding_dim: int = 1024
+    embedding_batch_size: int = 16
+
     @model_validator(mode="after")
     def _forbid_dev_secret_outside_dev(self) -> "Settings":
         if self.app_env != "dev" and self.jwt_secret.startswith("dev-"):
             raise ValueError("JWT_SECRET must be set to a generated value outside dev")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_ingestion_settings(self) -> "Settings":
+        if self.chunk_overlap_chars >= self.chunk_max_chars:
+            raise ValueError("CHUNK_OVERLAP_CHARS must be smaller than CHUNK_MAX_CHARS")
+        if self.embedding_batch_size < 1:
+            raise ValueError("EMBEDDING_BATCH_SIZE must be >= 1")
         return self
 
 

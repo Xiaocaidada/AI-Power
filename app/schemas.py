@@ -106,3 +106,22 @@ class ProviderOut(BaseModel):
     id: str
     available: bool
     models: list[str] = Field(default_factory=list)
+
+
+class DocumentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    filename: str
+    mime: str
+    size_bytes: int
+    status: str
+    error_code: str | None
+    page_count: int | None
+    created_at: datetime
+
+
+class DocumentUploadOut(BaseModel):
+    id: UUID
+    status: str
+    duplicate: bool = False

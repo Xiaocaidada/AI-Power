@@ -159,9 +159,7 @@ async def test_embedder_failure_marks_document_failed(client, api, fake_ingestio
 async def test_page_limit_marks_document_failed(client, api, fake_ingestion):
     from app.services.parsing import ParsedPage
 
-    fake_ingestion.parser.pages = [
-        ParsedPage(page_no=index + 1, text="x") for index in range(201)
-    ]
+    fake_ingestion.parser.pages = [ParsedPage(page_no=index + 1, text="x") for index in range(201)]
     headers = await api.headers("pages@example.com")
     kb = await _create_kb(client, headers)
 

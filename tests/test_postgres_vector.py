@@ -76,13 +76,17 @@ async def test_pgvector_stores_1024_dimensions_and_orders_by_l2_distance():
                 )
             ).scalar_one()
             dimensions = (
-                await session.execute(text("SELECT vector_dims(embedding) FROM chunk_embeddings"))
+                await session.execute(
+                    text("SELECT vector_dims(embedding) FROM chunk_embeddings LIMIT 1")
+                )
             ).scalar_one()
 
             assert nearest == first.id
             assert dimensions == 1024
 
-            await session.execute(text("TRUNCATE chunk_embeddings, chunks, documents, knowledge_bases, users CASCADE"))
+            await session.execute(
+                text("TRUNCATE chunk_embeddings, chunks, documents, knowledge_bases, users CASCADE")
+            )
             await session.commit()
     finally:
         await engine.dispose()

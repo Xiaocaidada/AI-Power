@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import SessionLocal, get_session
 from app.deps import get_current_user, get_registry
-from app.models import Conversation, KnowledgeBase, Message, User
+from app.models import Conversation, Message, User
 from app.providers.base import ChatMessage, LLMProvider, ProviderError, Usage
 from app.providers.registry import ProviderRegistry
 from app.schemas import (
@@ -23,6 +23,7 @@ from app.schemas import (
     MessageOut,
     SendMessageIn,
 )
+from app.services.access import get_owned_knowledge_base
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 logger = logging.getLogger(__name__)
@@ -138,15 +139,7 @@ async def create_conversation(
         raise HTTPException(status.HTTP_404_NOT_FOUND, exc.message) from None
 
     if payload.kb_id is not None:
-        result = await session.execute(
-            select(KnowledgeBase).where(
-                KnowledgeBase.id == payload.kb_id,
-                KnowledgeBase.user_id == current_user.id,
-                KnowledgeBase.deleted_at.is_(None),
-            )
-        )
-        if result.scalar_one_or_none() is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Knowledge base not found")
+        await get_owned_knowledge_base(payload.kb_id, current_user.id, session)
 
     conversation = Conversation(
         user_id=current_user.id,

@@ -1,6 +1,3 @@
-from uuid import UUID
-
-import pytest
 from sqlalchemy import select
 
 
@@ -119,9 +116,7 @@ async def test_ingest_document_enforces_page_limit(fake_ingestion):
     from app.services.ingestion import ingest_document
     from app.services.parsing import ParsedPage
 
-    fake_ingestion.parser.pages = [
-        ParsedPage(page_no=index + 1, text="x") for index in range(201)
-    ]
+    fake_ingestion.parser.pages = [ParsedPage(page_no=index + 1, text="x") for index in range(201)]
     document_id, job_id = await _seed_document()
 
     await ingest_document(document_id)
