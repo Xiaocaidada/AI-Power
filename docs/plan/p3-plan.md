@@ -1,6 +1,6 @@
 # P3 规划：从平台化到 Agent 与应用层
 
-- **Status:** Draft（S1–S6 待用户确认后开工）
+- **Status:** Confirmed（2026-11-21；D1 按用户要求改为多 Agent，其余按建议）
 - **Date:** 2026-11-21
 - **Scope source:** [`PRODUCT-BRIEF.md`](../../PRODUCT-BRIEF.md) §3 P3、[`docs/product/CAPABILITY.md`](../product/CAPABILITY.md)
 - **前置:** P2 已完成（2026-11-21），见 [`p2-plan.md`](./p2-plan.md)、[`p2-s6-hardening.md`](../tdd/p2-s6-hardening.md)
@@ -9,12 +9,12 @@
 
 | 能力 | 完成标志 |
 |---|---|
-| Agent / 工具调用 | 至少 1 个可演示 Agent 场景：模型自行调用 `kb_search` 检索知识库、`calculator` 计算，多步循环在 SSE 中可见，回答带真实引用 |
+| Agent / 工具调用 | 至少 1 个可演示**多 Agent** 场景：supervisor 委派检索子 Agent 与计算子 Agent，工具与委派过程在 SSE 中可见，回答带真实引用 |
 | Prompt 管理 | workspace 级模板：创建、不可变版本、变量渲染预览；会话可绑定某个版本并复现 |
 | 成本面板 | usage_events 写入价格快照；按天/模型/Provider 汇总成本，与 token 用量一致 |
 | 管理后台 | 平台管理员可查看用户/workspace/用量、启用/禁用模型；管理员操作写审计日志 |
 | 开放 API | OpenAPI 文档补齐示例与错误契约；`curl`/Python quickstart 用 API Key 可跑通流式与非流式调用 |
-| 阶段验收 | 3 分钟 demo：Agent 调工具回答并引用 → 切换 Prompt 模板 → 成本面板对账 → 管理员禁用模型后广场消失 → 脚本调通开放 API |
+| 阶段验收 | 3 分钟 demo：supervisor 委派子 Agent 调工具回答并引用 → 切换 Prompt 模板 → 成本面板对账 → 管理员禁用模型后广场消失 → 脚本调通开放 API |
 
 P3 的目标是**可演示的产品纵深**，不是运营级计费系统。
 
@@ -32,47 +32,52 @@ P3 必须补的差距：
 | 无管理端 | 无平台管理员角色与后台 | 模型启停只能改数据库/种子脚本，无法演示运营能力 |
 | 开放 API 不完整 | 有 `X-API-Key` 与自动 OpenAPI | 缺错误码契约、示例与稳定说明，外部接入成本高 |
 
-## 3. 关键决策（待确认）
+## 3. 关键决策（已确认）
 
 | # | 决策 | 建议 | 备选 |
 |---|---|---|---|
-| D1 | Agent 形态 | **单 Agent + 工具循环**（最多 5 步），SSE 增加 `tool_call` / `tool_result`；不做多 Agent、不做 DAG | 工作流编排引擎（范围过大，留 P4） |
+| D1 | Agent 形态 | **Supervisor + 专业子 Agent**：`supervisor` 负责分解与委派，`retrieval` / `math` 子 Agent 各持工具；委派走内置工具 `delegate_to_agent`；最多 2 层、总步数 ≤8、子 Agent 不再委派（防递归）；SSE 增加 `agent_start` / `agent_end` / `tool_call` / `tool_result`；仍不做 DAG/可视化编排 | 单 Agent 工具循环（用户已明确要求多 Agent，不采用） |
 | D2 | 工具协议 | **provider 无关的 JSON 工具协议**（提示词声明工具 + 解析模型输出）；检测到 provider 支持原生 `tool_calls` 时走原生，内部统一 `ToolCall` 结构 | 只支持原生 function calling（本地 llama.cpp 模型可能不支持，演示会挂） |
 | D3 | 内置工具 | `kb_search`（复用检索、workspace 隔离）、`calculator`（AST 白名单，禁止 `eval`）、`current_time`；`http_fetch` 仅在配置 allowlist 且默认关闭时提供 | 全开放 HTTP 工具（SSRF 风险，不建议） |
 | D4 | Prompt 管理 | **workspace 级模板 + 不可变版本**；会话绑定 `prompt_version_id`，历史可复现 | 全局模板（无法按团队定制） |
 | D5 | 成本口径 | **写入时快照价格**：`usage_events` 增加 `input_price` / `output_price` / `cost`，来自当时 catalog；缺价记 0 并标记 `unpriced` | 查询时 join 现价（历史会漂移，不能对账） |
 | D6 | 管理员 | 复用 `users.role = "admin"` 作为**平台管理员**，与 workspace `owner` 区分；非管理员访问 `/admin/*` 返回 404；管理员操作写 `audit_logs` | 仅结构化日志（不可查询、不可演示审计） |
 | D7 | 开放 API 版本 | **不引入 `/v1` 前缀**（避免全局破坏性改动），冻结现有契约、补齐错误码文档与示例 | 迁移到 `/api/v1`（收益低、成本高） |
-| D8 | Agent 配额 | 工具循环的**每次 LLM 调用都累积 token 到同一条 message 用量**，每步前检查配额，步数上限 5，防止绕过 | 只按最终回答计量（会低估成本、可被滥用） |
+| D8 | Agent 配额 | 多 Agent 循环的**每次 LLM 调用都累积 token 到同一条 message 用量**，每步前检查配额，总步数上限 8，防止绕过 | 只按最终回答计量（会低估成本、可被滥用） |
 | D9 | P2 欠账 | P3-S6 顺带补：前端"加载更多"分页、429 倒计时、API Key 轮换提示；暗色主题仍为可选 | 全部推迟（欠账继续滚） |
+| D10 | 多 Agent 测试策略 | **测试全部使用确定性脚本化假 provider**（按剧本返回委派/工具调用/回答），不依赖真实模型；真实环境验证为 best-effort，本地模型带不动时允许跳过并记录原因 | 依赖真实模型跑测试（硬件不足即红，不可持续） |
 
-> **待用户确认（2026-11-21）**：D1–D9 按建议执行，或指出要改的项。确认前不写代码。
+> **已确认（2026-11-21）**：D1 按用户要求改为多 Agent（supervisor + 子 Agent）；D2–D10 按建议执行。多 Agent 真机演示受本地模型算力限制，允许测试降级（见 D10 与 §7）。
 
 ## 4. 切片与顺序
 
 原则：先工具框架与安全，再 Prompt 与成本，再管理端，最后开放 API 与收口；每片可独立演示。
 
-### P3-S1 Agent 工具框架（约 1–1.5 周）
+### P3-S1 多 Agent 工具框架（约 1.5–2 周）
 
 - `app/tools/`：`ToolSpec(name, description, parameters_schema, handler)`、`ToolRegistry`、`ToolContext(workspace, user, session, redis)`。
-- Agent 循环（放在 `app/services/agent.py`，不塞进 router）：
-  1. 组装带工具声明的消息；
-  2. 模型输出解析为 `ToolCall` 或最终回答；
-  3. 校验参数 → 执行工具 → 观察结果以不可信数据包裹回填；
-  4. 最多 `AGENT_MAX_STEPS=5`，每步检查配额与超时。
-- SSE 契约扩展（向后兼容）：新增 `tool_call`、`tool_result`，出现在 `meta` 之后、`delta` 之前或之间；现有前端忽略未知事件不报错。
-- `traces` 增加工具摘要（JSON：工具名、耗时、成功/失败），失败带 `tool_error` 错误码。
-- 会话创建支持 `agent: bool` 与可选 `tools: [..]`，默认关闭；消息 finalize 时累加全部步数 token。
-- 验收：`agent=true` 的会话问"知识库里 X 是什么？帮我算一下 Y"，SSE 可见工具调用，回答带引用，trace 记录工具耗时。
+- `app/agents/`：`AgentSpec(name, system_prompt, tools, max_steps)`、`AgentRegistry`；内置 `supervisor`、`retrieval`、`math` 三个 Agent。
+- 执行循环（`app/services/agent.py`，不塞进 router）：
+  1. supervisor 组装带工具声明（含 `delegate_to_agent`）的消息；
+  2. 模型输出解析为 `ToolCall`、委派或最终回答；
+  3. 执行工具/委派（子 Agent 使用自己的 system prompt 与工具集，**不再可委派**）；
+  4. 子 Agent 结果以不可信数据包裹回填 supervisor；
+  5. 总步数上限 `AGENT_MAX_STEPS=8`、深度 ≤2、单工具超时 10s，每步检查配额。
+- SSE 契约扩展（向后兼容）：新增 `agent_start`、`agent_end`、`tool_call`、`tool_result`；现有前端忽略未知事件不报错。
+- `traces` 增加 agent 摘要（JSON：agent 名、工具名、耗时、成功/失败、父子关系），失败带 `tool_error` / `agent_step_limit`。
+- 会话创建支持 `agent: bool`（启用 supervisor + 子 Agent，默认关闭）；消息 finalize 时累加全部步数 token。
+- 测试使用 D10 的脚本化假 provider；真机验证为 best-effort。
+- 验收：`agent=true` 的会话问"知识库里 X 是什么？帮我算一下 Y"，SSE 可见 supervisor 委派 `retrieval` 与 `math`，回答带引用，trace 记录各 Agent 与工具耗时。
 
 ### P3-S2 内置工具与安全（约 1 周）
 
+- 工具挂载：`retrieval` Agent → `kb_search` / `current_time`；`math` Agent → `calculator`；supervisor 只持 `delegate_to_agent`。
 - `kb_search`：调用现有 `retrieve_chunks`，强制当前 workspace + 会话 `kb_id`，返回 chunk 摘要（截断），引用随最终回答持久化。
 - `calculator`：AST 白名单（数字、四则、括号、幂、有限函数），拒绝属性访问/导入/超长表达式。
 - `current_time`：UTC + 指定时区（白名单）。
 - 工具参数用 Pydantic 校验；单工具超时（默认 10s）、输出上限（默认 4k 字符）；异常转成 `tool_result(error=...)` 回给模型，不中断整个流。
 - 可选 `http_fetch`：仅当 `TOOL_HTTP_ALLOWLIST` 非空时注册，校验 scheme/域名/IP（拒绝私网与重定向到私网）。
-- 测试：跨 workspace 的 `kb_search` 不可见；`calculator` 拒绝 `__import__`、`().__class__`、超长表达式；超时/步数上限；工具失败仍产出回答。
+- 测试：跨 workspace 的 `kb_search` 不可见；`calculator` 拒绝 `__import__`、`().__class__`、超长表达式；子 Agent 再委派被拒绝；超时/总步数上限；工具失败仍产出回答。
 
 ### P3-S3 Prompt 模板（约 1 周）
 
@@ -108,11 +113,11 @@ P3 必须补的差距：
 - ADR：0012（Agent 与工具协议）、0013（Prompt 版本化）、0014（成本快照）、0015（管理后台与审计）。
 - README/CLAUDE 更新；P3 TDD 证据归档。
 
-## 5. 排期（约 4–6 周）
+## 5. 排期（约 4.5–6.5 周）
 
 | 顺序 | 切片 | 预估 |
 |---|---|---|
-| 1 | P3-S1 Agent 框架 | 1–1.5 周 |
+| 1 | P3-S1 多 Agent 框架 | 1.5–2 周 |
 | 2 | P3-S2 工具与安全 | 1 周 |
 | 3 | P3-S3 Prompt 模板 | 1 周 |
 | 4 | P3-S4 成本面板 | 1 周 |
@@ -132,7 +137,9 @@ P3 必须补的差距：
 
 | 风险 | 对策 |
 |---|---|
-| 工具循环拖慢响应、放大成本 | 步数上限 5、单工具超时 10s、每步配额检查、trace 记录 |
+| 多 Agent 拖慢响应、放大成本 | 总步数上限 8、深度 ≤2、单工具超时 10s、每步配额检查、trace 记录 |
+| 本地模型算力不足（多 Agent 多轮调用） | 测试使用脚本化假 provider（D10）；真机验证可降级/跳过并记录原因；步数与超时可配置 |
+| 委派递归/循环 | 子 Agent 不可再委派；同一任务重复委派去重；深度与总步数硬上限 |
 | 本地模型不会调工具 | provider 无关 JSON 协议 + 原生 tool_calls 双通道；模板给 few-shot 示例 |
 | 工具结果注入（间接提示注入） | 工具输出视为不可信数据，包裹标签并声明"非指令"；工具只能由注册表执行 |
 | `calculator` 代码执行 | AST 白名单，禁 `eval`/导入/属性访问；恶意输入测试 |
@@ -142,7 +149,7 @@ P3 必须补的差距：
 
 ## 8. P3 完成定义（DoD）
 
-1. 至少 1 个 Agent 场景可演示：多步工具调用、SSE 可见、回答带引用、trace 记录工具耗时。
+1. 至少 1 个多 Agent 场景可演示：supervisor 委派子 Agent、多步工具调用、SSE 可见、回答带引用、trace 记录各 Agent/工具耗时；硬件不足时允许以脚本化假 provider 验收。
 2. Prompt 模板支持版本化、变量渲染，会话绑定版本且可回溯。
 3. 成本面板数字与 token 用量 × 快照价格一致；改价不影响历史。
 4. 管理员可启停模型并看到即时生效；审计日志可查；非管理员 404。
@@ -152,6 +159,6 @@ P3 必须补的差距：
 
 ## 9. 门禁
 
-- 本计划需用户确认 D1–D9 后才进入编码。
+- 本计划已确认（2026-11-21）：D1 改为多 Agent，D2–D10 按建议；确认后进入编码仍需逐片批准。
 - 与 P1/P2 相同：**每片编码前需用户明确批准**；每片完成产出 TDD 证据并合回 `main`。
 - 未列入本计划的 P4 功能不得提前实现。
