@@ -1,10 +1,18 @@
 import os
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 _TEST_DIR = Path(tempfile.mkdtemp(prefix="ai_power_tests_"))
+_UPLOAD_DIR = Path(tempfile.mkdtemp(prefix="ai_power_uploads_"))
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{(_TEST_DIR / 'test.db').as_posix()}"
 os.environ["JWT_SECRET"] = "test-only-secret-0123456789-abcdefghijklmnop"
+os.environ["UPLOAD_DIR"] = _UPLOAD_DIR.as_posix()
+os.environ["MAX_UPLOAD_BYTES"] = str(20 * 1024 * 1024)
+os.environ["MAX_DOCUMENT_PAGES"] = "200"
+os.environ["CHUNK_MAX_CHARS"] = "100"
+os.environ["CHUNK_OVERLAP_CHARS"] = "20"
+os.environ["EMBEDDING_BATCH_SIZE"] = "2"
 
 import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402
@@ -105,3 +113,36 @@ def registry(fake_provider):
     app.dependency_overrides[get_registry] = lambda: provider_registry
     yield provider_registry
     app.dependency_overrides.pop(get_registry, None)
+
+
+@pytest.fixture
+def fake_ingestion(monkeypatch):
+    from app.services import ingestion
+    from app.services.parsing import ParsedDocument, ParsedPage
+
+    class FakeParser:
+        def __init__(self) -> None:
+            self.pages = [ParsedPage(page_no=1, text="hello world")]
+            self.error: Exception | None = None
+
+        def parse(self, path, mime):
+            if self.error is not None:
+                raise self.error
+            return ParsedDocument(pages=self.pages)
+
+    class FakeEmbedder:
+        def __init__(self) -> None:
+            self.batches: list[list[str]] = []
+            self.error: Exception | None = None
+
+        async def embed(self, texts):
+            if self.error is not None:
+                raise self.error
+            self.batches.append(list(texts))
+            return [[0.1] * 1024 for _ in texts]
+
+    parser = FakeParser()
+    embedder = FakeEmbedder()
+    monkeypatch.setattr(ingestion, "build_parser", lambda mime: parser)
+    monkeypatch.setattr(ingestion, "build_embedder", lambda: embedder)
+    return SimpleNamespace(parser=parser, embedder=embedder)
