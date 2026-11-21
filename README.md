@@ -24,6 +24,7 @@
 | 配额 | workspace 请求/token 与 Key 限流，429 + 配额响应头 |
 | 可观测 | `traces` 记录检索/TTFT/总耗时/尝试次数，7 天保留 |
 | 工作流 | 版本化 DAG、LLM/检索/工具/Agent/条件/并行节点、SSE 时间线与前端管理页 |
+| 多 Agent 协作 | planner 拆解 → worker 并行 → critic 复核（≤2 轮），全局步数预算与协作时间线 |
 | 管理后台 | 平台管理员查看用户/Workspace/全局用量、启停模型，操作写审计日志 |
 | 运维 | `/healthz`、`/readyz`、请求 ID、结构化日志、每日备份、压测脚本 |
 

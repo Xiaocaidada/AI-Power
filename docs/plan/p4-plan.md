@@ -1,6 +1,6 @@
 # P4 规划：工作流、多 Agent 协作与生产化
 
-- **Status:** In progress（D1–D9 已确认；S1–S2 已完成 2026-11-21，S3–S6 待逐片批准）
+- **Status:** In progress（D1–D9 已确认；S1–S3 已完成 2026-11-21，S4–S6 待逐片批准）
 - **Date:** 2026-11-21
 - **Scope source:** [`PRODUCT-BRIEF.md`](../../PRODUCT-BRIEF.md) §3 P3/P4、[`docs/plan/p3-plan.md`](./p3-plan.md)
 - **前置:** P3 已完成（2026-11-21），见 [`p3-plan.md`](./p3-plan.md)、[`p3-s6-polish.md`](../tdd/p3-s6-polish.md)
@@ -69,12 +69,14 @@ P4 仍**不做真实支付/计费**，不追求公网多租户 SaaS。
 
 > **完成证据**：`docs/tdd/p4-s2-workflow-nodes.md`。`tool`/`agent`/`condition`/`parallel`/`join` 节点、分支跳过与合并、并发上限、`/workflows` 页面（JSON 定义编辑 + SSE 时间线）已完成；编辑器不是拖拽画布。
 
-### P4-S3 多 Agent 协作（约 1–1.5 周）
+### P4-S3 多 Agent 协作 — **已完成（2026-11-21）**（约 1–1.5 周）
 
 - 新增协作模式：`planner` 拆解任务为子任务 → `worker` 并行执行（复用 retrieval/math/general）→ `critic` 评分/提出修改（≤2 轮）。
 - 全局预算：总步数、并发、单任务超时；每步配额检查；所有 worker/critic 调用计入同一消息/run 成本。
 - 前端：协作 run 的 agent 时间线（planner/worker/critic 节点）。
 - 验收：planner 产出 ≥2 子任务并并行；critic 最多两轮后收敛；trace 记录各角色耗时与 token。
+
+> **完成证据**：`docs/tdd/p4-s3-collaboration.md`。planner/worker/critic 流程、revise 重做、全局步数预算、run/step 持久化与 `/collaborations` 时间线已完成；成本只记协作表。
 
 ### P4-S4 生产可观测与预算告警（约 1 周）
 
