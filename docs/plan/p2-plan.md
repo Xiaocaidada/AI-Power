@@ -68,7 +68,7 @@ P2 必须补的差距：
 
 > **完成证据**：`docs/tdd/p2-s1-workspaces.md`。Postgres 实库 17 用户 → 17 个人 workspace，回填无 NULL；真实 API 验证共享/隔离/成员移除/Key 绑定。
 
-### P2-S2 模型目录、广场与路由降级（约 1.5 周）
+### P2-S2 模型目录、广场与路由降级 — **已完成（2026-11-21）**（约 1.5 周）
 
 - `model_catalog(provider_id, model_id, display_name, context_window, input_price, output_price, tags, priority, enabled)`；种子脚本合并 `/providers` 实时结果。
 - `GET /models`：目录 + 健康状态（Redis 熔断：连续失败 N 次冷却 60s）。
@@ -78,6 +78,8 @@ P2 必须补的差距：
 - trace 记录每次尝试（provider、耗时、结果）。
 
 验收：禁用首选 provider 后 `auto` 会话仍成功；全部不可用时返回 503 `no_provider_available`；对比接口返回 2–3 个模型差异。
+
+> **完成证据**：`docs/tdd/p2-s2-routing.md`。真实环境验证目录/对比/单 provider `auto`；双 provider 降级与 503 由单测覆盖。
 
 ### P2-S3 配额与限流（约 1 周）
 
