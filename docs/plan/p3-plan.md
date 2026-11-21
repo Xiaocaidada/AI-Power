@@ -1,6 +1,6 @@
 # P3 规划：从平台化到 Agent 与应用层
 
-- **Status:** In progress（S1–S2 已完成 2026-11-21；S3–S6 待逐片批准）
+- **Status:** In progress（S1–S3 已完成 2026-11-21；S4–S6 待逐片批准）
 - **Date:** 2026-11-21
 - **Scope source:** [`PRODUCT-BRIEF.md`](../../PRODUCT-BRIEF.md) §3 P3、[`docs/product/CAPABILITY.md`](../product/CAPABILITY.md)
 - **前置:** P2 已完成（2026-11-21），见 [`p2-plan.md`](./p2-plan.md)、[`p2-s6-hardening.md`](../tdd/p2-s6-hardening.md)
@@ -83,13 +83,15 @@ P3 必须补的差距：
 
 > **完成证据**：`docs/tdd/p3-s2-tools.md`。`kb_search`（workspace + KB 双重过滤、引用回传）与 `calculator`（AST 白名单）已完成；`http_fetch` 按默认关闭处理，未注册。
 
-### P3-S3 Prompt 模板（约 1 周）
+### P3-S3 Prompt 模板 — **已完成（2026-11-21）**（约 1 周）
 
 - 表：`prompt_templates(id, workspace_id, name, description, created_by, created_at)`、`prompt_versions(id, template_id, version, system_prompt, variables, created_at)`；版本只增不改。
 - API：模板 CRUD、版本列表/创建、`POST /prompt-templates/{id}/render`（变量校验 + 预览）。
 - 会话绑定 `prompt_version_id`；非 Agent 与 Agent 都使用模板（无模板时回退现有默认 prompt）。
 - 前端：模板列表/编辑器/变量预览；新建会话时选择模板。
 - 验收：模板含 `{{tone}}`，渲染替换正确；会话历史回放显示所用版本；删除模板不影响已绑定会话。
+
+> **完成证据**：`docs/tdd/p3-s3-prompts.md`。模板/版本/渲染 API、会话 Prompt 快照、Agent/RAG 接入与前端管理页已完成；软删除保留已绑定会话。
 
 ### P3-S4 成本面板（约 1 周）
 
