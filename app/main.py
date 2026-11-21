@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.clients import close_redis
 from app.config import get_settings
 from app.db import init_db
+from app.metrics import MetricsMiddleware
 from app.observability import RequestContextMiddleware, configure_logging
 from app.routers import (
     admin,
@@ -24,6 +25,9 @@ from app.routers import (
     usage,
     workflows,
     workspaces,
+)
+from app.routers import (
+    metrics as metrics_router,
 )
 from app.services.queue import close_queue
 
@@ -77,6 +81,7 @@ app.add_middleware(
     max_age=600,
 )
 app.add_middleware(RequestContextMiddleware)
+app.add_middleware(MetricsMiddleware)
 app.include_router(auth.router)
 app.include_router(api_keys.router)
 app.include_router(health.router)
@@ -92,3 +97,4 @@ app.include_router(prompts.router)
 app.include_router(admin.router)
 app.include_router(workflows.router)
 app.include_router(collaborations.router)
+app.include_router(metrics_router.router)

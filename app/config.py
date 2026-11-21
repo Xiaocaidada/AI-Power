@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     quota_pro_requests_per_minute: int = 600
     quota_pro_tokens_per_day: int = 5_000_000
     quota_pro_max_keys: int = 50
+    quota_free_daily_cost_usd: float = 1.0
+    quota_pro_daily_cost_usd: float = 50.0
+    budget_webhook_url: str = ""
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://192.168.29.100:8080"
 
     deepseek_base_url: str = "https://api.deepseek.com"
@@ -155,6 +158,9 @@ class Settings(BaseSettings):
         ):
             if getattr(self, name) < 1:
                 raise ValueError(f"{name.upper()} must be >= 1")
+        for name in ("quota_free_daily_cost_usd", "quota_pro_daily_cost_usd"):
+            if getattr(self, name) <= 0:
+                raise ValueError(f"{name.upper()} must be > 0")
         return self
 
     @model_validator(mode="after")

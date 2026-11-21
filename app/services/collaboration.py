@@ -16,6 +16,7 @@ from app.agents.registry import AgentRegistry
 from app.clients import RedisLike
 from app.config import get_settings
 from app.db import SessionLocal
+from app.metrics import record_usage_metrics
 from app.models import CollaborationRun, CollaborationStep
 from app.providers.base import ChatMessage, ProviderError, Usage
 from app.providers.registry import ProviderRegistry
@@ -368,6 +369,13 @@ class CollaborationRunner:
             return 0.0
         cost = compute_cost(usage.prompt_tokens, usage.completion_tokens, input_price, output_price)
         self._cost += cost
+        record_usage_metrics(
+            prompt_tokens=usage.prompt_tokens,
+            completion_tokens=usage.completion_tokens,
+            cost=cost,
+            provider_id=self._provider_id,
+            model=self._model,
+        )
         return cost
 
     async def _start_step(self, role: str, key: str, input_summary: str) -> UUID:

@@ -1,6 +1,6 @@
 # P4 规划：工作流、多 Agent 协作与生产化
 
-- **Status:** In progress（D1–D9 已确认；S1–S3 已完成 2026-11-21，S4–S6 待逐片批准）
+- **Status:** In progress（D1–D9 已确认；S1–S4 已完成 2026-11-21，S5–S6 待逐片批准）
 - **Date:** 2026-11-21
 - **Scope source:** [`PRODUCT-BRIEF.md`](../../PRODUCT-BRIEF.md) §3 P3/P4、[`docs/plan/p3-plan.md`](./p3-plan.md)
 - **前置:** P3 已完成（2026-11-21），见 [`p3-plan.md`](./p3-plan.md)、[`p3-s6-polish.md`](../tdd/p3-s6-polish.md)
@@ -78,12 +78,14 @@ P4 仍**不做真实支付/计费**，不追求公网多租户 SaaS。
 
 > **完成证据**：`docs/tdd/p4-s3-collaboration.md`。planner/worker/critic 流程、revise 重做、全局步数预算、run/step 持久化与 `/collaborations` 时间线已完成；成本只记协作表。
 
-### P4-S4 生产可观测与预算告警（约 1 周）
+### P4-S4 生产可观测与预算告警 — **已完成（2026-11-21）**（约 1 周）
 
 - `/metrics`：HTTP 请求数/延迟直方图、SSE 活跃流、token/成本计数、队列长度、死信、熔断状态（文本格式，不依赖额外库或轻量 `prometheus_client`）。
 - 预算：workspace 日成本阈值（settings/plan），超阈值写审计 + 管理端提示；可选 webhook。
 - compose 可选 `profiles: ["observability"]` 启动 Prometheus（Grafana 可选）。
 - 验收：抓取 `/metrics` 能看到关键序列；超预算触发一次告警记录。
+
+> **完成证据**：`docs/tdd/p4-s4-metrics.md`。指标注册表、HTTP/SSE/token/成本/队列/熔断指标、每日预算审计与可选 Prometheus profile 已完成；预算只覆盖消息用量。
 
 ### P4-S5 运营增强与可选 HTTPS（约 0.5–1 周）
 

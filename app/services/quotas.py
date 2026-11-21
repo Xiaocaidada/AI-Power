@@ -24,6 +24,7 @@ class PlanLimits:
     requests_per_minute: int
     tokens_per_day: int
     max_keys: int
+    daily_cost_usd: float
 
 
 def plan_limits(plan: str) -> PlanLimits:
@@ -33,11 +34,13 @@ def plan_limits(plan: str) -> PlanLimits:
             requests_per_minute=settings.quota_pro_requests_per_minute,
             tokens_per_day=settings.quota_pro_tokens_per_day,
             max_keys=settings.quota_pro_max_keys,
+            daily_cost_usd=settings.quota_pro_daily_cost_usd,
         )
     return PlanLimits(
         requests_per_minute=settings.quota_free_requests_per_minute,
         tokens_per_day=settings.quota_free_tokens_per_day,
         max_keys=settings.quota_free_max_keys,
+        daily_cost_usd=settings.quota_free_daily_cost_usd,
     )
 
 

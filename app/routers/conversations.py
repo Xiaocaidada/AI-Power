@@ -25,6 +25,7 @@ from app.deps import (
     get_tool_registry,
     require_scope,
 )
+from app.metrics import record_usage_metrics, track_sse_stream
 from app.models import Conversation, Message, MessageCitation, Trace, UsageEvent
 from app.observability import request_id_var
 from app.providers.base import ChatChunk, ChatMessage, LLMProvider, ProviderError, Usage
@@ -40,6 +41,7 @@ from app.schemas import (
 )
 from app.services.access import get_owned_knowledge_base
 from app.services.agent import AgentFailure, AgentRunner
+from app.services.budget import check_workspace_budget
 from app.services.costs import compute_cost, price_snapshot
 from app.services.prompts import resolve_conversation_prompt
 from app.services.quotas import add_token_usage, enforce_quota
@@ -119,6 +121,7 @@ async def _finalize(
     usage: Usage | None,
     workspace_id: UUID,
     citations: Sequence[Citation] = (),
+    redis: RedisLike | None = None,
 ) -> None:
     try:
         async with SessionLocal() as session:
@@ -138,6 +141,12 @@ async def _finalize(
                     input_price, output_price = await price_snapshot(
                         session, message.provider_id, message.model
                     )
+                    cost = compute_cost(
+                        message.prompt_tokens,
+                        message.completion_tokens,
+                        input_price,
+                        output_price,
+                    )
                     session.add(
                         UsageEvent(
                             workspace_id=workspace_id,
@@ -150,15 +159,18 @@ async def _finalize(
                             completion_tokens=message.completion_tokens,
                             input_price=input_price,
                             output_price=output_price,
-                            cost=compute_cost(
-                                message.prompt_tokens,
-                                message.completion_tokens,
-                                input_price,
-                                output_price,
-                            ),
+                            cost=cost,
                             unpriced=input_price is None or output_price is None,
                         )
                     )
+                    record_usage_metrics(
+                        prompt_tokens=message.prompt_tokens,
+                        completion_tokens=message.completion_tokens,
+                        cost=cost,
+                        provider_id=message.provider_id,
+                        model=message.model,
+                    )
+                    await check_workspace_budget(session, redis, workspace_id)
                 if citations:
                     existing_citations = await session.execute(
                         select(MessageCitation.id)
@@ -270,7 +282,9 @@ async def _stream_reply(
                 status="completed",
                 total_ms=round((time.perf_counter() - started) * 1000, 1),
             )
-        await _finalize(assistant_id, "".join(parts), "completed", usage, workspace_id, citations)
+        await _finalize(
+            assistant_id, "".join(parts), "completed", usage, workspace_id, citations, redis=redis
+        )
     except asyncio.CancelledError:
         await accrue_tokens()
         if trace_id is not None and started is not None:
@@ -279,7 +293,9 @@ async def _stream_reply(
                 status="cancelled",
                 total_ms=round((time.perf_counter() - started) * 1000, 1),
             )
-        await _finalize(assistant_id, "".join(parts), "cancelled", usage, workspace_id, citations)
+        await _finalize(
+            assistant_id, "".join(parts), "cancelled", usage, workspace_id, citations, redis=redis
+        )
         raise
     except ProviderError as exc:
         await accrue_tokens()
@@ -293,7 +309,9 @@ async def _stream_reply(
                 total_ms=round((time.perf_counter() - started) * 1000, 1),
             )
         yield _sse("error", {"code": exc.code, "message": exc.message})
-        await _finalize(assistant_id, "".join(parts), "failed", usage, workspace_id, citations)
+        await _finalize(
+            assistant_id, "".join(parts), "failed", usage, workspace_id, citations, redis=redis
+        )
     except Exception:
         await accrue_tokens()
         if redis is not None:
@@ -307,7 +325,9 @@ async def _stream_reply(
             )
         logger.exception("streaming failed for message %s", assistant_id)
         yield _sse("error", {"code": "internal_error", "message": "Streaming failed"})
-        await _finalize(assistant_id, "".join(parts), "failed", usage, workspace_id, citations)
+        await _finalize(
+            assistant_id, "".join(parts), "failed", usage, workspace_id, citations, redis=redis
+        )
 
 
 async def _stream_agent_reply(
@@ -446,7 +466,9 @@ async def _stream_agent_reply(
                 agents=runner.tool_records or None,
             )
         yield _sse("error", {"code": exc.code, "message": exc.message})
-        await _finalize(assistant_id, "".join(parts), "failed", usage, workspace_id, tool_citations)
+        await _finalize(
+            assistant_id, "".join(parts), "failed", usage, workspace_id, tool_citations, redis=redis
+        )
     except ProviderError as exc:
         usage = await finish()
         await record_failure(redis, provider.id)
@@ -459,7 +481,9 @@ async def _stream_agent_reply(
                 agents=runner.tool_records or None,
             )
         yield _sse("error", {"code": exc.code, "message": exc.message})
-        await _finalize(assistant_id, "".join(parts), "failed", usage, workspace_id, tool_citations)
+        await _finalize(
+            assistant_id, "".join(parts), "failed", usage, workspace_id, tool_citations, redis=redis
+        )
     except Exception:
         usage = await finish()
         await record_failure(redis, provider.id)
@@ -473,7 +497,9 @@ async def _stream_agent_reply(
             )
         logger.exception("agent streaming failed for message %s", assistant_id)
         yield _sse("error", {"code": "internal_error", "message": "Agent run failed"})
-        await _finalize(assistant_id, "".join(parts), "failed", usage, workspace_id, tool_citations)
+        await _finalize(
+            assistant_id, "".join(parts), "failed", usage, workspace_id, tool_citations, redis=redis
+        )
 
 
 @router.post("", response_model=ConversationOut, status_code=status.HTTP_201_CREATED)
@@ -822,7 +848,7 @@ async def send_message(
         )
 
     return StreamingResponse(
-        response_stream,
+        track_sse_stream(response_stream),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

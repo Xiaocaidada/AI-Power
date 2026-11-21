@@ -14,6 +14,7 @@ from app.agents.registry import AgentRegistry
 from app.clients import RedisLike
 from app.config import get_settings
 from app.db import SessionLocal
+from app.metrics import record_usage_metrics
 from app.models import WorkflowNodeRun, WorkflowRun
 from app.providers.base import ChatMessage, ProviderError, Usage
 from app.providers.registry import ProviderRegistry
@@ -419,8 +420,14 @@ class WorkflowRunner:
         except Exception:
             logger.warning("failed to read model price for workflow node", exc_info=True)
             return
-        self._cost += compute_cost(
-            usage.prompt_tokens, usage.completion_tokens, input_price, output_price
+        cost = compute_cost(usage.prompt_tokens, usage.completion_tokens, input_price, output_price)
+        self._cost += cost
+        record_usage_metrics(
+            prompt_tokens=usage.prompt_tokens,
+            completion_tokens=usage.completion_tokens,
+            cost=cost,
+            provider_id=provider_id,
+            model=model,
         )
 
     def _join_outputs(self, node: WorkflowNode) -> str:

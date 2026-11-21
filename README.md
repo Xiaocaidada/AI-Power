@@ -22,7 +22,8 @@
 | Prompt 模板 | workspace 级模板与不可变版本、`{{变量}}` 渲染、会话 Prompt 快照 |
 | 界面 | 中英文切换、明暗主题（跟随系统/本地记忆） |
 | 配额 | workspace 请求/token 与 Key 限流，429 + 配额响应头 |
-| 可观测 | `traces` 记录检索/TTFT/总耗时/尝试次数，7 天保留 |
+| 可观测 | `traces` 记录检索/TTFT/总耗时/尝试次数，7 天保留；`/metrics` 输出 HTTP/SSE/token/成本/队列/熔断指标 |
+| 预算 | workspace 每日成本阈值，超限写审计并可选 webhook |
 | 工作流 | 版本化 DAG、LLM/检索/工具/Agent/条件/并行节点、SSE 时间线与前端管理页 |
 | 多 Agent 协作 | planner 拆解 → worker 并行 → critic 复核（≤2 轮），全局步数预算与协作时间线 |
 | 管理后台 | 平台管理员查看用户/Workspace/全局用量、启停模型，操作写审计日志 |
@@ -84,6 +85,10 @@ cd web && npx playwright install chromium && npm run test:e2e
 
 ```bash
 docker compose logs -f api worker web
+
+# 指标（Prometheus 文本）与可选 Prometheus（9090）
+curl -s http://192.168.29.100:8002/metrics | head
+docker compose --profile observability up -d prometheus
 docker compose exec api python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/readyz').status)"
 
 # 立即备份一次
