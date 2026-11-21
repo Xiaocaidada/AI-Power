@@ -63,8 +63,8 @@ S3 之后，`chunks` + `chunk_embeddings` 已就绪，但对话还不会检索�
 ### 7. 评测
 
 - 新增 `app/services/evaluation.py::evaluate_recall` 与 `scripts/eval_retrieval.py`：文档级 Recall@k。
-- 数据集格式：JSONL，`{"question", "relevant_document_ids"}`。
-- 50 题中文评测集尚未构造（需要真实语料的人工标注）；脚本先落地，阈值待数据后确定（C6）。
+- 数据集：`eval/dataset.json`（20 篇自写中文文档 / 50 题），`scripts/seed_eval.py` 播种并生成 JSONL。
+- 基线（真实 bge-m3，2026-11-21）：Recall@1=0.960、Recall@3=1.000、Recall@5=1.000；详见 [`docs/eval/retrieval-baseline.md`](../eval/retrieval-baseline.md)。
 
 ## Consequences
 
@@ -96,7 +96,7 @@ S3 之后，`chunks` + `chunk_embeddings` 已就绪，但对话还不会检索�
 
 ## Follow-ups
 
-1. 构造 50 题中文评测集并跑 `scripts/eval_retrieval.py`，确定 Recall@5 基线。
+1. ~~构造 50 题中文评测集并跑基线~~ **已完成（2026-11-21）**：Recall@5=1.000、Recall@1=0.960，见 [`docs/eval/retrieval-baseline.md`](../eval/retrieval-baseline.md)；下一步扩充更难语料。
 2. P1：citations 持久化（或独立表），会话历史可回放引用。
 3. 评估重排（bge-reranker）与查询改写，用评测数据驱动。
 4. 调 HNSW 参数并在 10k chunk 上测 P95。

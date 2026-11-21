@@ -271,16 +271,17 @@ class CitationBuilder(Protocol):
 - 检索是否跨轮重排 / 查询改写（P0 不重排；P2 再考虑）。
 - "20 并发"是否包含文档解析任务（建议只算对话）。
 - 重试上限、上传大小上限的具体数值（当前为 PROPOSED）。
-- 10k chunk 评测集从哪来（建议用公开中文文档构造）。
+- 评测集：已自建 20 文档 / 50 题的 `eval/dataset.json`，基线见 [`docs/eval/retrieval-baseline.md`](../eval/retrieval-baseline.md)；10k chunk 规模另需更大语料。
 
 ## 6. HANDOFF
 
-**状态：S1–S4 已完成**（auth + 隔离；provider 抽象 + SSE；文档上传 + 入库；检索 + 引用 + RAG 问答）；Q1/Q2/Q4/Q5/Q6/Q7 已锁定；Q3 留待 P1。P0 后端主链路闭环。
+**状态：S1–S4 已完成**（auth + 隔离；provider 抽象 + SSE；文档上传 + 入库；检索 + 引用 + RAG 问答），并补齐 50 题 Recall@5 基线（C6）；Q1/Q2/Q4/Q5/Q6/Q7 已锁定；Q3 留待 P1。P0 后端主链路闭环。
 
 1. 已补 `docs/adr/0001-p0-stack.md`、`docs/adr/0002-ingestion.md`、`docs/adr/0003-retrieval.md`；Q1/Q2/Q4/Q5/Q6/Q7 已从 `[PROPOSED]` 提升为 `[FIXED]`。
 2. S1 证据：[`docs/tdd/p0-s1-auth.md`](../tdd/p0-s1-auth.md)（29 tests, 100% coverage）。
 3. S2 证据：[`docs/tdd/p0-s2-provider-sse.md`](../tdd/p0-s2-provider-sse.md)（68 tests 总计, 100% coverage，含本地 Qwen 真实流式冒烟）。
 4. S3 证据：[`docs/tdd/p0-s3-ingestion.md`](../tdd/p0-s3-ingestion.md)（105 tests, 96% coverage，含真实 bge-m3 冒烟与 pgvector 集成）。
 5. S4 证据：[`docs/tdd/p0-s4-retrieval.md`](../tdd/p0-s4-retrieval.md)（133 tests, 96% coverage，含真实 bge-m3 检索排序、HNSW 与 SQL 检索集成）。
-6. P0 剩余：50 题 Recall@5 评测集、前端与用户控制台（P1）；每片后跑 `verification-loop`。
-7. P1 启动时用 `dashboard-builder` 做用户控制台。
+6. 评测基线：50 题中文评测集（20 文档），真实 bge-m3 下 Recall@5=1.000、Recall@1=0.960，见 [`docs/eval/retrieval-baseline.md`](../eval/retrieval-baseline.md)。
+7. P0 剩余：前端与用户控制台（P1）；每片后跑 `verification-loop`。
+8. P1 启动时用 `dashboard-builder` 做用户控制台。

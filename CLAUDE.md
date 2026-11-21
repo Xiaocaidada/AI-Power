@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-P0 backend complete. **S1**: auth + per-user isolation. **S2**: provider abstraction + SSE chat. **S3**: document upload + async ingestion (PDF/MD/TXT → chunks → bge-m3 → pgvector). **S4**: retrieval + citations + RAG chat (HNSW, `citation` SSE). Remaining P0 item: the 50-question Recall@5 dataset. Next: P1 (console, durable queue, citations persistence). See the capability contract before starting any slice.
+P0 complete. **S1**: auth + per-user isolation. **S2**: provider abstraction + SSE chat. **S3**: document upload + async ingestion (PDF/MD/TXT → chunks → bge-m3 → pgvector). **S4**: retrieval + citations + RAG chat (HNSW, `citation` SSE). **Eval**: 20-document / 50-question Chinese set with a measured Recall@5 baseline (real bge-m3). Next: P1 (console, durable queue, citations persistence). See the capability contract before starting any slice.
 
 ## Documents
 
@@ -17,6 +17,7 @@ P0 backend complete. **S1**: auth + per-user isolation. **S2**: provider abstrac
 - [docs/tdd/p0-s2-provider-sse.md](./docs/tdd/p0-s2-provider-sse.md) — S2 的 SSE 契约与真实模型冒烟。
 - [docs/tdd/p0-s3-ingestion.md](./docs/tdd/p0-s3-ingestion.md) — S3 的入库状态机、真实 bge-m3 与 pgvector 证据。
 - [docs/tdd/p0-s4-retrieval.md](./docs/tdd/p0-s4-retrieval.md) — S4 的检索/引用证据、真实 bge-m3 排序与 HNSW 集成。
+- [docs/eval/retrieval-baseline.md](./docs/eval/retrieval-baseline.md) — 20 文档 / 50 题中文评测集与 Recall@1/3/5 基线。
 
 ## Commands
 
@@ -32,7 +33,8 @@ All Python commands use the project venv. On Windows that is `.venv/Scripts/pyth
 - Postgres + Redis: `docker compose up -d postgres redis` (Docker runs in WSL; use host `192.168.29.100`, **not** `localhost`, from Windows)
 - pgvector integration test (opt-in): `TEST_POSTGRES_URL=postgresql+asyncpg://ai_power:<password>@192.168.29.100:5432/ai_power_test .venv/Scripts/python.exe -m pytest tests/test_postgres_vector.py`
 - SQL inside the container on Windows: `printf 'SELECT 1;\n' | docker exec -i <postgres-container> psql -U ai_power -d postgres` (`docker exec ... -c "SQL with spaces"` gets split on Windows)
-- Retrieval eval (needs a seeded KB + real bge-m3): `.venv/Scripts/python.exe scripts/eval_retrieval.py --dataset eval.jsonl --user-id <uuid> --kb-id <uuid> --top-k 5` (JSONL: `{"question", "relevant_document_ids"}`)
+- Seed retrieval eval KB (deterministic IDs, real ingestion + bge-m3, writes `eval/questions.jsonl`): `.venv/Scripts/python.exe scripts/seed_eval.py`
+- Retrieval eval: `.venv/Scripts/python.exe scripts/eval_retrieval.py --dataset eval/questions.jsonl --user-id 668f2249-d66d-524f-bfbd-c498da940b60 --kb-id fd2b3942-bd84-5b96-a1c0-04fa1041323f --top-k 5`
 
 ## Architecture
 

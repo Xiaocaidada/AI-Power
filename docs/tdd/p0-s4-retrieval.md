@@ -124,7 +124,7 @@ TOTAL                             1200     45    96%
 
 ## Known Gaps
 
-- **50 题评测集未构造**：`scripts/eval_retrieval.py` 已就绪，但缺少人工标注的真实语料；Recall@5 基线待补（C6）。
+- **评测集**：已补 20 文档 / 50 题（`eval/dataset.json`，`scripts/seed_eval.py` 播种）；真实 bge-m3 下 Recall@5=1.000、Recall@1=0.960，见 [`docs/eval/retrieval-baseline.md`](../eval/retrieval-baseline.md)。仍缺更难语料、chunk 级指标与 MRR。
 - **引用未持久化**：`messages` 表无 citations 字段，历史会话无法回放引用。
 - **无重排 / 查询改写**：P0 非目标。
 - **HNSW 参数未调优**：使用默认 `m` / `ef_construction`，10k chunk P95 未实测。
