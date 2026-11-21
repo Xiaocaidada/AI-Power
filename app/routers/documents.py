@@ -129,6 +129,23 @@ async def upload_document(
     return DocumentUploadOut(id=document.id, status=document.status, duplicate=False)
 
 
+@router.get("/knowledge-bases/{kb_id}/documents", response_model=list[DocumentOut])
+async def list_documents(
+    kb_id: UUID, current_user: ReadUser, session: SessionDep
+) -> list[Document]:
+    await get_owned_knowledge_base(kb_id, current_user.id, session)
+    result = await session.execute(
+        select(Document)
+        .where(
+            Document.kb_id == kb_id,
+            Document.user_id == current_user.id,
+            Document.deleted_at.is_(None),
+        )
+        .order_by(Document.created_at.desc(), Document.id.desc())
+    )
+    return list(result.scalars())
+
+
 @router.post(
     "/documents/{document_id}/retry",
     response_model=DocumentUploadOut,

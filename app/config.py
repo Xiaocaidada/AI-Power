@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     password_min_length: int = 8
     redis_url: str = "redis://localhost:6379/0"
     login_rate_limit_per_minute: int = 10
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://192.168.29.100:8080"
 
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_api_key: str = ""
@@ -46,6 +47,10 @@ class Settings(BaseSettings):
 
     retrieval_top_k: int = 5
     retrieval_max_context_chars: int = 6000
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
     @model_validator(mode="after")
     def _forbid_dev_secret_outside_dev(self) -> "Settings":
