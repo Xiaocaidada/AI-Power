@@ -15,6 +15,7 @@ import { LoginPage } from './pages/LoginPage'
 import { ModelsPage } from './pages/models/ModelsPage'
 import { ApiKeysPage } from './pages/settings/ApiKeysPage'
 import { ProfilePage } from './pages/settings/ProfilePage'
+import { PromptTemplatesPage } from './pages/settings/PromptTemplatesPage'
 import { WorkspaceSettingsPage } from './pages/settings/WorkspaceSettingsPage'
 import { useAuthStore } from './store/auth'
 
@@ -76,6 +77,7 @@ export function App() {
           <Route path="settings" element={<Navigate to="/settings/api-keys" replace />} />
           <Route path="settings/api-keys" element={<ApiKeysPage />} />
           <Route path="settings/workspace" element={<WorkspaceSettingsPage />} />
+          <Route path="settings/prompts" element={<PromptTemplatesPage />} />
           <Route path="settings/profile" element={<ProfilePage />} />
         </Route>
       </Route>

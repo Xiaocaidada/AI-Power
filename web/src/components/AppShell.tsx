@@ -3,6 +3,7 @@ import {
   BarChart3,
   BookOpen,
   Boxes,
+  FileText,
   Menu,
   MessageSquare,
   Settings,
@@ -23,6 +24,7 @@ const navItems = [
   { to: '/chat', labelKey: 'nav.chat', icon: MessageSquare },
   { to: '/models', labelKey: 'nav.models', icon: Boxes },
   { to: '/knowledge', labelKey: 'nav.knowledge', icon: BookOpen },
+  { to: '/settings/prompts', labelKey: 'nav.prompts', icon: FileText },
   { to: '/usage', labelKey: 'nav.usage', icon: BarChart3 },
   { to: '/settings/api-keys', labelKey: 'nav.settings', icon: Settings },
 ]

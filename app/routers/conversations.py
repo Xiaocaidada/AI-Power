@@ -39,6 +39,7 @@ from app.schemas import (
 )
 from app.services.access import get_owned_knowledge_base
 from app.services.agent import AgentFailure, AgentRunner
+from app.services.prompts import resolve_conversation_prompt
 from app.services.quotas import add_token_usage, enforce_quota
 from app.services.rag import build_rag_messages, fit_context
 from app.services.retrieval import Citation, build_citations, retrieve_chunks
@@ -309,6 +310,7 @@ async def _stream_agent_reply(
     redis: RedisLike,
     tool_registry: ToolRegistry,
     agent_registry: AgentRegistry,
+    system_prompt: str | None = None,
     citations: Sequence[Citation] = (),
     trace_id: UUID | None = None,
     started: float | None = None,
@@ -327,6 +329,7 @@ async def _stream_agent_reply(
             citations=tool_citations,
         ),
         quota_guard=lambda: enforce_quota(redis, context),
+        system_prompt=system_prompt,
     )
     parts: list[str] = []
     ttft_ms: float | None = None
@@ -475,6 +478,25 @@ async def create_conversation(
     if payload.kb_id is not None:
         await get_owned_knowledge_base(payload.kb_id, context.workspace.id, session)
 
+    prompt_version_id = None
+    system_prompt = None
+    if payload.prompt_version_id is not None:
+        version, system_prompt = await resolve_conversation_prompt(
+            session,
+            workspace_id=context.workspace.id,
+            version_id=payload.prompt_version_id,
+            variables=payload.prompt_variables,
+        )
+        prompt_version_id = version.id
+    elif payload.prompt_variables:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {
+                "code": "prompt_version_required",
+                "message": "prompt_variables require a prompt_version_id",
+            },
+        )
+
     conversation = Conversation(
         workspace_id=context.workspace.id,
         user_id=context.user.id,
@@ -483,6 +505,8 @@ async def create_conversation(
         model="auto" if payload.provider_id == "auto" else payload.model,
         kb_id=payload.kb_id,
         agent=payload.agent,
+        prompt_version_id=prompt_version_id,
+        system_prompt=system_prompt,
     )
     session.add(conversation)
     await session.commit()
@@ -656,7 +680,14 @@ async def send_message(
         retrieval_ms = round((time.perf_counter() - retrieval_started) * 1000, 1)
         used_chunks = fit_context(retrieved, get_settings().retrieval_max_context_chars)
         citations = build_citations(used_chunks)
-        chat_history = build_rag_messages(used_chunks, chat_history)
+        chat_history = build_rag_messages(
+            used_chunks, chat_history, base_prompt=conversation.system_prompt
+        )
+    elif conversation.system_prompt and not conversation.agent:
+        chat_history = [
+            ChatMessage(role="system", content=conversation.system_prompt),
+            *chat_history,
+        ]
 
     stream: AsyncIterator[ChatChunk] | None = None
     first_chunk: ChatChunk | None = None
@@ -744,6 +775,7 @@ async def send_message(
             redis=redis,
             tool_registry=tool_registry,
             agent_registry=agent_registry,
+            system_prompt=conversation.system_prompt,
             citations=citations,
             trace_id=trace.id,
             started=started,

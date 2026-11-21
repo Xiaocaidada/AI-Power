@@ -60,11 +60,61 @@ class KnowledgeBaseOut(BaseModel):
     created_at: datetime
 
 
+class PromptVersionCreate(BaseModel):
+    system_prompt: str = Field(min_length=1, max_length=20000)
+
+    @field_validator("system_prompt", mode="before")
+    @classmethod
+    def strip_prompt(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class PromptTemplateCreate(PromptVersionCreate):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=500)
+
+    @field_validator("name", "description", mode="before")
+    @classmethod
+    def strip_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class PromptRenderIn(BaseModel):
+    version: int | None = None
+    variables: dict[str, str] = Field(default_factory=dict)
+
+
+class PromptVersionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    version: int
+    system_prompt: str
+    variables: list[str]
+    created_at: datetime
+
+
+class PromptTemplateOut(BaseModel):
+    id: UUID
+    name: str
+    description: str
+    created_at: datetime
+    versions: list[PromptVersionOut] = Field(default_factory=list)
+
+
+class PromptRenderOut(BaseModel):
+    rendered: str
+    version: int
+    variables: list[str]
+
+
 class ConversationCreate(BaseModel):
     provider_id: str = Field(min_length=1, max_length=50)
     model: str = Field(min_length=1, max_length=200)
     kb_id: UUID | None = None
     agent: bool = False
+    prompt_version_id: UUID | None = None
+    prompt_variables: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("provider_id", "model", mode="before")
     @classmethod
@@ -81,6 +131,7 @@ class ConversationOut(BaseModel):
     model: str
     kb_id: UUID | None
     agent: bool = False
+    prompt_version_id: UUID | None = None
     created_at: datetime
 
 

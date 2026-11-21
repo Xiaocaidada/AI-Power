@@ -16,6 +16,7 @@ from app.routers import (
     health,
     knowledge_bases,
     models,
+    prompts,
     providers,
     traces,
     usage,
@@ -56,3 +57,4 @@ app.include_router(models.router)
 app.include_router(conversations.router)
 app.include_router(documents.router)
 app.include_router(knowledge_bases.router)
+app.include_router(prompts.router)

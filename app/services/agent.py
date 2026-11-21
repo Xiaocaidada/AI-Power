@@ -57,6 +57,7 @@ class AgentRunner:
         agent_registry: AgentRegistry,
         context: ToolContext,
         quota_guard: Callable[[], Awaitable[None]] | None = None,
+        system_prompt: str | None = None,
     ) -> None:
         settings = get_settings()
         self._provider = provider
@@ -65,6 +66,7 @@ class AgentRunner:
         self._agent_registry = agent_registry
         self._context = context
         self._quota_guard = quota_guard
+        self._system_prompt_override = system_prompt
         self._max_steps = settings.agent_max_steps
         self._observation_max_chars = settings.agent_tool_output_max_chars
         self._steps = 0
@@ -167,7 +169,10 @@ class AgentRunner:
         return messages
 
     def _system_prompt(self, spec: AgentSpec) -> str:
-        lines = [spec.system_prompt, "", PROTOCOL_HINT]
+        base = spec.system_prompt
+        if spec.name == SUPERVISOR_AGENT and self._system_prompt_override:
+            base = self._system_prompt_override
+        lines = [base, "", PROTOCOL_HINT]
         available = [
             tool for name in spec.tools if (tool := self._tool_registry.get(name)) is not None
         ]
