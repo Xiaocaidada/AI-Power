@@ -255,12 +255,11 @@ class CitationBuilder(Protocol):
 | Q5 | VM 模型服务地址 | **`192.168.29.100`**：Qwen `:8083`（llama.cpp）、bge-m3 `:8000`（vLLM），均已实测可访问。 |
 | Q6 | 本地模型标识 | Qwen `qwen2.5-7b-instruct`（GGUF，context 16384）；bge-m3（vLLM，实测 1024 维）。完整路径见 `.env.example`。 |
 | Q7 | 检索与引用 | **L2 距离 + HNSW（`vector_l2_ops`）；top_k=5；上下文 6000 字符；引用由后端从实际送入 prompt 的 chunk 生成；检索失败返回 502 `retrieval_failed`**。详见 [`ADR-0003`](../adr/0003-retrieval.md)。 |
+| Q3 | 部署位置 | **本地 VM Docker Compose（`192.168.29.100`），局域网 IP + 端口访问；暂不做公网/HTTPS**。详见 [`docs/plan/p1-plan.md`](../plan/p1-plan.md)。 |
 
-### 仍阻塞（只阻塞部署，不阻塞本地开发）
+### 仍阻塞
 
-| # | 问题 | 影响 | 建议 |
-|---|---|---|---|
-| Q3 | API 进程最终部署在哪？ | 本地 Compose / VM / PaaS | P0 先本地 Compose，通过 env 指向 VM；P1 再决定是否整体搬到 VM。 |
+无。
 
 ### 非阻塞（可先用 PROPOSED 默认值，后续再调）
 

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-P0 complete. **S1**: auth + per-user isolation. **S2**: provider abstraction + SSE chat. **S3**: document upload + async ingestion (PDF/MD/TXT → chunks → bge-m3 → pgvector). **S4**: retrieval + citations + RAG chat (HNSW, `citation` SSE). **Eval**: 20-document / 50-question Chinese set with a measured Recall@5 baseline (real bge-m3). Next: P1 (console, durable queue, citations persistence). See the capability contract before starting any slice.
+P0 complete. **S1**: auth + per-user isolation. **S2**: provider abstraction + SSE chat. **S3**: document upload + async ingestion (PDF/MD/TXT → chunks → bge-m3 → pgvector). **S4**: retrieval + citations + RAG chat (HNSW, `citation` SSE). **Eval**: 20-document / 50-question Chinese set with a measured Recall@5 baseline (real bge-m3). Next: P1 per [`docs/plan/p1-plan.md`](./docs/plan/p1-plan.md) (local VM Docker, Arq queue, refresh tokens, full frontend). **P1 implementation requires explicit user approval before any code; the frontend slice needs a second approval.** See the capability contract before starting any slice.
 
 ## Documents
 
