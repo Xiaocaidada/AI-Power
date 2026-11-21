@@ -339,6 +339,22 @@ class IngestionJob(Base):
     __table_args__ = (Index("ix_ingestion_jobs_status", "status"),)
 
 
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    actor_user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), default=None, index=True
+    )
+    action: Mapped[str] = mapped_column(String(50))
+    target_type: Mapped[str] = mapped_column(String(50))
+    target_id: Mapped[str | None] = mapped_column(String(64), default=None)
+    detail: Mapped[dict[str, object] | None] = mapped_column(JSON, default=None)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, index=True
+    )
+
+
 class Trace(Base):
     __tablename__ = "traces"
 

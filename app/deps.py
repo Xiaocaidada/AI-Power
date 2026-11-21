@@ -121,6 +121,15 @@ async def get_auth_context(
     return await get_jwt_context(request, credentials, session, x_workspace_id)
 
 
+async def require_admin(
+    context: Annotated[AuthContext, Depends(get_jwt_context)],
+) -> AuthContext:
+    """Platform admins only; everyone else sees 404 so the surface stays hidden."""
+    if context.user.role != "admin":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    return context
+
+
 def require_scope(scope: str):
     async def dependency(
         context: Annotated[AuthContext, Depends(get_auth_context)],

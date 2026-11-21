@@ -9,7 +9,7 @@ from arq.connections import RedisSettings
 from app.config import get_settings
 from app.db import SessionLocal
 from app.services.ingestion import ingest_document, mark_job_dead, schedule_retry
-from app.services.maintenance import cleanup_orphan_files, cleanup_traces
+from app.services.maintenance import cleanup_audit_logs, cleanup_orphan_files, cleanup_traces
 from app.services.queue import ArqJobQueue, recover_stale_jobs
 
 logger = logging.getLogger(__name__)
@@ -58,12 +58,20 @@ async def cleanup_traces_job(ctx: dict[str, Any]) -> None:
         logger.info("removed %s expired traces", removed)
 
 
+async def cleanup_audit_logs_job(ctx: dict[str, Any]) -> None:
+    async with SessionLocal() as session:
+        removed = await cleanup_audit_logs(session)
+    if removed:
+        logger.info("removed %s expired audit logs", removed)
+
+
 class WorkerSettings:
     functions = [ingest_document_job]
     cron_jobs = [
         cron(recover_stale_jobs_job, minute=set(range(60))),
         cron(cleanup_orphan_files_job, hour=3, minute=0),
         cron(cleanup_traces_job, hour=3, minute=15),
+        cron(cleanup_audit_logs_job, hour=3, minute=30),
     ]
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)
     max_tries = 1

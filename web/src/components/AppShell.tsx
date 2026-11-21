@@ -7,6 +7,7 @@ import {
   Menu,
   MessageSquare,
   Settings,
+  Shield,
   X,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -62,6 +63,11 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
     navigate('/chat')
   }
 
+  const items =
+    user?.role === 'admin'
+      ? [...navItems, { to: '/admin', labelKey: 'nav.admin', icon: Shield }]
+      : navItems
+
   const conversations = useQuery({
     queryKey: ['conversations'],
     queryFn: () => apiRequest<Conversation[]>('/conversations'),
@@ -113,7 +119,7 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
       </div>
 
       <nav className="space-y-1 px-2">
-        {navItems.map(({ to, labelKey, icon: Icon }) => (
+        {items.map(({ to, labelKey, icon: Icon }) => (
           <NavLink
             key={to}
             to={to}

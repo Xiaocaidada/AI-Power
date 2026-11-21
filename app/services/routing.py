@@ -75,36 +75,38 @@ async def catalog_entries(
 ) -> list[ModelEntry]:
     rows = (
         await session.execute(
-            select(ModelCatalog)
-            .where(ModelCatalog.enabled.is_(True))
-            .order_by(ModelCatalog.priority, ModelCatalog.provider_id, ModelCatalog.model_id)
+            select(ModelCatalog).order_by(
+                ModelCatalog.priority, ModelCatalog.provider_id, ModelCatalog.model_id
+            )
         )
     ).scalars()
     registered = {provider.id for provider in registry.all()}
+    catalog_rows = [row for row in rows if row.provider_id in registered]
     open_cache: dict[str, bool] = {}
     entries: list[ModelEntry] = []
 
-    for row in rows:
-        if row.provider_id not in registered:
-            continue
-        if row.provider_id not in open_cache:
-            open_cache[row.provider_id] = await is_open(redis, row.provider_id)
-        entries.append(
-            ModelEntry(
-                id=str(row.id),
-                provider_id=row.provider_id,
-                model_id=row.model_id,
-                display_name=row.display_name,
-                context_window=row.context_window,
-                input_price=row.input_price,
-                output_price=row.output_price,
-                tags=_tags(row.tags),
-                priority=row.priority,
-                available=not open_cache[row.provider_id],
+    # A seeded catalog is authoritative: disabled rows stay hidden instead of
+    # falling back to the provider's live list.
+    if catalog_rows:
+        for row in catalog_rows:
+            if not row.enabled:
+                continue
+            if row.provider_id not in open_cache:
+                open_cache[row.provider_id] = await is_open(redis, row.provider_id)
+            entries.append(
+                ModelEntry(
+                    id=str(row.id),
+                    provider_id=row.provider_id,
+                    model_id=row.model_id,
+                    display_name=row.display_name,
+                    context_window=row.context_window,
+                    input_price=row.input_price,
+                    output_price=row.output_price,
+                    tags=_tags(row.tags),
+                    priority=row.priority,
+                    available=not open_cache[row.provider_id],
+                )
             )
-        )
-
-    if entries:
         return entries
 
     for provider in registry.all():

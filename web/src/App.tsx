@@ -14,6 +14,7 @@ import { KnowledgePage } from './pages/knowledge/KnowledgePage'
 import { LoginPage } from './pages/LoginPage'
 import { ModelsPage } from './pages/models/ModelsPage'
 import { ApiKeysPage } from './pages/settings/ApiKeysPage'
+import { AdminPage } from './pages/admin/AdminPage'
 import { ProfilePage } from './pages/settings/ProfilePage'
 import { PromptTemplatesPage } from './pages/settings/PromptTemplatesPage'
 import { WorkspaceSettingsPage } from './pages/settings/WorkspaceSettingsPage'
@@ -58,6 +59,7 @@ export function App() {
           <Route path="chat" element={<NewChatPage />} />
           <Route path="chat/:id" element={<ChatPage />} />
           <Route path="models" element={<ModelsPage />} />
+          <Route path="admin" element={<AdminPage />} />
           <Route path="knowledge" element={<KnowledgePage />} />
           <Route path="knowledge/:id" element={<KnowledgeDetailPage />} />
           <Route
