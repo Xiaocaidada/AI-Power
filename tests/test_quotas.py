@@ -14,6 +14,8 @@ def quota_settings(monkeypatch):
         quota_pro_requests_per_minute=100,
         quota_pro_tokens_per_day=1_000_000,
         quota_pro_max_keys=5,
+        quota_free_daily_cost_usd=1,
+        quota_pro_daily_cost_usd=50,
     )
     monkeypatch.setattr(quotas, "get_settings", lambda: settings)
     return settings

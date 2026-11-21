@@ -21,6 +21,7 @@ from app.deps import (
     get_tool_registry,
     require_scope,
 )
+from app.metrics import track_sse_stream
 from app.models import Workflow, WorkflowNodeRun, WorkflowRun, WorkflowVersion
 from app.providers.registry import ProviderRegistry
 from app.schemas import (
@@ -335,7 +336,7 @@ async def create_workflow_run(
             )
 
     return StreamingResponse(
-        stream(),
+        track_sse_stream(stream()),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

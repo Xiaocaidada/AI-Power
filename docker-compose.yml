@@ -48,6 +48,9 @@ services:
       COLLABORATION_MAX_STEPS: ${COLLABORATION_MAX_STEPS:-16}
       COLLABORATION_PARALLEL_LIMIT: ${COLLABORATION_PARALLEL_LIMIT:-3}
       COLLABORATION_TASK_TIMEOUT_SECONDS: ${COLLABORATION_TASK_TIMEOUT_SECONDS:-180}
+      QUOTA_FREE_DAILY_COST_USD: ${QUOTA_FREE_DAILY_COST_USD:-1}
+      QUOTA_PRO_DAILY_COST_USD: ${QUOTA_PRO_DAILY_COST_USD:-50}
+      BUDGET_WEBHOOK_URL: ${BUDGET_WEBHOOK_URL:-}
     ports:
       - "8002:8000"
     volumes:
@@ -128,6 +131,17 @@ services:
         condition: service_healthy
     restart: unless-stopped
     command: ["/bin/sh", "/usr/local/bin/backup_postgres.sh"]
+
+prometheus:
+    image: prom/prometheus:latest
+    profiles: ["observability"]
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      api:
+        condition: service_healthy
 
 volumes:
   pgdata:

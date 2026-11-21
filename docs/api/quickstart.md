@@ -170,7 +170,15 @@ curl -s -X POST "$BASE/conversations" \
 - 每个响应带 `X-Request-ID`；用 `GET /traces/{request_id}` 查看检索/首 token/总耗时与工具调用。
 - 时间参数为 UTC ISO-8601（`from` / `to`）。
 
-## 8. 常见问题
+## 8. 指标
+
+```bash
+curl -s "$BASE/metrics"
+```
+
+Prometheus 文本包含 `ai_power_http_requests_total`、`ai_power_http_request_duration_seconds`、`ai_power_sse_active_streams`、`ai_power_tokens_total`、`ai_power_cost_usd_total`、`ai_power_ingestion_jobs`、`ai_power_circuit_open`。`/metrics` 无鉴权，仅限局域网；可选启动 `docker compose --profile observability up -d prometheus`。
+
+## 9. 常见问题
 
 | 现象 | 排查 |
 |---|---|
