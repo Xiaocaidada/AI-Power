@@ -1,6 +1,6 @@
 # P2 规划：从“单用户可用”到“平台化”
 
-- **Status:** Draft（决策待确认；确认前不写代码）
+- **Status:** Confirmed（决策已锁定，2026-11-21；编码需按切片逐片确认）
 - **Date:** 2026-11-21
 - **Scope source:** [`PRODUCT-BRIEF.md`](../../PRODUCT-BRIEF.md) §3 P2、[`docs/product/CAPABILITY.md`](../product/CAPABILITY.md)
 - **前置:** P1 已完成（2026-11-21），见 [`p1-plan.md`](./p1-plan.md)、[`p1-s6-deploy.md`](../tdd/p1-s6-deploy.md)
@@ -48,6 +48,8 @@ P2 必须补的差距：
 | D6 | Trace 存储 | **`traces` 表 + `request_id` 关联消息**，7 天保留，用户可查自己的 | 接 Prometheus/Grafana（部署更重，留 P2 可选） |
 | D7 | 计费 | **不做**（P3） | 做虚拟额度与成本面板（范围膨胀） |
 | D8 | 公网/HTTPS | 保持局域网；HTTPS 作为可选运维项 | P2 引入 Caddy + 域名（需要用户提供域名） |
+
+> **已确认（2026-11-21）**：D1/D2 采用 Workspace + `X-Workspace-Id`；D5 采用 Workspace + Key 双层配额；D6 采用 traces 表 + 7 天保留；D8 保持局域网 HTTP。D3/D4/D7 按建议执行。
 
 ## 4. 切片与顺序
 
@@ -151,9 +153,11 @@ P2 必须补的差距：
 5. 前后端测试通过；覆盖率 ≥ 80%；至少 1 条 Playwright；CI 绿灯。
 6. 文档：ADR-0009/0010/0011、P2 TDD 证据、README 更新。
 
-## 9. 待确认
+## 9. 已确认事项（2026-11-21）
 
-1. **D1/D2**：接受 Workspace + `X-Workspace-Id` 方案，还是保持用户级？
-2. **D5**：配额按 workspace + Key 双层，还是只做 workspace？
-3. **D6**：Trace 只入库 7 天，还是同时接 Prometheus？
-4. **D8**：P2 是否仍不做公网/HTTPS？
+1. **D1/D2**：Workspace + 成员角色，`X-Workspace-Id` 切换；注册自动创建个人 workspace。
+2. **D5**：配额按 workspace + API Key 双层；free/pro 静态计划。
+3. **D6**：Trace 入库 7 天，用户按 `request_id` 查询；不接 Prometheus。
+4. **D8**：保持局域网 HTTP，不做公网/HTTPS。
+
+**门禁**：每片编码前需用户明确批准（与 P1 相同）。
