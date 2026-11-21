@@ -7,12 +7,15 @@ from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.registry import AgentRegistry, build_agent_registry
 from app.db import get_session
 from app.models import User, Workspace, WorkspaceMember
 from app.providers.registry import ProviderRegistry, build_registry
 from app.security import decode_access_token
 from app.services.api_keys import authenticate_api_key
 from app.services.workspaces import resolve_workspace
+from app.tools.base import ToolRegistry
+from app.tools.registry import build_tool_registry
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -143,3 +146,11 @@ def get_registry() -> ProviderRegistry:
     if _registry is None:
         _registry = build_registry()
     return _registry
+
+
+def get_tool_registry() -> ToolRegistry:
+    return build_tool_registry()
+
+
+def get_agent_registry() -> AgentRegistry:
+    return build_agent_registry()

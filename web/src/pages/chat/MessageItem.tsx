@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown'
 
 import { Badge } from '../../components/ui/badge'
 import { useI18n } from '../../lib/i18n'
-import type { Citation } from '../../lib/types'
+import type { AgentActivity, Citation } from '../../lib/types'
 
 export interface DisplayMessage {
   id: string
@@ -19,6 +19,7 @@ export interface DisplayMessage {
   prompt_tokens?: number | null
   completion_tokens?: number | null
   request_id?: string | null
+  agentActivity?: AgentActivity[]
 }
 
 interface MessageItemProps {
@@ -101,6 +102,45 @@ export function MessageItem({
             </button>
           )}
         </div>
+      )}
+
+      {message.agentActivity !== undefined && message.agentActivity.length > 0 && (
+        <details className="rounded-lg border border-border bg-surface-muted/40 px-3 py-2">
+          <summary className="cursor-pointer select-none text-xs font-medium text-ink-muted">
+            {t('chat.agentFlow', {
+              count: message.agentActivity.filter((item) => item.type === 'tool_result').length,
+            })}
+          </summary>
+          <ul className="mt-2 space-y-1 text-xs text-ink-muted">
+            {message.agentActivity.map((item) => (
+              <li
+                key={item.id}
+                className={item.ok === false || item.status === 'failed' ? 'text-danger' : ''}
+              >
+                {item.type === 'agent_start' && t('chat.agentStarted', { agent: item.agent })}
+                {item.type === 'agent_end' &&
+                  (item.status === 'failed'
+                    ? t('chat.agentFailed', { agent: item.agent })
+                    : t('chat.agentFinished', {
+                        agent: item.agent,
+                        ms: Math.round(item.duration_ms ?? 0),
+                      }))}
+                {item.type === 'tool_call' && (
+                  <span className="font-mono">
+                    {item.agent} · {item.tool}
+                  </span>
+                )}
+                {item.type === 'tool_result' &&
+                  (item.ok === false
+                    ? t('chat.toolFailed', { tool: item.tool ?? '', code: item.error_code ?? '' })
+                    : t('chat.toolDone', {
+                        tool: item.tool ?? '',
+                        ms: Math.round(item.duration_ms ?? 0),
+                      }))}
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
 
       {message.citations.length > 0 && (

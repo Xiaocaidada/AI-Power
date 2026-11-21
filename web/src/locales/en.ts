@@ -85,6 +85,14 @@ export const en: Dictionary = {
     copyAnswer: 'Copy answer',
     newConversation: 'New chat',
     backToNew: 'Back to new chat',
+    agentMode: 'Multi-agent mode',
+    agentModeHint: 'A supervisor splits the task and delegates to retrieval/math agents. Slower.',
+    agentFlow: 'Agent flow ({count} tool calls)',
+    agentStarted: '▶ {agent} started',
+    agentFinished: '✓ {agent} finished · {ms} ms',
+    agentFailed: '✗ {agent} failed',
+    toolDone: '✓ {tool} · {ms} ms',
+    toolFailed: '✗ {tool} · {code}',
   },
   knowledge: {
     title: 'Knowledge',
@@ -259,6 +267,7 @@ export const en: Dictionary = {
     unavailable: 'No trace for this request (not recorded or expired)',
     close: 'Close',
     view: 'Details',
+    agents: 'Agents / tools',
   },
   profile: {
     title: 'Profile',
