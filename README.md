@@ -14,7 +14,7 @@
 | 对话 | SSE 流式输出、停止生成、历史回放、模型/token 元信息 |
 | 知识库 | PDF/MD/TXT 上传、持久化入库队列、失败重试、状态轮询、删除清理 |
 | RAG | bge-m3 + pgvector HNSW 检索；回答只引用真正进入 prompt 的 chunk |
-| 用量 | 按日/Provider/模型聚合 token 与请求数 |
+| 用量 | 按日/Provider/模型聚合 token、请求数与成本（价格快照） |
 | API Key | `X-API-Key`，`chat:write` / `kb:read` scope，一次性展示、可吊销、过期与限流 |
 | 多租户 | Workspace/成员、`X-Workspace-Id`、跨租户 404 |
 | 模型平台 | 模型目录/广场对比、`auto` 路由与首 token 前降级、熔断 |
