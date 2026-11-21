@@ -10,6 +10,7 @@ export const en: Dictionary = {
     save: 'Save',
     create: 'Create',
     loadMore: 'Load more',
+    toggleTheme: 'Toggle light/dark',
     delete: 'Delete',
     close: 'Close',
     copy: 'Copy',
