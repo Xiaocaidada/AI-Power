@@ -117,6 +117,7 @@
 | GET | `/documents/{id}` | ✓ | 状态 / 错误 / 统计 |
 | DELETE | `/documents/{id}` | ✓ | 软删 + 删除 chunks/embeddings/磁盘文件 |
 | POST | `/documents/{id}/retry` | ✓ | 仅失败文档；重置任务并重新入队 |
+| GET | `/usage/summary` | ✓ | 本人用量聚合（`from/to/group_by=day|provider|model`） |
 | GET | `/healthz` | — | liveness |
 | GET | `/readyz` | — | DB/Redis 检查 |
 
@@ -194,7 +195,9 @@ class CitationBuilder(Protocol):
 | documents | id, kb_id, user_id, filename, mime, size_bytes, content_hash, storage_path, status, error_code, page_count, created_at, deleted_at? | UNIQUE(user_id, kb_id, content_hash) WHERE deleted_at IS NULL |
 | chunks | id, document_id, user_id, kb_id, page_no, chunk_index, text, token_count | idx(document_id) |
 | chunk_embeddings | chunk_id PK/FK, embedding vector(1024) | HNSW/IVFFlat 索引 |
-| ingestion_jobs | id, document_id UNIQUE, status, attempts, error, created_at, updated_at | idx(status) |
+| ingestion_jobs | id, document_id UNIQUE, status, attempts, error, started_at, finished_at, lease_expires_at, created_at, updated_at | idx(status) |
+| usage_events | id, user_id, conversation_id?, message_id UNIQUE, provider_id?, model?, prompt_tokens?, completion_tokens?, created_at | idx(user_id, created_at)；只追加 |
+| message_citations | id, message_id, citation_index, document_id, chunk_id, page_no?, snippet, created_at | UNIQUE(message_id, citation_index) |
 
 > `vector(1024)` 由 bge-m3 固定（见 ADR-0001）。**chunks 冗余 `user_id/kb_id` 是刻意的**：检索过滤无需 join 即可保证 I1。
 
@@ -292,4 +295,5 @@ class CitationBuilder(Protocol):
 6. 评测基线：50 题中文评测集（20 文档），真实 bge-m3 下 Recall@5=1.000、Recall@1=0.960，见 [`docs/eval/retrieval-baseline.md`](../eval/retrieval-baseline.md)。
 7. P1-S1 已完成：Alembic 迁移、refresh token（轮换/吊销）、登录限流、`/readyz`、Dockerfile/compose `api`/CI；证据见 [`docs/tdd/p1-s1-infra.md`](../tdd/p1-s1-infra.md)。
 8. P1-S2 已完成：Arq 持久化队列、租约/重试/死信、手动重试、文件删除与孤儿清理、compose `worker`；证据见 [`docs/tdd/p1-s2-queue.md`](../tdd/p1-s2-queue.md)。
-9. P1 剩余：S3 用量/引用、S4 API Key、S5 前端（需二次确认）、S6 部署；每片后跑 `verification-loop`。
+9. P1-S3 已完成：只追加 `usage_events`、`GET /usage/summary`、`message_citations` 回放、迁移 0003 回填；证据见 [`docs/tdd/p1-s3-usage.md`](../tdd/p1-s3-usage.md)。
+10. P1 剩余：S4 API Key、S5 前端（需二次确认）、S6 部署；每片后跑 `verification-loop`。
