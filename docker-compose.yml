@@ -147,7 +147,7 @@ caddy:
     image: caddy:2-alpine
     profiles: ["https"]
     environment:
-      CADDY_DOMAIN: ${CADDY_DOMAIN:?set CADDY_DOMAIN to enable the https profile}
+      CADDY_DOMAIN: ${CADDY_DOMAIN:-}
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
