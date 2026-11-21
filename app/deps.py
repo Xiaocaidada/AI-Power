@@ -35,6 +35,8 @@ class AuthContext:
     workspace: Workspace
     role: str
     scopes: frozenset[str] | None = None
+    api_key_id: UUID | None = None
+    api_key_rate_limit: int | None = None
 
 
 def _parse_workspace_id(value: str | None) -> UUID | None:
@@ -105,7 +107,14 @@ async def get_auth_context(
         if workspace is None or member is None:
             raise _unauthorized()
         _stamp(request, user, workspace)
-        return AuthContext(user=user, workspace=workspace, role=member.role, scopes=scopes)
+        return AuthContext(
+            user=user,
+            workspace=workspace,
+            role=member.role,
+            scopes=scopes,
+            api_key_id=key.id,
+            api_key_rate_limit=key.rate_limit_per_minute,
+        )
     return await get_jwt_context(request, credentials, session, x_workspace_id)
 
 

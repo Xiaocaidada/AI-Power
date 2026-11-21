@@ -16,6 +16,7 @@ from fastapi import (
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.clients import RedisLike, get_redis
 from app.config import get_settings
 from app.db import get_session
 from app.deps import AuthContext, get_jwt_context, require_scope
@@ -24,6 +25,7 @@ from app.schemas import DocumentOut, DocumentUploadOut
 from app.services.access import get_owned_document, get_owned_knowledge_base
 from app.services.parsing import UnsupportedDocumentType
 from app.services.queue import JobQueue, get_queue
+from app.services.quotas import enforce_quota
 from app.services.storage import EmptyUpload, UploadTooLarge, save_upload
 
 router = APIRouter(tags=["documents"])
@@ -33,6 +35,7 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 JwtContext = Annotated[AuthContext, Depends(get_jwt_context)]
 ReadContext = Annotated[AuthContext, Depends(require_scope("kb:read"))]
 QueueDep = Annotated[JobQueue, Depends(get_queue)]
+RedisDep = Annotated[RedisLike, Depends(get_redis)]
 
 
 async def _enqueue_or_fail(
@@ -75,8 +78,10 @@ async def upload_document(
     context: JwtContext,
     session: SessionDep,
     queue: QueueDep,
+    redis: RedisDep,
     response: Response,
 ) -> DocumentUploadOut:
+    await enforce_quota(redis, context)
     await get_owned_knowledge_base(kb_id, context.workspace.id, session)
     settings = get_settings()
     try:

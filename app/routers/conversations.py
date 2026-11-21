@@ -28,6 +28,7 @@ from app.schemas import (
     SendMessageIn,
 )
 from app.services.access import get_owned_knowledge_base
+from app.services.quotas import add_token_usage, enforce_quota
 from app.services.rag import build_rag_messages, fit_context
 from app.services.retrieval import Citation, build_citations, retrieve_chunks
 from app.services.routing import record_failure, reset_failures, route_candidates
@@ -141,6 +142,15 @@ async def _stream_reply(
     parts: list[str] = []
     usage: Usage | None = None
     finish_reason: str | None = None
+
+    async def accrue_tokens() -> None:
+        if redis is not None and usage is not None:
+            await add_token_usage(
+                redis,
+                workspace_id,
+                (usage.prompt_tokens or 0) + (usage.completion_tokens or 0),
+            )
+
     try:
         yield _sse(
             "meta",
@@ -189,16 +199,20 @@ async def _stream_reply(
             },
         )
         yield _sse("done", {"finish_reason": finish_reason})
+        await accrue_tokens()
         await _finalize(assistant_id, "".join(parts), "completed", usage, workspace_id, citations)
     except asyncio.CancelledError:
+        await accrue_tokens()
         await _finalize(assistant_id, "".join(parts), "cancelled", usage, workspace_id, citations)
         raise
     except ProviderError as exc:
+        await accrue_tokens()
         if redis is not None:
             await record_failure(redis, provider.id)
         yield _sse("error", {"code": exc.code, "message": exc.message})
         await _finalize(assistant_id, "".join(parts), "failed", usage, workspace_id, citations)
     except Exception:
+        await accrue_tokens()
         if redis is not None:
             await record_failure(redis, provider.id)
         logger.exception("streaming failed for message %s", assistant_id)
@@ -344,6 +358,7 @@ async def send_message(
     redis: RedisDep,
 ) -> StreamingResponse:
     conversation = await _get_owned_conversation(conversation_id, context.workspace.id, session)
+    await enforce_quota(redis, context)
     provider: LLMProvider | None = None
     if conversation.provider_id != "auto":
         try:

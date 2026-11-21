@@ -81,6 +81,12 @@ class FakeRedis:
         self.counts[key] = self.counts.get(key, 0) + 1
         return self.counts[key]
 
+    async def incrby(self, key: str, amount: int) -> int:
+        if self.fail:
+            raise ConnectionError("redis down")
+        self.counts[key] = self.counts.get(key, 0) + amount
+        return self.counts[key]
+
     async def expire(self, key: str, seconds: int) -> bool:
         if self.fail:
             raise ConnectionError("redis down")

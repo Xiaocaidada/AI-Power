@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     password_min_length: int = 8
     redis_url: str = "redis://localhost:6379/0"
     login_rate_limit_per_minute: int = 10
+    quota_free_requests_per_minute: int = 60
+    quota_free_tokens_per_day: int = 200_000
+    quota_free_max_keys: int = 5
+    quota_pro_requests_per_minute: int = 600
+    quota_pro_tokens_per_day: int = 5_000_000
+    quota_pro_max_keys: int = 50
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://192.168.29.100:8080"
 
     deepseek_base_url: str = "https://api.deepseek.com"
@@ -91,6 +97,20 @@ class Settings(BaseSettings):
             raise ValueError("DB_MAX_OVERFLOW must be >= 0")
         if self.db_pool_timeout_seconds < 1:
             raise ValueError("DB_POOL_TIMEOUT_SECONDS must be >= 1")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_quota_settings(self) -> "Settings":
+        for name in (
+            "quota_free_requests_per_minute",
+            "quota_free_tokens_per_day",
+            "quota_free_max_keys",
+            "quota_pro_requests_per_minute",
+            "quota_pro_tokens_per_day",
+            "quota_pro_max_keys",
+        ):
+            if getattr(self, name) < 1:
+                raise ValueError(f"{name.upper()} must be >= 1")
         return self
 
     @model_validator(mode="after")

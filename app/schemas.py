@@ -1,8 +1,8 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 
 class _NormalizedEmailModel(BaseModel):
@@ -161,11 +161,19 @@ class UsageSummaryOut(BaseModel):
 class ApiKeyCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     scopes: list[Literal["chat:write", "kb:read"]] | None = None
+    expires_at: datetime | None = None
+    rate_limit_per_minute: int | None = Field(default=None, ge=1, le=10000)
 
     @field_validator("name", mode="before")
     @classmethod
     def strip_name(cls, value: object) -> object:
         return value.strip() if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def _future_expiry(self) -> "ApiKeyCreate":
+        if self.expires_at is not None and self.expires_at <= datetime.now(UTC):
+            raise ValueError("expires_at must be in the future")
+        return self
 
 
 class ApiKeyOut(BaseModel):
@@ -178,6 +186,8 @@ class ApiKeyOut(BaseModel):
     created_at: datetime
     last_used_at: datetime | None
     revoked_at: datetime | None
+    expires_at: datetime | None = None
+    rate_limit_per_minute: int | None = None
 
     @field_validator("scopes", mode="before")
     @classmethod

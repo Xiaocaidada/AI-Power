@@ -7,16 +7,19 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.clients import RedisLike, get_redis
 from app.db import get_session
 from app.deps import AuthContext, get_jwt_context
 from app.models import ApiKey
 from app.schemas import ApiKeyCreate, ApiKeyCreatedOut, ApiKeyOut
 from app.security import generate_api_key
+from app.services.quotas import enforce_key_creation
 
 router = APIRouter(prefix="/api-keys", tags=["api-keys"])
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 JwtContext = Annotated[AuthContext, Depends(get_jwt_context)]
+RedisDep = Annotated[RedisLike, Depends(get_redis)]
 
 DEFAULT_SCOPES = ("chat:write", "kb:read")
 ALLOCATION_ATTEMPTS = 3
@@ -24,8 +27,12 @@ ALLOCATION_ATTEMPTS = 3
 
 @router.post("", response_model=ApiKeyCreatedOut, status_code=status.HTTP_201_CREATED)
 async def create_api_key(
-    payload: ApiKeyCreate, context: JwtContext, session: SessionDep
+    payload: ApiKeyCreate,
+    context: JwtContext,
+    session: SessionDep,
+    redis: RedisDep,
 ) -> ApiKeyCreatedOut:
+    await enforce_key_creation(session, context, redis)
     scopes = sorted(set(payload.scopes or DEFAULT_SCOPES))
     for _ in range(ALLOCATION_ATTEMPTS):
         raw_key, prefix, key_hash = generate_api_key()
@@ -36,6 +43,8 @@ async def create_api_key(
             prefix=prefix,
             key_hash=key_hash,
             scopes=",".join(scopes),
+            expires_at=payload.expires_at,
+            rate_limit_per_minute=payload.rate_limit_per_minute,
         )
         session.add(api_key)
         try:

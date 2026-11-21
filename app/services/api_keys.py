@@ -39,11 +39,13 @@ async def authenticate_api_key(
     if not hmac.compare_digest(stored.key_hash, hash_api_key(raw_key)):
         raise _unauthorized()
 
+    now = datetime.now(UTC)
+    if stored.expires_at is not None and _as_utc(stored.expires_at) <= now:
+        raise _unauthorized()
+
     user = await session.get(User, stored.user_id)
     if user is None:
         raise _unauthorized()
-
-    now = datetime.now(UTC)
     if (
         stored.last_used_at is None
         or _as_utc(stored.last_used_at) < now - LAST_USED_UPDATE_INTERVAL
