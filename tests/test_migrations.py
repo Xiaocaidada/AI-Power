@@ -35,6 +35,10 @@ def test_alembic_upgrade_head_creates_schema(tmp_path):
         "prompt_templates",
         "prompt_versions",
         "audit_logs",
+        "workflows",
+        "workflow_versions",
+        "workflow_runs",
+        "workflow_node_runs",
         "alembic_version",
     } <= tables
 
