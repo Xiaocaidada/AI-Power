@@ -153,7 +153,10 @@ export const zh = {
   },
   usage: {
     title: '用量',
-    lead: '查看 token 消耗与请求趋势。',
+    lead: '查看 token 消耗、请求趋势与成本。',
+    cost: '成本（USD）',
+    costChartTitle: '成本趋势',
+    unpricedHint: '{count} 次请求的模型没有定价，按 $0 计',
     range7: '近 7 天',
     range30: '近 30 天',
     range90: '近 90 天',

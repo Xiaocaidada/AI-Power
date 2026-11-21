@@ -224,6 +224,10 @@ class UsageEvent(Base):
     model: Mapped[str | None] = mapped_column(String(200), default=None)
     prompt_tokens: Mapped[int | None] = mapped_column(Integer, default=None)
     completion_tokens: Mapped[int | None] = mapped_column(Integer, default=None)
+    input_price: Mapped[float | None] = mapped_column(Float, default=None)
+    output_price: Mapped[float | None] = mapped_column(Float, default=None)
+    cost: Mapped[float] = mapped_column(Float, default=0.0)
+    unpriced: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     __table_args__ = (Index("ix_usage_events_workspace_created", "workspace_id", "created_at"),)

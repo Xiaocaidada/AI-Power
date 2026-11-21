@@ -212,6 +212,20 @@ class UsageSummaryOut(BaseModel):
     buckets: list[UsageBucketOut] = Field(default_factory=list)
 
 
+class UsageCostBucketOut(UsageBucketOut):
+    cost: float
+    unpriced_requests: int
+
+
+class UsageCostOut(BaseModel):
+    start: datetime
+    end: datetime
+    group_by: str
+    total_cost: float
+    unpriced_requests: int
+    buckets: list[UsageCostBucketOut] = Field(default_factory=list)
+
+
 class ApiKeyCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     scopes: list[Literal["chat:write", "kb:read"]] | None = None

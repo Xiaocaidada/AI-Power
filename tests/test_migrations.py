@@ -50,6 +50,10 @@ def test_alembic_upgrade_head_creates_schema(tmp_path):
         "model",
         "prompt_tokens",
         "completion_tokens",
+        "input_price",
+        "output_price",
+        "cost",
+        "unpriced",
         "created_at",
     } <= usage_columns
 

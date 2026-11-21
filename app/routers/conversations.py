@@ -39,6 +39,7 @@ from app.schemas import (
 )
 from app.services.access import get_owned_knowledge_base
 from app.services.agent import AgentFailure, AgentRunner
+from app.services.costs import compute_cost, price_snapshot
 from app.services.prompts import resolve_conversation_prompt
 from app.services.quotas import add_token_usage, enforce_quota
 from app.services.rag import build_rag_messages, fit_context
@@ -133,6 +134,9 @@ async def _finalize(
                     select(UsageEvent.id).where(UsageEvent.message_id == message_id)
                 )
                 if existing_event.scalar_one_or_none() is None:
+                    input_price, output_price = await price_snapshot(
+                        session, message.provider_id, message.model
+                    )
                     session.add(
                         UsageEvent(
                             workspace_id=workspace_id,
@@ -143,6 +147,15 @@ async def _finalize(
                             model=message.model,
                             prompt_tokens=message.prompt_tokens,
                             completion_tokens=message.completion_tokens,
+                            input_price=input_price,
+                            output_price=output_price,
+                            cost=compute_cost(
+                                message.prompt_tokens,
+                                message.completion_tokens,
+                                input_price,
+                                output_price,
+                            ),
+                            unpriced=input_price is None or output_price is None,
                         )
                     )
                 if citations:

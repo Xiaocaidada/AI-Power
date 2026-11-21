@@ -199,6 +199,20 @@ export interface UsageSummary {
   buckets: UsageBucket[]
 }
 
+export interface UsageCostBucket extends UsageBucket {
+  cost: number
+  unpriced_requests: number
+}
+
+export interface UsageCost {
+  start: string
+  end: string
+  group_by: string
+  total_cost: number
+  unpriced_requests: number
+  buckets: UsageCostBucket[]
+}
+
 export interface ApiKeyRecord {
   id: string
   name: string
