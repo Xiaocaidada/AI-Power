@@ -36,7 +36,7 @@
 | C7 | 登录方式：邮箱 + 密码，JWT access token（无 refresh、无邮箱验证） | PROPOSED |
 | C8 | P0 使用服务端统一 provider 密钥（不支持用户 BYOK） | PROPOSED |
 | C9 | 上传上限 20MB / 单文件 200 页；超出拒收并给明确错误 | PROPOSED |
-| C10 | 检索参数 top_k=5、上下文预算 ~4k tokens、历史最多 6 轮 | PROPOSED |
+| C10 | 检索参数 top_k=5、上下文预算 6000 字符（≈4k tokens）、历史最多 6 轮 | FIXED（ADR-0003） |
 | C11 | 会话标题取首条消息前 30 字符，不用 LLM 生成 | PROPOSED |
 | C12 | 每个阶段结束必须产出 demo + ADR + 指标 | FIXED |
 | C13 | P0 provider 矩阵：DeepSeek API（远程）+ 本地 Qwen（VM，OpenAI 兼容端点） | FIXED |
@@ -254,6 +254,7 @@ class CitationBuilder(Protocol):
 | Q4 | 重复上传 | **复用已有文档**（`user_id + content_hash` 幂等），不重复向量化。 |
 | Q5 | VM 模型服务地址 | **`192.168.29.100`**：Qwen `:8083`（llama.cpp）、bge-m3 `:8000`（vLLM），均已实测可访问。 |
 | Q6 | 本地模型标识 | Qwen `qwen2.5-7b-instruct`（GGUF，context 16384）；bge-m3（vLLM，实测 1024 维）。完整路径见 `.env.example`。 |
+| Q7 | 检索与引用 | **L2 距离 + HNSW（`vector_l2_ops`）；top_k=5；上下文 6000 字符；引用由后端从实际送入 prompt 的 chunk 生成；检索失败返回 502 `retrieval_failed`**。详见 [`ADR-0003`](../adr/0003-retrieval.md)。 |
 
 ### 仍阻塞（只阻塞部署，不阻塞本地开发）
 
@@ -274,13 +275,12 @@ class CitationBuilder(Protocol):
 
 ## 6. HANDOFF
 
-**状态：S1、S2、S3 已完成**（auth + 隔离；provider 抽象 + SSE；文档上传 + 入库）；Q1/Q2/Q4/Q5/Q6 已锁定；Q3 留待 P1。
+**状态：S1–S4 已完成**（auth + 隔离；provider 抽象 + SSE；文档上传 + 入库；检索 + 引用 + RAG 问答）；Q1/Q2/Q4/Q5/Q6/Q7 已锁定；Q3 留待 P1。P0 后端主链路闭环。
 
-1. 已补 `docs/adr/0001-p0-stack.md` 与 `docs/adr/0002-ingestion.md`；Q1/Q2/Q4/Q5/Q6 已从 `[PROPOSED]` 提升为 `[FIXED]`。
+1. 已补 `docs/adr/0001-p0-stack.md`、`docs/adr/0002-ingestion.md`、`docs/adr/0003-retrieval.md`；Q1/Q2/Q4/Q5/Q6/Q7 已从 `[PROPOSED]` 提升为 `[FIXED]`。
 2. S1 证据：[`docs/tdd/p0-s1-auth.md`](../tdd/p0-s1-auth.md)（29 tests, 100% coverage）。
 3. S2 证据：[`docs/tdd/p0-s2-provider-sse.md`](../tdd/p0-s2-provider-sse.md)（68 tests 总计, 100% coverage，含本地 Qwen 真实流式冒烟）。
 4. S3 证据：[`docs/tdd/p0-s3-ingestion.md`](../tdd/p0-s3-ingestion.md)（105 tests, 96% coverage，含真实 bge-m3 冒烟与 pgvector 集成）。
-5. 继续 `tdd-workflow`：
-   - **S4** 检索 + 引用 + 端到端问答
-6. 每片后跑 `verification-loop`（测试、lint、类型、契约检查）。
+5. S4 证据：[`docs/tdd/p0-s4-retrieval.md`](../tdd/p0-s4-retrieval.md)（133 tests, 96% coverage，含真实 bge-m3 检索排序、HNSW 与 SQL 检索集成）。
+6. P0 剩余：50 题 Recall@5 评测集、前端与用户控制台（P1）；每片后跑 `verification-loop`。
 7. P1 启动时用 `dashboard-builder` 做用户控制台。
