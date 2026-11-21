@@ -44,6 +44,40 @@ export interface PromptVersion {
   created_at: string
 }
 
+export interface CollaborationStep {
+  id: string
+  role: 'planner' | 'worker' | 'critic' | string
+  step_key: string
+  status: string
+  input_summary: string
+  output_summary: string
+  prompt_tokens: number
+  completion_tokens: number
+  cost: number
+  error_code: string | null
+  created_at: string
+}
+
+export interface CollaborationRun {
+  id: string
+  provider_id: string
+  model: string
+  kb_id: string | null
+  status: string
+  input_text: string
+  plan: { id: string; agent: string; task: string }[] | null
+  final_output: string
+  rounds: number
+  error_code: string | null
+  prompt_tokens: number
+  completion_tokens: number
+  cost: number
+  total_ms: number | null
+  started_at: string
+  finished_at: string | null
+  steps: CollaborationStep[]
+}
+
 export interface WorkflowNodeDefinition {
   id: string
   type: 'llm' | 'kb_search' | 'tool' | 'agent' | 'condition' | 'parallel' | 'join'

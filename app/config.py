@@ -67,6 +67,11 @@ class Settings(BaseSettings):
     workflow_node_attempts: int = 2
     workflow_max_nodes: int = 20
     workflow_parallel_limit: int = 3
+    collaboration_max_tasks: int = 4
+    collaboration_max_rounds: int = 2
+    collaboration_max_steps: int = 16
+    collaboration_parallel_limit: int = 3
+    collaboration_task_timeout_seconds: float = 180.0
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -116,6 +121,16 @@ class Settings(BaseSettings):
             raise ValueError("WORKFLOW_MAX_NODES must be >= 1")
         if self.workflow_parallel_limit < 1:
             raise ValueError("WORKFLOW_PARALLEL_LIMIT must be >= 1")
+        if self.collaboration_max_tasks < 2:
+            raise ValueError("COLLABORATION_MAX_TASKS must be >= 2")
+        if self.collaboration_max_rounds < 1:
+            raise ValueError("COLLABORATION_MAX_ROUNDS must be >= 1")
+        if self.collaboration_max_steps < 1:
+            raise ValueError("COLLABORATION_MAX_STEPS must be >= 1")
+        if self.collaboration_parallel_limit < 1:
+            raise ValueError("COLLABORATION_PARALLEL_LIMIT must be >= 1")
+        if self.collaboration_task_timeout_seconds <= 0:
+            raise ValueError("COLLABORATION_TASK_TIMEOUT_SECONDS must be > 0")
         return self
 
     @model_validator(mode="after")

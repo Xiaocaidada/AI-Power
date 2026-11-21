@@ -193,6 +193,53 @@ class WorkflowNodeRun(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class CollaborationRun(Base):
+    __tablename__ = "collaboration_runs"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    provider_id: Mapped[str] = mapped_column(String(50))
+    model: Mapped[str] = mapped_column(String(200))
+    kb_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("knowledge_bases.id", ondelete="SET NULL"), default=None
+    )
+    status: Mapped[str] = mapped_column(String(20), default="running")
+    input_text: Mapped[str] = mapped_column(Text, default="")
+    plan: Mapped[list[dict[str, object]] | None] = mapped_column(JSON, default=None)
+    final_output: Mapped[str] = mapped_column(Text, default="")
+    rounds: Mapped[int] = mapped_column(Integer, default=0)
+    error_code: Mapped[str | None] = mapped_column(String(50), default=None)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost: Mapped[float] = mapped_column(Float, default=0.0)
+    total_ms: Mapped[float | None] = mapped_column(Float, default=None)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+
+class CollaborationStep(Base):
+    __tablename__ = "collaboration_steps"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("collaboration_runs.id", ondelete="CASCADE"), index=True
+    )
+    role: Mapped[str] = mapped_column(String(20))
+    step_key: Mapped[str] = mapped_column(String(80))
+    status: Mapped[str] = mapped_column(String(20), default="running")
+    input_summary: Mapped[str] = mapped_column(String(500), default="")
+    output_summary: Mapped[str] = mapped_column(String(500), default="")
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost: Mapped[float] = mapped_column(Float, default=0.0)
+    error_code: Mapped[str | None] = mapped_column(String(50), default=None)
+    duration_ms: Mapped[float | None] = mapped_column(Float, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class KnowledgeBase(Base):
     __tablename__ = "knowledge_bases"
 

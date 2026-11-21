@@ -39,6 +39,8 @@ def test_alembic_upgrade_head_creates_schema(tmp_path):
         "workflow_versions",
         "workflow_runs",
         "workflow_node_runs",
+        "collaboration_runs",
+        "collaboration_steps",
         "alembic_version",
     } <= tables
 
