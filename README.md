@@ -26,7 +26,7 @@
 | 预算 | workspace 每日成本阈值，超限写审计并可选 webhook |
 | 工作流 | 版本化 DAG、LLM/检索/工具/Agent/条件/并行节点、SSE 时间线与前端管理页 |
 | 多 Agent 协作 | planner 拆解 → worker 并行 → critic 复核（≤2 轮），全局步数预算与协作时间线 |
-| 管理后台 | 平台管理员查看用户/Workspace/全局用量、启停模型，操作写审计日志 |
+| 管理后台 | 用户/Workspace/全局用量、启停模型、切换 plan、run 失败率，操作写审计日志 |
 | 运维 | `/healthz`、`/readyz`、请求 ID、结构化日志、每日备份、压测脚本 |
 
 ## 快速开始（本地开发）
@@ -68,7 +68,8 @@ docker compose up -d --build
 - API 启动时自动执行 `alembic upgrade head`。
 - `web` 使用 nginx，SSE 已关闭代理缓冲。
 - `backup` 服务每天 `pg_dump -Fc` 到 `backups` 卷，保留 7 天。
-- 未开放公网、未配置 HTTPS；CORS 白名单由 `CORS_ORIGINS` 控制。
+- 默认局域网 HTTP；可选 HTTPS：设置 `CADDY_DOMAIN` 后 `docker compose --profile https up -d caddy`。
+- CORS 白名单由 `CORS_ORIGINS` 控制。
 - 首次部署后运行 `scripts/seed_models.py` 填充模型目录（见 CLAUDE.md 命令）。
 
 ## 测试
@@ -89,6 +90,9 @@ docker compose logs -f api worker web
 # 指标（Prometheus 文本）与可选 Prometheus（9090）
 curl -s http://192.168.29.100:8002/metrics | head
 docker compose --profile observability up -d prometheus
+
+# 可选 HTTPS（需先设置 CADDY_DOMAIN）
+docker compose --profile https up -d caddy
 docker compose exec api python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/readyz').status)"
 
 # 立即备份一次
