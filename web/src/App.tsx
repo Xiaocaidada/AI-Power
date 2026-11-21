@@ -8,6 +8,8 @@ import { clearTokens, hasSession, refreshAccessToken } from './lib/tokens'
 import type { User } from './lib/types'
 import { ChatPage } from './pages/chat/ChatPage'
 import { NewChatPage } from './pages/chat/NewChatPage'
+import { KnowledgeDetailPage } from './pages/knowledge/KnowledgeDetailPage'
+import { KnowledgePage } from './pages/knowledge/KnowledgePage'
 import { LoginPage } from './pages/LoginPage'
 import { PlaceholderPage } from './pages/PlaceholderPage'
 import { useAuthStore } from './store/auth'
@@ -46,10 +48,8 @@ export function App() {
           <Route index element={<Navigate to="/chat" replace />} />
           <Route path="chat" element={<NewChatPage />} />
           <Route path="chat/:id" element={<ChatPage />} />
-          <Route
-            path="knowledge"
-            element={<PlaceholderPage titleKey="knowledge.title" leadKey="knowledge.lead" />}
-          />
+          <Route path="knowledge" element={<KnowledgePage />} />
+          <Route path="knowledge/:id" element={<KnowledgeDetailPage />} />
           <Route
             path="usage"
             element={<PlaceholderPage titleKey="usage.title" leadKey="usage.lead" />}

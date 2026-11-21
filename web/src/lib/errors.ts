@@ -25,6 +25,23 @@ function asDetail(body: unknown): DetailShape | null {
   return null
 }
 
+export function apiErrorFromPayload(
+  status: number,
+  body: unknown,
+  retryAfterHeader: string | null = null,
+): ApiError {
+  const detail = asDetail(body)
+  const code = typeof detail?.code === 'string' ? detail.code : undefined
+  const message =
+    typeof detail?.message === 'string' && detail.message.length > 0
+      ? detail.message
+      : status > 0
+        ? `HTTP ${status}`
+        : 'Network error'
+  const retryAfter = retryAfterHeader !== null ? Number(retryAfterHeader) : undefined
+  return new ApiError(status, message, code, Number.isFinite(retryAfter) ? retryAfter : undefined)
+}
+
 export async function toApiError(response: Response): Promise<ApiError> {
   let body: unknown = null
   try {
@@ -32,20 +49,7 @@ export async function toApiError(response: Response): Promise<ApiError> {
   } catch {
     body = null
   }
-  const detail = asDetail(body)
-  const code = typeof detail?.code === 'string' ? detail.code : undefined
-  const message =
-    typeof detail?.message === 'string' && detail.message.length > 0
-      ? detail.message
-      : response.statusText || `HTTP ${response.status}`
-  const retryAfterHeader = response.headers.get('Retry-After')
-  const retryAfter = retryAfterHeader !== null ? Number(retryAfterHeader) : undefined
-  return new ApiError(
-    response.status,
-    message,
-    code,
-    Number.isFinite(retryAfter) ? retryAfter : undefined,
-  )
+  return apiErrorFromPayload(response.status, body, response.headers.get('Retry-After'))
 }
 
 export function apiErrorCode(error: unknown): string | undefined {

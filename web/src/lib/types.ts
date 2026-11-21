@@ -64,6 +64,23 @@ export interface ChatUsage {
   completion_tokens: number | null
 }
 
+export interface DocumentItem {
+  id: string
+  filename: string
+  mime: string
+  size_bytes: number
+  status: string
+  error_code: string | null
+  page_count: number | null
+  created_at: string
+}
+
+export interface DocumentUpload {
+  id: string
+  status: string
+  duplicate: boolean
+}
+
 export interface SseMeta {
   message_id: string
   provider: string
