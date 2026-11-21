@@ -9,6 +9,7 @@ from pydantic import BaseModel, ValidationError
 
 from app.clients import RedisLike
 from app.config import get_settings
+from app.services.retrieval import Citation
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,14 @@ class ToolContext:
     user_id: UUID
     kb_id: UUID | None = None
     redis: RedisLike | None = None
+    citations: list[Citation] | None = None
+
+
+class ToolError(Exception):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
 
 
 ToolHandler = Callable[[ToolContext, BaseModel], Awaitable[str]]
@@ -100,6 +109,8 @@ class ToolRegistry:
                 error_code="tool_timeout",
                 error=f"Tool {name} timed out",
             )
+        except ToolError as exc:
+            return ToolResult(ok=False, error_code=exc.code, error=exc.message)
         except Exception as exc:
             logger.warning("tool %s failed: %s", name, type(exc).__name__)
             return ToolResult(ok=False, error_code="tool_error", error=_short(str(exc)))
