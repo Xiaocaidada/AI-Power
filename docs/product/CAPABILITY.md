@@ -115,7 +115,8 @@
 | DELETE | `/knowledge-bases/{id}` | ✓ | 软删（级联文档） |
 | POST | `/knowledge-bases/{id}/documents` | ✓ | multipart 上传 → 202 + `document_id` |
 | GET | `/documents/{id}` | ✓ | 状态 / 错误 / 统计 |
-| DELETE | `/documents/{id}` | ✓ | 软删并异步清理 |
+| DELETE | `/documents/{id}` | ✓ | 软删 + 删除 chunks/embeddings/磁盘文件 |
+| POST | `/documents/{id}/retry` | ✓ | 仅失败文档；重置任务并重新入队 |
 | GET | `/healthz` | — | liveness |
 | GET | `/readyz` | — | DB/Redis 检查 |
 
@@ -219,15 +220,20 @@ class CitationBuilder(Protocol):
 - 目标（来自 brief）：TTFT P95 < 1.5s；20 并发无错；检索 P95 < 200ms @ 10k chunks。
 - 实测（2026-11-21，VM）：本地 Qwen2.5-7B Q4 冷启动下 prompt 约 160ms/token、解码约 2.8 tok/s。**TTFT < 1.5s 只对 DeepSeek 有意义**；本地 provider 单独统计并单独设目标。
 
-### 3.8 入库流水线（S3）
+### 3.8 入库流水线（S3 → P1-S2 升级为 Arq）
 
-- 上传 → `Document(status=uploaded)` + `IngestionJob(queued)` → `BackgroundTasks` 执行 `ingest_document`。
-- 状态：`uploaded → parsing → embedding → ready`；失败 → `failed + error_code`；job `queued → running → succeeded|failed`。
-- 错误码：`parse_failed`、`unsupported_type`、`too_many_pages`、`empty_document`、`embedding_failed`、`embedding_count_mismatch`、`embedding_dimension_mismatch`、`ingestion_failed`。
-- 存储：文件以 UUID 名存放于 `UPLOAD_DIR`；`chunk_embeddings.embedding` 在 Postgres 为 `vector(1024)`，SQLite 为 JSON。
+- 上传 → `Document(status=uploaded)` + `IngestionJob(queued)` → Arq 入队 `ingest_document_job`（job id `ingest:<document_id>` 去重）。
+- 状态：`uploaded → parsing → embedding → ready`；失败 → `failed + error_code`；job `queued → running → succeeded | failed | dead`。
+- 每次执行写 `started_at`、`lease_expires_at`（默认 15 分钟）；成功/失败清空租约并写 `finished_at`。
+- 失败自动重试：`2^attempts` 秒退避，最多 `INGESTION_MAX_ATTEMPTS`（默认 3）；达到上限 job `dead`，文档保持 `failed`。
+- 租约回收：worker 每分钟把 `running` 且租约过期的任务重新入队。
+- 手动重试：`POST /documents/{id}/retry`（仅失败文档，attempts 归零）。
+- 入队失败：文档 `failed + queue_unavailable`，返回 503（detail 含 `document_id`）。
+- 错误码：`parse_failed`、`unsupported_type`、`too_many_pages`、`empty_document`、`embedding_failed`、`embedding_count_mismatch`、`embedding_dimension_mismatch`、`ingestion_failed`、`queue_unavailable`。
+- 存储：文件以 UUID 名存放于 `UPLOAD_DIR`（API 与 worker 共享卷）；`chunk_embeddings.embedding` 在 Postgres 为 `vector(1024)`，SQLite 为 JSON。
 - 幂等：`(user_id, kb_id, content_hash)` 部分唯一索引；重复上传返回 200 + `duplicate=true`。
-- 删除：文档软删 + 同步删除 chunks/embeddings；原始文件暂留（P1 清理）。
-- 执行器局限：BackgroundTasks 非持久化，进程重启会丢任务（P1 换 Arq/Celery）。
+- 删除：文档软删 + 同步删除 chunks/embeddings/磁盘文件；每日 cron 清理无引用且超过 24h 的孤儿文件。
+- 执行器：Arq + Redis（至少一次语义，依赖入库幂等）。
 
 ## 4. NON-GOALS
 
@@ -285,4 +291,5 @@ class CitationBuilder(Protocol):
 5. S4 证据：[`docs/tdd/p0-s4-retrieval.md`](../tdd/p0-s4-retrieval.md)（133 tests, 96% coverage，含真实 bge-m3 检索排序、HNSW 与 SQL 检索集成）。
 6. 评测基线：50 题中文评测集（20 文档），真实 bge-m3 下 Recall@5=1.000、Recall@1=0.960，见 [`docs/eval/retrieval-baseline.md`](../eval/retrieval-baseline.md)。
 7. P1-S1 已完成：Alembic 迁移、refresh token（轮换/吊销）、登录限流、`/readyz`、Dockerfile/compose `api`/CI；证据见 [`docs/tdd/p1-s1-infra.md`](../tdd/p1-s1-infra.md)。
-8. P1 剩余：S2 队列、S3 用量/引用、S4 API Key、S5 前端（需二次确认）、S6 部署；每片后跑 `verification-loop`。
+8. P1-S2 已完成：Arq 持久化队列、租约/重试/死信、手动重试、文件删除与孤儿清理、compose `worker`；证据见 [`docs/tdd/p1-s2-queue.md`](../tdd/p1-s2-queue.md)。
+9. P1 剩余：S3 用量/引用、S4 API Key、S5 前端（需二次确认）、S6 部署；每片后跑 `verification-loop`。
