@@ -103,6 +103,10 @@ docker compose exec -T postgres pg_restore -U ai_power -d ai_power --clean < bac
 
 # 20 并发流式压测（TTFT / 总耗时 P50/P95）
 .venv/Scripts/python.exe scripts/loadtest.py --base-url http://192.168.29.100:8002 --concurrency 20
+
+# 工作流并发压测
+.venv/Scripts/python.exe scripts/loadtest_workflow.py --base-url http://192.168.29.100:8002 \
+  --provider local-qwen --model <model> --concurrency 3
 ```
 
 日志默认文本格式；compose 中 API/worker 使用 `LOG_FORMAT=json`，每行包含
@@ -128,6 +132,7 @@ docs/           产品契约、ADR、TDD 证据与规划
 - [docs/plan/p4-plan.md](./docs/plan/p4-plan.md)
 - [docs/api/quickstart.md](./docs/api/quickstart.md)
 - [docs/api/errors.md](./docs/api/errors.md)
+- [docs/api/workflows.md](./docs/api/workflows.md)
 - [docs/adr/](./docs/adr/)
 - [docs/tdd/](./docs/tdd/)
 
