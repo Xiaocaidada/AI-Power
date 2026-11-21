@@ -2,14 +2,27 @@ import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Document
+from app.models import Document, Trace
 
 logger = logging.getLogger(__name__)
 
 ORPHAN_MAX_AGE_SECONDS = 24 * 3600
+TRACE_MAX_AGE_DAYS = 7
+
+
+async def cleanup_traces(
+    session: AsyncSession,
+    *,
+    now: datetime | None = None,
+    max_age_days: int = TRACE_MAX_AGE_DAYS,
+) -> int:
+    threshold = (now or datetime.now(UTC)) - timedelta(days=max_age_days)
+    result = await session.execute(delete(Trace).where(Trace.created_at < threshold))
+    await session.commit()
+    return result.rowcount or 0
 
 
 async def cleanup_orphan_files(

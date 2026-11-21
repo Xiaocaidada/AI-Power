@@ -4,6 +4,7 @@ from uuid import UUID
 from sqlalchemy import (
     Boolean,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -143,6 +144,7 @@ class Message(Base):
     model: Mapped[str | None] = mapped_column(String(200), default=None)
     prompt_tokens: Mapped[int | None] = mapped_column(default=None)
     completion_tokens: Mapped[int | None] = mapped_column(default=None)
+    request_id: Mapped[str | None] = mapped_column(String(64), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -292,3 +294,34 @@ class IngestionJob(Base):
     )
 
     __table_args__ = (Index("ix_ingestion_jobs_status", "status"),)
+
+
+class Trace(Base):
+    __tablename__ = "traces"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    request_id: Mapped[str] = mapped_column(String(64), index=True)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    conversation_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="SET NULL"), default=None
+    )
+    message_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("messages.id", ondelete="SET NULL"), unique=True, default=None
+    )
+    provider_id: Mapped[str | None] = mapped_column(String(50), default=None)
+    model: Mapped[str | None] = mapped_column(String(200), default=None)
+    retrieval_ms: Mapped[float | None] = mapped_column(Float, default=None)
+    ttft_ms: Mapped[float | None] = mapped_column(Float, default=None)
+    total_ms: Mapped[float | None] = mapped_column(Float, default=None)
+    status: Mapped[str] = mapped_column(String(20), default="streaming")
+    error_code: Mapped[str | None] = mapped_column(String(50), default=None)
+    attempts: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    __table_args__ = (Index("ix_traces_workspace_created", "workspace_id", "created_at"),)

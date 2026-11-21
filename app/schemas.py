@@ -228,6 +228,23 @@ class MemberOut(BaseModel):
     created_at: datetime
 
 
+class TraceOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    request_id: str
+    conversation_id: UUID | None
+    message_id: UUID | None
+    provider_id: str | None
+    model: str | None
+    retrieval_ms: float | None
+    ttft_ms: float | None
+    total_ms: float | None
+    status: str
+    error_code: str | None
+    attempts: int
+    created_at: datetime
+
+
 class ModelOut(BaseModel):
     id: str
     provider_id: str
