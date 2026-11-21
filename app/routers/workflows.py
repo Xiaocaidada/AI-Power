@@ -10,10 +10,12 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.registry import AgentRegistry
 from app.clients import RedisLike, get_redis
 from app.db import get_session
 from app.deps import (
     AuthContext,
+    get_agent_registry,
     get_jwt_context,
     get_registry,
     get_tool_registry,
@@ -48,6 +50,7 @@ ChatContext = Annotated[AuthContext, Depends(require_scope("chat:write"))]
 RedisDep = Annotated[RedisLike, Depends(get_redis)]
 RegistryDep = Annotated[ProviderRegistry, Depends(get_registry)]
 ToolRegistryDep = Annotated[ToolRegistry, Depends(get_tool_registry)]
+AgentRegistryDep = Annotated[AgentRegistry, Depends(get_agent_registry)]
 
 
 def _sse(event: str, data: dict[str, object]) -> str:
@@ -267,6 +270,7 @@ async def create_workflow_run(
     session: SessionDep,
     registry: RegistryDep,
     tool_registry: ToolRegistryDep,
+    agent_registry: AgentRegistryDep,
     redis: RedisDep,
 ) -> StreamingResponse:
     workflow = await _get_owned_workflow(workflow_id, context.workspace.id, session)
@@ -304,11 +308,13 @@ async def create_workflow_run(
         definition=definition,
         provider_registry=registry,
         tool_registry=tool_registry,
+        agent_registry=agent_registry,
         workspace_id=context.workspace.id,
         user_id=context.user.id,
         kb_id=payload.kb_id,
         redis=redis,
         input_text=payload.input,
+        quota_guard=lambda: enforce_quota(redis, context),
     )
 
     async def stream():

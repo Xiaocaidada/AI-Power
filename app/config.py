@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     workflow_node_timeout_seconds: float = 120.0
     workflow_node_attempts: int = 2
     workflow_max_nodes: int = 20
+    workflow_parallel_limit: int = 3
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -113,6 +114,8 @@ class Settings(BaseSettings):
             raise ValueError("WORKFLOW_NODE_ATTEMPTS must be >= 1")
         if self.workflow_max_nodes < 1:
             raise ValueError("WORKFLOW_MAX_NODES must be >= 1")
+        if self.workflow_parallel_limit < 1:
+            raise ValueError("WORKFLOW_PARALLEL_LIMIT must be >= 1")
         return self
 
     @model_validator(mode="after")

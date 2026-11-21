@@ -73,6 +73,43 @@ async def _run(client, headers, workflow_id, payload=None):
             "nodes": [{"id": "a", "type": "llm", "config": {"provider_id": "fake"}}],
             "edges": [],
         },
+        {
+            "nodes": [
+                _llm("a", "x"),
+                {"id": "c", "type": "condition", "config": {"left": "x", "operator": "contains"}},
+                _llm("yes", "y"),
+                _llm("no", "z"),
+            ],
+            "edges": [
+                {"from": "a", "to": "c"},
+                {"from": "c", "to": "yes", "when": "true"},
+            ],
+        },
+        {
+            "nodes": [
+                {"id": "p", "type": "parallel", "config": {}},
+                _llm("a", "x"),
+                _llm("j", "y"),
+            ],
+            "edges": [{"from": "p", "to": "a"}, {"from": "a", "to": "j"}],
+        },
+        {
+            "nodes": [
+                {"id": "p", "type": "parallel", "config": {}},
+                _llm("a", "x"),
+                _llm("b", "y"),
+                {"id": "j", "type": "join", "config": {}},
+            ],
+            "edges": [
+                {"from": "p", "to": "a"},
+                {"from": "p", "to": "b"},
+                {"from": "a", "to": "j"},
+            ],
+        },
+        {
+            "nodes": [_llm("a", "x"), _llm("b", "y")],
+            "edges": [{"from": "a", "to": "b", "when": "true"}],
+        },
     ],
 )
 async def test_invalid_workflow_definitions_are_rejected(client, api, definition):
@@ -243,3 +280,176 @@ async def test_workflows_are_workspace_scoped(client, api):
     ):
         assert response.status_code == 404
     assert (await client.get("/workflows", headers=bob)).json() == []
+
+
+async def test_condition_skips_the_other_branch(client, api, registry, fake_provider):
+    headers = await api.headers("wf-condition@example.com")
+    definition = {
+        "nodes": [
+            _llm("first", "Say hi"),
+            {
+                "id": "check",
+                "type": "condition",
+                "config": {"left": "{{first}}", "operator": "contains", "right": "Hello"},
+            },
+            _llm("yes", "YES"),
+            _llm("no", "NO"),
+        ],
+        "edges": [
+            {"from": "first", "to": "check"},
+            {"from": "check", "to": "yes", "when": "true"},
+            {"from": "check", "to": "no", "when": "false"},
+        ],
+    }
+    created = await _create_workflow(client, headers, definition)
+
+    response = await _run(client, headers, created.json()["id"])
+
+    events = _parse_sse(response.text)
+    statuses = {data["node_id"]: data["status"] for event, data in events if event == "node_end"}
+    assert statuses == {
+        "first": "completed",
+        "check": "completed",
+        "yes": "completed",
+        "no": "skipped",
+    }
+    end = events[-1][1]
+    assert end["status"] == "completed"
+    assert end["output"] == "Hello"
+    assert len(fake_provider.calls) == 2
+    run = await client.get(f"/workflows/runs/{end['run_id']}", headers=headers)
+    assert run.json()["nodes"][-1]["status"] in {"completed", "skipped"}
+
+
+async def test_parallel_branches_run_concurrently_and_join(client, api):
+    import asyncio
+
+    from app.deps import get_registry
+    from app.main import app
+    from app.providers.registry import ProviderRegistry
+
+    class ConcurrentProvider:
+        id = "fake"
+
+        def __init__(self) -> None:
+            self.active = 0
+            self.peak = 0
+
+        async def list_models(self):
+            return [ModelInfo(id="fake-model", provider_id="fake")]
+
+        async def stream_chat(self, messages, model, **_opts):
+            self.active += 1
+            self.peak = max(self.peak, self.active)
+            await asyncio.sleep(0.05)
+            text = messages[-1].content
+            output = "left-out" if text.startswith("L") else "right-out"
+            self.active -= 1
+            yield ChatChunk(delta=output)
+            yield ChatChunk(usage=Usage(prompt_tokens=1, completion_tokens=1))
+            yield ChatChunk(finish_reason="stop")
+
+    provider = ConcurrentProvider()
+    app.dependency_overrides[get_registry] = lambda: ProviderRegistry({"fake": provider})
+    definition = {
+        "nodes": [
+            {"id": "fan", "type": "parallel", "config": {}},
+            _llm("left", "L {{input}}"),
+            _llm("right", "R {{input}}"),
+            {"id": "join", "type": "join", "config": {}},
+        ],
+        "edges": [
+            {"from": "fan", "to": "left"},
+            {"from": "fan", "to": "right"},
+            {"from": "left", "to": "join"},
+            {"from": "right", "to": "join"},
+        ],
+    }
+    try:
+        headers = await api.headers("wf-parallel@example.com")
+        created = await _create_workflow(client, headers, definition)
+        response = await _run(client, headers, created.json()["id"], {"input": "x"})
+    finally:
+        app.dependency_overrides.pop(get_registry, None)
+
+    events = _parse_sse(response.text)
+    join_end = next(
+        data for event, data in events if event == "node_end" and data["node_id"] == "join"
+    )
+    assert join_end["status"] == "completed"
+    assert join_end["output"] == "left-out\nright-out"
+    assert provider.peak >= 2
+    assert events[-1][1]["status"] == "completed"
+
+
+async def test_tool_node_runs_calculator(client, api, registry):
+    headers = await api.headers("wf-tool@example.com")
+    definition = {
+        "nodes": [
+            {
+                "id": "calc",
+                "type": "tool",
+                "config": {"tool": "calculator", "arguments": {"expression": "2+2"}},
+            }
+        ],
+        "edges": [],
+    }
+    created = await _create_workflow(client, headers, definition)
+
+    response = await _run(client, headers, created.json()["id"])
+
+    events = _parse_sse(response.text)
+    node_end = next(data for event, data in events if event == "node_end")
+    assert node_end["status"] == "completed"
+    assert node_end["output"] == "4"
+
+
+async def test_agent_node_runs_supervisor(client, api, registry):
+    from app.deps import get_registry
+    from app.main import app
+    from app.providers.registry import ProviderRegistry
+
+    class ScriptedProvider:
+        id = "fake"
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def list_models(self):
+            return [ModelInfo(id="fake-model", provider_id="fake")]
+
+        async def stream_chat(self, messages, model, **_opts):
+            self.calls += 1
+            yield ChatChunk(delta=json.dumps({"action": "final", "answer": "agent done"}))
+            yield ChatChunk(usage=Usage(prompt_tokens=2, completion_tokens=3))
+            yield ChatChunk(finish_reason="stop")
+
+    provider = ScriptedProvider()
+    app.dependency_overrides[get_registry] = lambda: ProviderRegistry({"fake": provider})
+    definition = {
+        "nodes": [
+            {
+                "id": "ask",
+                "type": "agent",
+                "config": {
+                    "provider_id": "fake",
+                    "model": "fake-model",
+                    "task": "Summarize {{input}}",
+                },
+            }
+        ],
+        "edges": [],
+    }
+    try:
+        headers = await api.headers("wf-agent@example.com")
+        created = await _create_workflow(client, headers, definition)
+        response = await _run(client, headers, created.json()["id"], {"input": "docs"})
+    finally:
+        app.dependency_overrides.pop(get_registry, None)
+
+    events = _parse_sse(response.text)
+    node_end = next(data for event, data in events if event == "node_end")
+    assert node_end["status"] == "completed"
+    assert node_end["output"] == "agent done"
+    assert provider.calls == 1
+    assert events[-1][1]["prompt_tokens"] == 2

@@ -61,20 +61,29 @@ export interface StreamChatOptions {
   onEvent: SseHandler
 }
 
-export async function streamChat({
-  conversationId,
-  content,
-  signal,
-  onEvent,
-}: StreamChatOptions): Promise<void> {
+export interface StreamWorkflowOptions {
+  workflowId: string
+  input: string
+  kbId?: string | null
+  version?: number
+  signal?: AbortSignal
+  onEvent: SseHandler
+}
+
+async function streamResponse(
+  url: string,
+  body: unknown,
+  signal: AbortSignal | undefined,
+  onEvent: SseHandler,
+): Promise<void> {
   const token = getAccessToken()
-  const response = await fetch(`${API_BASE}/conversations/${conversationId}/messages`, {
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...(token !== null ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify(body),
     signal,
   })
   if (!response.ok) throw await toApiError(response)
@@ -89,4 +98,34 @@ export async function streamChat({
     parser.push(decoder.decode(value, { stream: true }))
   }
   parser.flush()
+}
+
+export async function streamWorkflowRun({
+  workflowId,
+  input,
+  kbId,
+  version,
+  signal,
+  onEvent,
+}: StreamWorkflowOptions): Promise<void> {
+  return streamResponse(
+    `${API_BASE}/workflows/${workflowId}/runs`,
+    { input, kb_id: kbId ?? null, version: version ?? null },
+    signal,
+    onEvent,
+  )
+}
+
+export async function streamChat({
+  conversationId,
+  content,
+  signal,
+  onEvent,
+}: StreamChatOptions): Promise<void> {
+  return streamResponse(
+    `${API_BASE}/conversations/${conversationId}/messages`,
+    { content },
+    signal,
+    onEvent,
+  )
 }

@@ -4,7 +4,10 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from app.config import get_settings
 
-NodeType = Literal["llm", "kb_search"]
+NodeType = Literal["llm", "kb_search", "tool", "agent", "condition", "parallel", "join"]
+ConditionOperator = Literal[
+    "equals", "not_equals", "contains", "not_contains", "not_empty", "is_empty"
+]
 
 
 class LLMNodeConfig(BaseModel):
@@ -18,9 +21,35 @@ class KbSearchNodeConfig(BaseModel):
     query: str = Field(min_length=1, max_length=2000)
 
 
+class ToolNodeConfig(BaseModel):
+    tool: str = Field(min_length=1, max_length=80)
+    arguments: dict[str, str] = Field(default_factory=dict)
+
+
+class AgentNodeConfig(BaseModel):
+    provider_id: str = Field(min_length=1, max_length=50)
+    model: str = Field(min_length=1, max_length=200)
+    task: str = Field(min_length=1, max_length=20000)
+
+
+class ConditionNodeConfig(BaseModel):
+    left: str = Field(min_length=1, max_length=5000)
+    operator: ConditionOperator
+    right: str = Field(default="", max_length=5000)
+
+
+class EmptyNodeConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
 NODE_CONFIGS: dict[str, type[BaseModel]] = {
     "llm": LLMNodeConfig,
     "kb_search": KbSearchNodeConfig,
+    "tool": ToolNodeConfig,
+    "agent": AgentNodeConfig,
+    "condition": ConditionNodeConfig,
+    "parallel": EmptyNodeConfig,
+    "join": EmptyNodeConfig,
 }
 
 
@@ -35,6 +64,7 @@ class WorkflowEdge(BaseModel):
 
     from_node: str = Field(alias="from")
     to: str
+    when: Literal["true", "false"] | None = None
 
 
 class WorkflowDefinition(BaseModel):
@@ -43,25 +73,24 @@ class WorkflowDefinition(BaseModel):
 
     @model_validator(mode="after")
     def _validate_graph(self) -> "WorkflowDefinition":
-        if len(self.nodes) > get_settings().workflow_max_nodes:
-            raise ValueError(
-                f"A workflow can contain at most {get_settings().workflow_max_nodes} nodes"
-            )
+        settings = get_settings()
+        if len(self.nodes) > settings.workflow_max_nodes:
+            raise ValueError(f"A workflow can contain at most {settings.workflow_max_nodes} nodes")
         ids = [node.id for node in self.nodes]
         if len(set(ids)) != len(ids):
             raise ValueError("Node ids must be unique")
         known = set(ids)
+        by_id = {node.id: node for node in self.nodes}
         for node in self.nodes:
-            config_model = NODE_CONFIGS[node.type]
             try:
-                config_model.model_validate(node.config)
+                NODE_CONFIGS[node.type].model_validate(node.config)
             except ValidationError as exc:
                 raise ValueError(
                     f"Invalid config for node {node.id}: {exc.errors()[0]['msg']}"
                 ) from None
 
-        predecessors: dict[str, list[str]] = {node_id: [] for node_id in ids}
-        successors: dict[str, str] = {}
+        incoming: dict[str, list[WorkflowEdge]] = {node_id: [] for node_id in ids}
+        outgoing: dict[str, list[WorkflowEdge]] = {node_id: [] for node_id in ids}
         seen_edges: set[tuple[str, str]] = set()
         for edge in self.edges:
             if edge.from_node not in known or edge.to not in known:
@@ -72,43 +101,64 @@ class WorkflowDefinition(BaseModel):
             if pair in seen_edges:
                 raise ValueError(f"Duplicate edge: {edge.from_node}->{edge.to}")
             seen_edges.add(pair)
-            predecessors[edge.to].append(edge.from_node)
-            if edge.from_node in successors:
-                raise ValueError("A node can have at most one outgoing edge in P4-S1")
-            successors[edge.from_node] = edge.to
+            incoming[edge.to].append(edge)
+            outgoing[edge.from_node].append(edge)
+            source_type = by_id[edge.from_node].type
+            if source_type == "condition":
+                if edge.when is None:
+                    raise ValueError("Edges from a condition node must set when=true/false")
+            elif edge.when is not None:
+                raise ValueError("Only condition nodes may label edges with when")
 
-        for node_id, incoming in predecessors.items():
-            if len(incoming) > 1:
-                raise ValueError(
-                    f"A node can have at most one incoming edge in P4-S1 (node {node_id})"
-                )
-        entries = [node_id for node_id in ids if not predecessors[node_id]]
+        for node in self.nodes:
+            out_edges = outgoing[node.id]
+            if node.type == "condition":
+                labels = {edge.when for edge in out_edges}
+                if labels != {"true", "false"} or len(out_edges) != 2:
+                    raise ValueError(
+                        f"Condition node {node.id} needs exactly one true and one false edge"
+                    )
+            elif node.type == "parallel":
+                if len(out_edges) < 2:
+                    raise ValueError(f"Parallel node {node.id} needs at least two outgoing edges")
+            elif node.type == "join":
+                if len(incoming[node.id]) < 2:
+                    raise ValueError(f"Join node {node.id} needs at least two incoming edges")
+            elif len(out_edges) > 1:
+                raise ValueError(f"Node {node.id} can have at most one outgoing edge")
+
+        entries = [node_id for node_id in ids if not incoming[node_id]]
         if len(entries) != 1:
             raise ValueError("A workflow must have exactly one entry node")
 
-        current: str | None = entries[0]
+        indegree = {node_id: len(incoming[node_id]) for node_id in ids}
+        queue = [node_id for node_id in ids if indegree[node_id] == 0]
         visited = 0
-        while current is not None:
+        while queue:
+            current = queue.pop()
             visited += 1
-            if visited > len(ids):
-                raise ValueError("Workflow contains a cycle")
-            current = successors.get(current)
+            for edge in outgoing[current]:
+                indegree[edge.to] -= 1
+                if indegree[edge.to] == 0:
+                    queue.append(edge.to)
         if visited != len(ids):
-            raise ValueError("Every node must be reachable from the entry node")
+            raise ValueError("Workflow contains a cycle")
         return self
 
-    def ordered_nodes(self) -> list[WorkflowNode]:
-        order: list[WorkflowNode] = []
-        by_id = {node.id: node for node in self.nodes}
-        successors = {edge.from_node: edge.to for edge in self.edges}
-        entry = next(
-            node.id for node in self.nodes if node.id not in {edge.to for edge in self.edges}
-        )
-        current: str | None = entry
-        while current is not None:
-            order.append(by_id[current])
-            current = successors.get(current)
-        return order
+    def node_map(self) -> dict[str, WorkflowNode]:
+        return {node.id: node for node in self.nodes}
+
+    def outgoing(self) -> dict[str, list[WorkflowEdge]]:
+        result: dict[str, list[WorkflowEdge]] = {node.id: [] for node in self.nodes}
+        for edge in self.edges:
+            result[edge.from_node].append(edge)
+        return result
+
+    def incoming(self) -> dict[str, list[WorkflowEdge]]:
+        result: dict[str, list[WorkflowEdge]] = {node.id: [] for node in self.nodes}
+        for edge in self.edges:
+            result[edge.to].append(edge)
+        return result
 
 
 class WorkflowValidationError(Exception):

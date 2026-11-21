@@ -1,6 +1,6 @@
 # P4 规划：工作流、多 Agent 协作与生产化
 
-- **Status:** In progress（D1–D9 已确认；S1 已完成 2026-11-21，S2–S6 待逐片批准）
+- **Status:** In progress（D1–D9 已确认；S1–S2 已完成 2026-11-21，S3–S6 待逐片批准）
 - **Date:** 2026-11-21
 - **Scope source:** [`PRODUCT-BRIEF.md`](../../PRODUCT-BRIEF.md) §3 P3/P4、[`docs/plan/p3-plan.md`](./p3-plan.md)
 - **前置:** P3 已完成（2026-11-21），见 [`p3-plan.md`](./p3-plan.md)、[`p3-s6-polish.md`](../tdd/p3-s6-polish.md)
@@ -60,12 +60,14 @@ P4 仍**不做真实支付/计费**，不追求公网多租户 SaaS。
 
 > **完成证据**：`docs/tdd/p4-s1-workflows.md`。线性 DAG 的 `llm`/`kb_search` 节点、版本化定义、run/node 持久化、SSE 与 API 已完成；分支/并行留待 S2。
 
-### P4-S2 节点类型与运行可视化（约 1.5 周）
+### P4-S2 节点类型与运行可视化 — **已完成（2026-11-21）**（约 1.5 周）
 
 - 增加 `parallel`（fan-out/join，并发上限）、`condition`（表达式白名单）、`tool`、`agent` 节点。
 - 每节点输入/输出摘要（截断，不存全文）；失败节点记录 `error_code`。
 - 前端 `/workflows`：列表、表单式创建/编辑（线性 + 分支）、run 列表与时间线；运行中轮询/SSE 展示节点状态。
 - 验收：LLM→KB→condition→LLM 跑通；parallel 两分支并发；单节点失败可重试并看到错误。
+
+> **完成证据**：`docs/tdd/p4-s2-workflow-nodes.md`。`tool`/`agent`/`condition`/`parallel`/`join` 节点、分支跳过与合并、并发上限、`/workflows` 页面（JSON 定义编辑 + SSE 时间线）已完成；编辑器不是拖拽画布。
 
 ### P4-S3 多 Agent 协作（约 1–1.5 周）
 
