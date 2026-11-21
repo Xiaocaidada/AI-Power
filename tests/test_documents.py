@@ -209,3 +209,80 @@ async def test_storage_path_is_not_exposed_and_uses_uuid_name(client, api, fake_
     assert document is not None
     assert "note.txt" not in document.storage_path
     assert document.storage_path.endswith(".txt")
+
+
+async def test_upload_enqueues_ingestion(client, api, fake_ingestion, fake_queue):
+    headers = await api.headers("enqueue@example.com")
+    kb = await _create_kb(client, headers)
+
+    created = await _upload(client, headers, kb.json()["id"])
+
+    assert created.status_code == 202
+    assert fake_queue.calls == [UUID(created.json()["id"])]
+
+
+async def test_retry_failed_document_reingests(client, api, fake_ingestion, fake_queue):
+    fake_ingestion.parser.error = RuntimeError("bad document")
+    headers = await api.headers("retry@example.com")
+    kb = await _create_kb(client, headers)
+    created = await _upload(client, headers, kb.json()["id"])
+    document_id = created.json()["id"]
+    failed = await client.get(f"/documents/{document_id}", headers=headers)
+    assert failed.json()["status"] == "failed"
+
+    fake_ingestion.parser.error = None
+    retry = await client.post(f"/documents/{document_id}/retry", headers=headers)
+
+    assert retry.status_code == 202
+    detail = await client.get(f"/documents/{document_id}", headers=headers)
+    assert detail.json()["status"] == "ready"
+    assert detail.json()["error_code"] is None
+    assert fake_queue.calls == [UUID(document_id), UUID(document_id)]
+
+
+async def test_retry_ready_document_returns_409(client, api, fake_ingestion):
+    headers = await api.headers("retry-ready@example.com")
+    kb = await _create_kb(client, headers)
+    created = await _upload(client, headers, kb.json()["id"])
+
+    response = await client.post(f"/documents/{created.json()['id']}/retry", headers=headers)
+
+    assert response.status_code == 409
+
+
+async def test_delete_removes_stored_file(client, api, fake_ingestion):
+    from pathlib import Path
+
+    from app.config import get_settings
+    from app.db import SessionLocal
+    from app.models import Document
+
+    headers = await api.headers("delete-file@example.com")
+    kb = await _create_kb(client, headers)
+    created = await _upload(client, headers, kb.json()["id"])
+    document_id = created.json()["id"]
+
+    async with SessionLocal() as session:
+        document = await session.get(Document, UUID(document_id))
+        stored_path = Path(get_settings().upload_dir) / document.storage_path
+    assert stored_path.exists()
+
+    deleted = await client.delete(f"/documents/{document_id}", headers=headers)
+
+    assert deleted.status_code == 204
+    assert not stored_path.exists()
+
+
+async def test_upload_marks_failed_when_queue_unavailable(client, api, fake_ingestion, fake_queue):
+    fake_queue.fail = True
+    headers = await api.headers("queue-down@example.com")
+    kb = await _create_kb(client, headers)
+
+    response = await _upload(client, headers, kb.json()["id"])
+
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert detail["code"] == "queue_unavailable"
+    fetched = await client.get(f"/documents/{detail['document_id']}", headers=headers)
+    assert fetched.json()["status"] == "failed"
+    assert fetched.json()["error_code"] == "queue_unavailable"

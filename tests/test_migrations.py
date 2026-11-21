@@ -34,3 +34,6 @@ def test_alembic_upgrade_head_creates_schema(tmp_path):
 
     refresh_columns = {column["name"] for column in inspector.get_columns("refresh_tokens")}
     assert {"token_hash", "expires_at", "revoked_at", "replaced_by_id"} <= refresh_columns
+
+    job_columns = {column["name"] for column in inspector.get_columns("ingestion_jobs")}
+    assert {"started_at", "finished_at", "lease_expires_at"} <= job_columns

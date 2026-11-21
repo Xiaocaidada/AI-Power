@@ -112,6 +112,33 @@ def fake_redis():
     app_instance.dependency_overrides.pop(get_redis, None)
 
 
+class InlineQueue:
+    """Test queue: runs ingestion inline and records enqueued document IDs."""
+
+    def __init__(self) -> None:
+        self.calls: list[object] = []
+        self.fail = False
+
+    async def enqueue_ingestion(self, document_id) -> None:
+        self.calls.append(document_id)
+        if self.fail:
+            raise ConnectionError("queue down")
+        from app.services.ingestion import ingest_document
+
+        await ingest_document(document_id)
+
+
+@pytest.fixture(autouse=True)
+def fake_queue():
+    from app.main import app as app_instance
+    from app.services.queue import get_queue
+
+    queue = InlineQueue()
+    app_instance.dependency_overrides[get_queue] = lambda: queue
+    yield queue
+    app_instance.dependency_overrides.pop(get_queue, None)
+
+
 @pytest.fixture
 def api(client: AsyncClient) -> Api:
     return Api(client)
