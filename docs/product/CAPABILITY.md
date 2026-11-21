@@ -117,6 +117,8 @@
 | GET | `/healthz` | — | liveness |
 | GET | `/readyz` | — | DB/Redis 检查 |
 
+文档上传语义：新文档 → 202 + `{id, status, duplicate:false}`；同用户同 KB 同内容哈希 → 200 + `duplicate:true`（复用已有文档）。详见 §3.8。
+
 **SSE 事件**（`text/event-stream`）：
 
 | event | data | 说明 |
@@ -186,10 +188,10 @@ class CitationBuilder(Protocol):
 | conversations | id, user_id, title, provider_id, model, kb_id?, created_at, archived_at? | idx(user_id, created_at desc) |
 | messages | id, conversation_id, user_id, role, content, status, provider_id, model, prompt_tokens, completion_tokens, created_at | idx(conversation_id, created_at) |
 | knowledge_bases | id, user_id, name, created_at, deleted_at? | idx(user_id) |
-| documents | id, kb_id, user_id, filename, mime, size_bytes, content_hash, status, error_code, created_at, deleted_at? | UNIQUE(user_id, content_hash) WHERE deleted_at IS NULL |
+| documents | id, kb_id, user_id, filename, mime, size_bytes, content_hash, storage_path, status, error_code, page_count, created_at, deleted_at? | UNIQUE(user_id, kb_id, content_hash) WHERE deleted_at IS NULL |
 | chunks | id, document_id, user_id, kb_id, page_no, chunk_index, text, token_count | idx(document_id) |
 | chunk_embeddings | chunk_id PK/FK, embedding vector(1024) | HNSW/IVFFlat 索引 |
-| ingestion_jobs | id, document_id, status, attempts, error, created_at, updated_at | idx(status) |
+| ingestion_jobs | id, document_id UNIQUE, status, attempts, error, created_at, updated_at | idx(status) |
 
 > `vector(1024)` 由 bge-m3 固定（见 ADR-0001）。**chunks 冗余 `user_id/kb_id` 是刻意的**：检索过滤无需 join 即可保证 I1。
 
@@ -214,6 +216,16 @@ class CitationBuilder(Protocol):
   - 入库成功率 / 平均耗时
 - 目标（来自 brief）：TTFT P95 < 1.5s；20 并发无错；检索 P95 < 200ms @ 10k chunks。
 - 实测（2026-11-21，VM）：本地 Qwen2.5-7B Q4 冷启动下 prompt 约 160ms/token、解码约 2.8 tok/s。**TTFT < 1.5s 只对 DeepSeek 有意义**；本地 provider 单独统计并单独设目标。
+
+### 3.8 入库流水线（S3）
+
+- 上传 → `Document(status=uploaded)` + `IngestionJob(queued)` → `BackgroundTasks` 执行 `ingest_document`。
+- 状态：`uploaded → parsing → embedding → ready`；失败 → `failed + error_code`；job `queued → running → succeeded|failed`。
+- 错误码：`parse_failed`、`unsupported_type`、`too_many_pages`、`empty_document`、`embedding_failed`、`embedding_count_mismatch`、`embedding_dimension_mismatch`、`ingestion_failed`。
+- 存储：文件以 UUID 名存放于 `UPLOAD_DIR`；`chunk_embeddings.embedding` 在 Postgres 为 `vector(1024)`，SQLite 为 JSON。
+- 幂等：`(user_id, kb_id, content_hash)` 部分唯一索引；重复上传返回 200 + `duplicate=true`。
+- 删除：文档软删 + 同步删除 chunks/embeddings；原始文件暂留（P1 清理）。
+- 执行器局限：BackgroundTasks 非持久化，进程重启会丢任务（P1 换 Arq/Celery）。
 
 ## 4. NON-GOALS
 
@@ -262,13 +274,13 @@ class CitationBuilder(Protocol):
 
 ## 6. HANDOFF
 
-**状态：S1、S2 已完成**（auth + 隔离；provider 抽象 + SSE 流式）；Q1/Q2/Q4/Q5/Q6 已锁定；Q3 留待 P1。
+**状态：S1、S2、S3 已完成**（auth + 隔离；provider 抽象 + SSE；文档上传 + 入库）；Q1/Q2/Q4/Q5/Q6 已锁定；Q3 留待 P1。
 
-1. 已补 `docs/adr/0001-p0-stack.md`；Q1/Q2/Q4/Q5/Q6 已从 `[PROPOSED]` 提升为 `[FIXED]`。
+1. 已补 `docs/adr/0001-p0-stack.md` 与 `docs/adr/0002-ingestion.md`；Q1/Q2/Q4/Q5/Q6 已从 `[PROPOSED]` 提升为 `[FIXED]`。
 2. S1 证据：[`docs/tdd/p0-s1-auth.md`](../tdd/p0-s1-auth.md)（29 tests, 100% coverage）。
 3. S2 证据：[`docs/tdd/p0-s2-provider-sse.md`](../tdd/p0-s2-provider-sse.md)（68 tests 总计, 100% coverage，含本地 Qwen 真实流式冒烟）。
-4. 继续 `tdd-workflow` 的后续切片（每片先写测试）：
-   - **S3** 文档上传 + 异步入库（解析/分块/embedding 用 fake）
+4. S3 证据：[`docs/tdd/p0-s3-ingestion.md`](../tdd/p0-s3-ingestion.md)（105 tests, 96% coverage，含真实 bge-m3 冒烟与 pgvector 集成）。
+5. 继续 `tdd-workflow`：
    - **S4** 检索 + 引用 + 端到端问答
-5. 每片后跑 `verification-loop`（测试、lint、类型、契约检查）。
-6. P1 启动时用 `dashboard-builder` 做用户控制台。
+6. 每片后跑 `verification-loop`（测试、lint、类型、契约检查）。
+7. P1 启动时用 `dashboard-builder` 做用户控制台。
