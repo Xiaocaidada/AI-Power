@@ -367,6 +367,9 @@ export const zh = {
     noModels: '模型目录为空',
     noAudit: '暂无审计记录',
     system: '系统',
+    workflowRuns: '工作流失败率',
+    collabRuns: '协作失败率',
+    runCounts: '{failed} / {total} 次失败',
   },
   profile: {
     title: '个人资料',

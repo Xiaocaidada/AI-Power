@@ -369,6 +369,9 @@ export const en: Dictionary = {
     noModels: 'The model catalog is empty',
     noAudit: 'No audit records yet',
     system: 'system',
+    workflowRuns: 'Workflow failure rate',
+    collabRuns: 'Collaboration failure rate',
+    runCounts: '{failed} of {total} failed',
   },
   profile: {
     title: 'Profile',

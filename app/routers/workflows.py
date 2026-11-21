@@ -22,7 +22,13 @@ from app.deps import (
     require_scope,
 )
 from app.metrics import track_sse_stream
-from app.models import Workflow, WorkflowNodeRun, WorkflowRun, WorkflowVersion
+from app.models import (
+    AuditLog,
+    Workflow,
+    WorkflowNodeRun,
+    WorkflowRun,
+    WorkflowVersion,
+)
 from app.providers.registry import ProviderRegistry
 from app.schemas import (
     WorkflowCreate,
@@ -152,6 +158,15 @@ async def create_workflow(
         definition=definition.model_dump(by_alias=True),
     )
     session.add(version)
+    session.add(
+        AuditLog(
+            actor_user_id=context.user.id,
+            action="workflow.publish",
+            target_type="workflow",
+            target_id=str(workflow.id),
+            detail={"version": 1, "name": workflow.name},
+        )
+    )
     await session.commit()
     await session.refresh(workflow)
     await session.refresh(version)
@@ -223,6 +238,15 @@ async def create_workflow_version(
         definition=definition.model_dump(by_alias=True),
     )
     session.add(version)
+    session.add(
+        AuditLog(
+            actor_user_id=context.user.id,
+            action="workflow.publish",
+            target_type="workflow",
+            target_id=str(workflow.id),
+            detail={"version": version.version, "name": workflow.name},
+        )
+    )
     await session.commit()
     await session.refresh(version)
     return WorkflowVersionOut.model_validate(version)

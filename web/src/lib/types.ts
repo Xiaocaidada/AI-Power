@@ -163,6 +163,17 @@ export interface AdminModel {
   enabled: boolean
 }
 
+export interface AdminRunCounts {
+  total: number
+  failed: number
+  failure_rate: number
+}
+
+export interface AdminRunSummary {
+  workflows: AdminRunCounts
+  collaborations: AdminRunCounts
+}
+
 export interface AdminUsage {
   start: string
   end: string

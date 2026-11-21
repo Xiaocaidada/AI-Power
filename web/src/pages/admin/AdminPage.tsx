@@ -12,6 +12,7 @@ import { useI18n } from '../../lib/i18n'
 import type {
   AdminMember,
   AdminModel,
+  AdminRunSummary,
   AdminUsage,
   AdminWorkspace,
   AuditLog,
@@ -58,6 +59,11 @@ export function AdminPage() {
     queryFn: () => apiRequest<AdminUsage>('/admin/usage?group_by=model'),
     enabled: isAdmin,
   })
+  const runSummary = useQuery({
+    queryKey: ['admin-runs'],
+    queryFn: () => apiRequest<AdminRunSummary>('/admin/runs/summary'),
+    enabled: isAdmin,
+  })
   const audit = useQuery({
     queryKey: ['admin-audit'],
     queryFn: () => apiRequest<AuditLog[]>('/admin/audit-logs'),
@@ -87,6 +93,20 @@ export function AdminPage() {
       await queryClient.invalidateQueries({ queryKey: ['admin-audit'] })
     } finally {
       setBusyModel(null)
+    }
+  }
+
+  const changePlan = async (workspace: AdminWorkspace, plan: string) => {
+    if (plan === workspace.plan) return
+    try {
+      await apiRequest(`/admin/workspaces/${workspace.id}/plan`, {
+        method: 'PATCH',
+        body: { plan },
+      })
+      await queryClient.invalidateQueries({ queryKey: ['admin-workspaces'] })
+      await queryClient.invalidateQueries({ queryKey: ['admin-audit'] })
+    } catch {
+      // Keep the previous plan in the table; the audit log is the source of truth.
     }
   }
 
@@ -131,6 +151,27 @@ export function AdminPage() {
                   <div key={item.label} className="rounded-card border border-border bg-surface p-4">
                     <p className="text-xs text-ink-muted">{item.label}</p>
                     <p className="mt-1 font-mono text-xl text-ink">{item.value}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+            {runSummary.data !== undefined && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {[
+                  { label: t('admin.workflowRuns'), counts: runSummary.data.workflows },
+                  { label: t('admin.collabRuns'), counts: runSummary.data.collaborations },
+                ].map((item) => (
+                  <div key={item.label} className="rounded-card border border-border bg-surface p-4">
+                    <p className="text-xs text-ink-muted">{item.label}</p>
+                    <p className="mt-1 font-mono text-xl text-ink">
+                      {(item.counts.failure_rate * 100).toFixed(1)}%
+                    </p>
+                    <p className="mt-1 text-[11px] text-ink-muted">
+                      {t('admin.runCounts', {
+                        failed: item.counts.failed,
+                        total: item.counts.total,
+                      })}
+                    </p>
                   </div>
                 ))}
               </div>
@@ -225,7 +266,17 @@ export function AdminPage() {
                           </span>
                         )}
                       </td>
-                      <td className="px-3 py-2 font-mono text-xs">{item.plan}</td>
+                      <td className="px-3 py-2">
+                        <select
+                          className="h-7 rounded-md border border-border bg-surface px-1 text-xs"
+                          value={item.plan}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={(event) => void changePlan(item, event.target.value)}
+                        >
+                          <option value="free">free</option>
+                          <option value="pro">pro</option>
+                        </select>
+                      </td>
                       <td className="px-3 py-2 text-right">{item.member_count}</td>
                       <td className="px-3 py-2 text-right text-xs text-ink-muted">
                         {formatDate(item.created_at, language)}

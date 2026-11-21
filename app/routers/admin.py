@@ -8,11 +8,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
 from app.deps import AuthContext, require_admin
-from app.models import AuditLog, ModelCatalog, UsageEvent, User, Workspace, WorkspaceMember
+from app.models import (
+    AuditLog,
+    CollaborationRun,
+    ModelCatalog,
+    UsageEvent,
+    User,
+    WorkflowRun,
+    Workspace,
+    WorkspaceMember,
+)
 from app.schemas import (
     AdminMemberOut,
     AdminModelOut,
     AdminModelToggleIn,
+    AdminPlanChangeIn,
+    AdminRunCountsOut,
+    AdminRunSummaryOut,
     AdminUsageBucketOut,
     AdminUsageOut,
     AdminWorkspaceOut,
@@ -85,6 +97,65 @@ async def list_workspaces(
         )
         for workspace, count in rows
     ]
+
+
+@router.patch("/workspaces/{workspace_id}/plan", response_model=AdminWorkspaceOut)
+async def change_workspace_plan(
+    workspace_id: UUID,
+    payload: AdminPlanChangeIn,
+    context: AdminContext,
+    session: SessionDep,
+) -> AdminWorkspaceOut:
+    workspace = await session.get(Workspace, workspace_id)
+    if workspace is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Workspace not found")
+    previous = workspace.plan
+    if previous != payload.plan:
+        workspace.plan = payload.plan
+        session.add(
+            AuditLog(
+                actor_user_id=context.user.id,
+                action="workspace.plan_change",
+                target_type="workspace",
+                target_id=str(workspace.id),
+                detail={"from": previous, "to": payload.plan},
+            )
+        )
+    await session.commit()
+    await session.refresh(workspace)
+    member_count = (
+        await session.execute(
+            select(func.count())
+            .select_from(WorkspaceMember)
+            .where(WorkspaceMember.workspace_id == workspace.id)
+        )
+    ).scalar_one()
+    return AdminWorkspaceOut(
+        id=workspace.id,
+        name=workspace.name,
+        plan=workspace.plan,
+        is_personal=workspace.is_personal,
+        member_count=member_count,
+        created_at=workspace.created_at,
+    )
+
+
+@router.get("/runs/summary", response_model=AdminRunSummaryOut)
+async def run_failure_summary(context: AdminContext, session: SessionDep) -> AdminRunSummaryOut:
+    async def counts(model) -> AdminRunCountsOut:
+        total = (await session.execute(select(func.count()).select_from(model))).scalar_one()
+        failed = (
+            await session.execute(
+                select(func.count()).select_from(model).where(model.status == "failed")
+            )
+        ).scalar_one()
+        rate = round(failed / total, 4) if total else 0.0
+        return AdminRunCountsOut(total=total, failed=failed, failure_rate=rate)
+
+    return AdminRunSummaryOut(
+        workflows=await counts(WorkflowRun),
+        collaborations=await counts(CollaborationRun),
+    )
 
 
 @router.get("/workspaces/{workspace_id}/members", response_model=list[AdminMemberOut])
