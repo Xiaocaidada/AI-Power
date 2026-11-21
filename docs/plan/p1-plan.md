@@ -142,6 +142,8 @@ P1 必须补的现有缺口：
 > 编码前的 **S5-pre** 后端前置片已 **完成（2026-11-21）**：CORS 中间件与 `GET /knowledge-bases/{kb_id}/documents`，证据见 [`docs/tdd/p1-s5-pre-frontend-contract.md`](../tdd/p1-s5-pre-frontend-contract.md)。
 >
 > **S5a 已完成（2026-11-21）**：`web/` 脚手架、设计令牌、中英双语、登录/静默刷新、对话 SSE/引用/历史/取消；证据见 [`docs/tdd/p1-s5a-frontend.md`](../tdd/p1-s5a-frontend.md)。
+>
+> **S5b 已完成（2026-11-21）**：知识库列表/详情、上传进度、状态轮询、失败原因、重试与删除；证据见 [`docs/tdd/p1-s5b-knowledge.md`](../tdd/p1-s5b-knowledge.md)。
 
 分三个可独立演示的子片：
 
