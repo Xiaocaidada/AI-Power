@@ -60,6 +60,29 @@ class WorkspaceMember(Base):
     __table_args__ = (PrimaryKeyConstraint("workspace_id", "user_id"),)
 
 
+class ModelCatalog(Base):
+    __tablename__ = "model_catalog"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    provider_id: Mapped[str] = mapped_column(String(50), index=True)
+    model_id: Mapped[str] = mapped_column(String(200))
+    display_name: Mapped[str] = mapped_column(String(200))
+    context_window: Mapped[int] = mapped_column(Integer, default=0)
+    input_price: Mapped[float] = mapped_column(default=0.0)
+    output_price: Mapped[float] = mapped_column(default=0.0)
+    tags: Mapped[str] = mapped_column(String(300), default="")
+    priority: Mapped[int] = mapped_column(Integer, default=100)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    __table_args__ = (
+        UniqueConstraint("provider_id", "model_id", name="uq_model_catalog_provider_model"),
+    )
+
+
 class KnowledgeBase(Base):
     __tablename__ = "knowledge_bases"
 

@@ -216,3 +216,16 @@ class MemberOut(BaseModel):
     email: EmailStr
     role: str
     created_at: datetime
+
+
+class ModelOut(BaseModel):
+    id: str
+    provider_id: str
+    model_id: str
+    display_name: str
+    context_window: int
+    input_price: float
+    output_price: float
+    tags: list[str]
+    priority: int
+    available: bool

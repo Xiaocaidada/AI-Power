@@ -92,6 +92,17 @@ class FakeRedis:
             raise ConnectionError("redis down")
         return self.expirations.get(key, -1)
 
+    async def get(self, key: str) -> str | None:
+        if self.fail:
+            raise ConnectionError("redis down")
+        value = self.counts.get(key)
+        return str(value) if value is not None else None
+
+    async def delete(self, key: str) -> int:
+        if self.fail:
+            raise ConnectionError("redis down")
+        return 1 if self.counts.pop(key, None) is not None else 0
+
     async def ping(self) -> bool:
         if self.fail:
             raise ConnectionError("redis down")

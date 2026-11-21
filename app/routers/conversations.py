@@ -12,11 +12,12 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.clients import RedisLike, get_redis
 from app.config import get_settings
 from app.db import SessionLocal, get_session
 from app.deps import AuthContext, get_jwt_context, get_registry, require_scope
 from app.models import Conversation, Message, MessageCitation, UsageEvent
-from app.providers.base import ChatMessage, LLMProvider, ProviderError, Usage
+from app.providers.base import ChatChunk, ChatMessage, LLMProvider, ProviderError, Usage
 from app.providers.registry import ProviderRegistry
 from app.schemas import (
     CitationOut,
@@ -29,6 +30,7 @@ from app.schemas import (
 from app.services.access import get_owned_knowledge_base
 from app.services.rag import build_rag_messages, fit_context
 from app.services.retrieval import Citation, build_citations, retrieve_chunks
+from app.services.routing import record_failure, reset_failures, route_candidates
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 logger = logging.getLogger(__name__)
@@ -37,6 +39,7 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 JwtContext = Annotated[AuthContext, Depends(get_jwt_context)]
 ChatContext = Annotated[AuthContext, Depends(require_scope("chat:write"))]
 ReadContext = Annotated[AuthContext, Depends(require_scope("kb:read"))]
+RedisDep = Annotated[RedisLike, Depends(get_redis)]
 
 HISTORY_MESSAGE_LIMIT = 12
 TITLE_MAX_LENGTH = 30
@@ -131,6 +134,9 @@ async def _stream_reply(
     model: str,
     workspace_id: UUID,
     citations: Sequence[Citation] = (),
+    stream: AsyncIterator[ChatChunk] | None = None,
+    first_chunk: ChatChunk | None = None,
+    redis: RedisLike | None = None,
 ) -> AsyncIterator[str]:
     parts: list[str] = []
     usage: Usage | None = None
@@ -156,7 +162,15 @@ async def _stream_reply(
                     "snippet": citation.snippet,
                 },
             )
-        async for chunk in provider.stream_chat(history, model):
+        chunk_stream = stream if stream is not None else provider.stream_chat(history, model)
+
+        async def chunks() -> AsyncIterator[ChatChunk]:
+            if first_chunk is not None:
+                yield first_chunk
+            async for item in chunk_stream:
+                yield item
+
+        async for chunk in chunks():
             if chunk.delta:
                 parts.append(chunk.delta)
                 yield _sse("delta", {"text": chunk.delta})
@@ -164,6 +178,8 @@ async def _stream_reply(
                 usage = chunk.usage
             if chunk.finish_reason is not None:
                 finish_reason = chunk.finish_reason
+        if redis is not None:
+            await reset_failures(redis, provider.id)
 
         yield _sse(
             "usage",
@@ -178,9 +194,13 @@ async def _stream_reply(
         await _finalize(assistant_id, "".join(parts), "cancelled", usage, workspace_id, citations)
         raise
     except ProviderError as exc:
+        if redis is not None:
+            await record_failure(redis, provider.id)
         yield _sse("error", {"code": exc.code, "message": exc.message})
         await _finalize(assistant_id, "".join(parts), "failed", usage, workspace_id, citations)
     except Exception:
+        if redis is not None:
+            await record_failure(redis, provider.id)
         logger.exception("streaming failed for message %s", assistant_id)
         yield _sse("error", {"code": "internal_error", "message": "Streaming failed"})
         await _finalize(assistant_id, "".join(parts), "failed", usage, workspace_id, citations)
@@ -193,10 +213,11 @@ async def create_conversation(
     session: SessionDep,
     registry: Annotated[ProviderRegistry, Depends(get_registry)],
 ) -> Conversation:
-    try:
-        registry.get(payload.provider_id)
-    except ProviderError as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, exc.message) from None
+    if payload.provider_id != "auto":
+        try:
+            registry.get(payload.provider_id)
+        except ProviderError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, exc.message) from None
 
     if payload.kb_id is not None:
         await get_owned_knowledge_base(payload.kb_id, context.workspace.id, session)
@@ -206,7 +227,7 @@ async def create_conversation(
         user_id=context.user.id,
         title="",
         provider_id=payload.provider_id,
-        model=payload.model,
+        model="auto" if payload.provider_id == "auto" else payload.model,
         kb_id=payload.kb_id,
     )
     session.add(conversation)
@@ -284,6 +305,35 @@ async def archive_conversation(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+async def _open_auto_stream(
+    registry: ProviderRegistry,
+    candidates: Sequence[tuple[str, str]],
+    history: Sequence[ChatMessage],
+    redis: RedisLike,
+) -> tuple[LLMProvider, str, AsyncIterator[ChatChunk], ChatChunk]:
+    for provider_id, model in candidates:
+        try:
+            provider = registry.get(provider_id)
+        except ProviderError:
+            continue
+        stream = provider.stream_chat(list(history), model)
+        try:
+            first = await asyncio.wait_for(
+                anext(stream), timeout=get_settings().provider_timeout_seconds
+            )
+        except Exception as exc:
+            logger.warning("provider %s failed before first token: %s", provider_id, exc)
+            await record_failure(redis, provider_id)
+            continue
+        await reset_failures(redis, provider_id)
+        return provider, model, stream, first
+
+    raise HTTPException(
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        {"code": "no_provider_available", "message": "No provider is currently available"},
+    )
+
+
 @router.post("/{conversation_id}/messages")
 async def send_message(
     conversation_id: UUID,
@@ -291,12 +341,15 @@ async def send_message(
     context: ChatContext,
     session: SessionDep,
     registry: Annotated[ProviderRegistry, Depends(get_registry)],
+    redis: RedisDep,
 ) -> StreamingResponse:
     conversation = await _get_owned_conversation(conversation_id, context.workspace.id, session)
-    try:
-        provider = registry.get(conversation.provider_id)
-    except ProviderError as exc:
-        raise HTTPException(status.HTTP_409_CONFLICT, exc.message) from None
+    provider: LLMProvider | None = None
+    if conversation.provider_id != "auto":
+        try:
+            provider = registry.get(conversation.provider_id)
+        except ProviderError as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, exc.message) from None
 
     history_result = await session.execute(
         select(Message)
@@ -335,6 +388,16 @@ async def send_message(
         citations = build_citations(used_chunks)
         chat_history = build_rag_messages(used_chunks, chat_history)
 
+    stream: AsyncIterator[ChatChunk] | None = None
+    first_chunk: ChatChunk | None = None
+    routed_model = conversation.model
+
+    if provider is None:
+        candidates = await route_candidates(session, registry, redis)
+        provider, routed_model, stream, first_chunk = await _open_auto_stream(
+            registry, candidates, chat_history, redis
+        )
+
     if not conversation.title:
         conversation.title = payload.content[:TITLE_MAX_LENGTH]
 
@@ -344,8 +407,8 @@ async def send_message(
         role="user",
         content=payload.content,
         status="completed",
-        provider_id=conversation.provider_id,
-        model=conversation.model,
+        provider_id=provider.id,
+        model=routed_model,
     )
     assistant_message = Message(
         conversation_id=conversation.id,
@@ -353,8 +416,8 @@ async def send_message(
         role="assistant",
         content="",
         status="streaming",
-        provider_id=conversation.provider_id,
-        model=conversation.model,
+        provider_id=provider.id,
+        model=routed_model,
     )
     session.add_all([user_message, assistant_message])
     await session.commit()
@@ -370,9 +433,12 @@ async def send_message(
             conversation_id=conversation.id,
             assistant_id=assistant_message.id,
             history=chat_history,
-            model=conversation.model,
+            model=routed_model,
             workspace_id=context.workspace.id,
             citations=citations,
+            stream=stream,
+            first_chunk=first_chunk,
+            redis=redis,
         ),
         media_type="text/event-stream",
         headers={
