@@ -173,7 +173,7 @@ class CitationBuilder(Protocol):
 兼容性约束（DeepSeek + 本地 Qwen 均按 OpenAI Chat Completions 协议）：
 
 - 单一 `OpenAICompatProvider` + 两套配置（`base_url` / `api_key` / `model`）；新增厂商只需加配置，或实现新的 `LLMProvider`。
-- `usage`：该 llama.cpp 构建实测返回 `prompt_tokens/completion_tokens`；但仍按可空字段处理（其他 serving 可能不返回），缺失时存 `NULL`、UI 显示 `n/a`，**不得用估算值伪装**。
+- `usage`：流式请求默认携带 `stream_options.include_usage=true`。llama.cpp 实测在流式下返回 `usage`（prompt 33 / completion 2）；仍按可空字段处理（其他 serving 可能忽略该参数），缺失时存 `NULL`、UI 显示 `n/a`，**不得用估算值伪装**。
 - 本地端点的 `finish_reason` 与 `[DONE]` 语义须对齐；用 fake SSE 回放做契约测试锁定。
 - 启动时探测 `/v1/models`；不可用则 fail fast，并在 `/providers` 中标记该 provider 不可用。
 - 若 bge-m3 实际以 Ollama 原生 API（非 OpenAI 兼容）暴露，加一层薄适配满足 `EmbeddingProvider`，不污染业务层。
@@ -262,13 +262,13 @@ class CitationBuilder(Protocol):
 
 ## 6. HANDOFF
 
-**状态：S1 已完成（auth + 用户隔离）**；Q1/Q2/Q4/Q5/Q6 已锁定；Q3 留待 P1。
+**状态：S1、S2 已完成**（auth + 隔离；provider 抽象 + SSE 流式）；Q1/Q2/Q4/Q5/Q6 已锁定；Q3 留待 P1。
 
 1. 已补 `docs/adr/0001-p0-stack.md`；Q1/Q2/Q4/Q5/Q6 已从 `[PROPOSED]` 提升为 `[FIXED]`。
 2. S1 证据：[`docs/tdd/p0-s1-auth.md`](../tdd/p0-s1-auth.md)（29 tests, 100% coverage）。
-3. 继续 `tdd-workflow` 的后续切片（每片先写测试）：
-   - **S2** provider 抽象 + SSE 流式（用 fake provider 测试）
+3. S2 证据：[`docs/tdd/p0-s2-provider-sse.md`](../tdd/p0-s2-provider-sse.md)（68 tests 总计, 100% coverage，含本地 Qwen 真实流式冒烟）。
+4. 继续 `tdd-workflow` 的后续切片（每片先写测试）：
    - **S3** 文档上传 + 异步入库（解析/分块/embedding 用 fake）
    - **S4** 检索 + 引用 + 端到端问答
-4. 每片后跑 `verification-loop`（测试、lint、类型、契约检查）。
-5. P1 启动时用 `dashboard-builder` 做用户控制台。
+5. 每片后跑 `verification-loop`（测试、lint、类型、契约检查）。
+6. P1 启动时用 `dashboard-builder` 做用户控制台。

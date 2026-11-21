@@ -17,7 +17,7 @@ P0 目标是验证学习型作品的最小闭环：登录 + 流式对话 + 单�
 
 需要在写代码前锁定：provider 组合、embedding 维度、重复上传语义、部署位置。
 
-实测（2026-11-21）：两个端点均可访问；`/v1/models` 返回上述 id；chat completion 正常；embeddings 为 1024 维；llama.cpp 返回 `usage`。
+实测（2026-11-21）：两个端点均可访问；`/v1/models` 返回上述 id；chat completion 正常；embeddings 为 1024 维；llama.cpp 在非流式与流式（携带 `stream_options.include_usage`）下均返回 `usage`。
 
 ## Decision
 
@@ -60,7 +60,7 @@ P0 目标是验证学习型作品的最小闭环：登录 + 流式对话 + 单�
 ### Negative / Risks
 
 - **多厂商抽象展示偏弱**：两个 provider 共用协议，面试时"多模型抽象"的说服力下降。缓解：P1/P2 增加一个真正不同 SDK 的实现（如 `AnthropicProvider`），并用契约测试证明可插拔。
-- **本地 serving 的 `usage` 兼容性**：该 llama.cpp 构建实测返回 `usage`，但仍按可空字段处理（其他 serving 可能不返回）；缺失时存 `NULL`，UI 显示 `n/a`，不伪造估算值。
+- **本地 serving 的 `usage` 兼容性**：流式请求默认携带 `stream_options.include_usage=true`，llama.cpp 实测返回 `usage`（33/2）；仍按可空字段处理（其他 serving 可能忽略该参数），缺失时存 `NULL`，UI 显示 `n/a`，不伪造估算值。
 - **网络与可用性**：VM 不可达、SSH 隧道断开会导致本地 provider 失败；需 fail fast + 明确错误码，不能拖垮纯远程路径。
 - **TTFT 受 VM 与网络影响**：实测本地 Qwen2.5-7B Q4 冷启动 prompt 约 160ms/token、解码约 2.8 tok/s；P95 < 1.5s 只对 DeepSeek 有意义。指标必须按 provider 分开统计。
 - **bge-m3 的检索质量未验证**：必须先建 50 题评测集，再调分块与 top_k（见 brief 的成功指标）。
@@ -77,7 +77,7 @@ P0 目标是验证学习型作品的最小闭环：登录 + 流式对话 + 单�
 ## Follow-ups
 
 1. Q5/Q6 已解决（地址与模型 id 见上）；剩余 Q3：API 最终部署位置。
-2. 用 fake SSE 回放写契约测试，锁定两个 provider 的流式事件与 `finish_reason` 差异。
+2. S2 已完成：fake SSE 契约测试与真实本地 Qwen 流式冒烟通过；DeepSeek 流式待有 key 时补测。
 3. 建立 50 题 RAG 评测集，测 bge-m3 的 Recall@5 与引用命中率，作为调参基线。
 4. P1 增加 `AnthropicProvider`（或另一个非同协议厂商），验证抽象的可插拔性。
 5. 若 VM 服务鉴权缺失，补访问令牌；密钥只走 env，不进代码与日志。
