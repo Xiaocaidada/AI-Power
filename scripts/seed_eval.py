@@ -9,7 +9,7 @@ Usage:
 
 Then evaluate with the printed user-id / kb-id:
     python scripts/eval_retrieval.py --dataset eval/questions.jsonl \
-        --user-id <uuid> --kb-id <uuid> --top-k 5
+        --workspace-id <uuid> --kb-id <uuid> --top-k 5
 """
 
 import argparse
@@ -22,7 +22,15 @@ from sqlalchemy import delete, func, select
 
 from app.config import get_settings
 from app.db import SessionLocal, init_db
-from app.models import Chunk, ChunkEmbedding, Document, KnowledgeBase, User
+from app.models import (
+    Chunk,
+    ChunkEmbedding,
+    Document,
+    KnowledgeBase,
+    User,
+    Workspace,
+    WorkspaceMember,
+)
 from app.services.evaluation import (
     EVAL_NAMESPACE,
     document_id_for,
@@ -32,6 +40,7 @@ from app.services.evaluation import (
 from app.services.ingestion import ingest_document
 
 EVAL_USER_ID = uuid5(EVAL_NAMESPACE, "user")
+EVAL_WORKSPACE_ID = uuid5(EVAL_NAMESPACE, "workspace")
 EVAL_KB_ID = uuid5(EVAL_NAMESPACE, "kb")
 EVAL_USER_EMAIL = "retrieval-eval@ai-power.local"
 EVAL_KB_NAME = "检索评测集"
@@ -47,8 +56,26 @@ async def _ensure_owner(session) -> None:
                 role="user",
             )
         )
+    if await session.get(Workspace, EVAL_WORKSPACE_ID) is None:
+        session.add(
+            Workspace(id=EVAL_WORKSPACE_ID, name=EVAL_KB_NAME, plan="free", is_personal=True)
+        )
+    membership = await session.get(
+        WorkspaceMember, {"workspace_id": EVAL_WORKSPACE_ID, "user_id": EVAL_USER_ID}
+    )
+    if membership is None:
+        session.add(
+            WorkspaceMember(workspace_id=EVAL_WORKSPACE_ID, user_id=EVAL_USER_ID, role="owner")
+        )
     if await session.get(KnowledgeBase, EVAL_KB_ID) is None:
-        session.add(KnowledgeBase(id=EVAL_KB_ID, user_id=EVAL_USER_ID, name=EVAL_KB_NAME))
+        session.add(
+            KnowledgeBase(
+                id=EVAL_KB_ID,
+                workspace_id=EVAL_WORKSPACE_ID,
+                user_id=EVAL_USER_ID,
+                name=EVAL_KB_NAME,
+            )
+        )
     await session.commit()
 
 
@@ -71,6 +98,7 @@ async def _write_documents(session, documents, upload_dir: Path) -> None:
             Document(
                 id=document_id,
                 kb_id=EVAL_KB_ID,
+                workspace_id=EVAL_WORKSPACE_ID,
                 user_id=EVAL_USER_ID,
                 filename=document.filename,
                 mime="text/markdown",
@@ -112,7 +140,7 @@ async def seed(dataset_path: Path, questions_path: Path) -> int:
 
     print(f"documents: {len(documents)} statuses={statuses}")
     print(f"questions: {len(questions)} -> {questions_path}")
-    print(f"user-id: {EVAL_USER_ID}")
+    print(f"workspace-id: {EVAL_WORKSPACE_ID}")
     print(f"kb-id: {EVAL_KB_ID}")
     return 0 if statuses == {"ready": len(documents)} else 1
 

@@ -5,7 +5,7 @@ Dataset format (JSONL, one object per line):
 
 Usage:
     python scripts/eval_retrieval.py --dataset eval.jsonl \
-        --user-id <uuid> --kb-id <uuid> --top-k 5 --min-recall 0.8
+        --workspace-id <uuid> --kb-id <uuid> --top-k 5 --min-recall 0.8
 """
 
 import argparse
@@ -48,7 +48,7 @@ async def _run(args: argparse.Namespace) -> int:
     async with SessionLocal() as session:
         report = await evaluate_recall(
             session,
-            user_id=UUID(args.user_id),
+            workspace_id=UUID(args.workspace_id),
             kb_id=UUID(args.kb_id),
             questions=questions,
             top_k=args.top_k,
@@ -64,7 +64,7 @@ async def _run(args: argparse.Namespace) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", required=True, help="JSONL question file")
-    parser.add_argument("--user-id", required=True, help="owner of the knowledge base")
+    parser.add_argument("--workspace-id", required=True, help="workspace of the knowledge base")
     parser.add_argument("--kb-id", required=True, help="knowledge base to evaluate")
     parser.add_argument("--top-k", type=int, default=5, help="retrieval depth (default 5)")
     parser.add_argument(

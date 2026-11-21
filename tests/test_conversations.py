@@ -272,7 +272,7 @@ async def test_finalize_ignores_missing_message():
 
     from app.routers.conversations import _finalize
 
-    await _finalize(uuid4(), "", "completed", None)
+    await _finalize(uuid4(), "", "completed", None, uuid4())
 
 
 async def test_finalize_swallows_database_errors(monkeypatch):
@@ -288,7 +288,7 @@ async def test_finalize_swallows_database_errors(monkeypatch):
             return None
 
     monkeypatch.setattr(conversations_module, "SessionLocal", BrokenSession)
-    await conversations_module._finalize(uuid4(), "", "completed", None)
+    await conversations_module._finalize(uuid4(), "", "completed", None, uuid4())
 
 
 async def test_cancelled_stream_marks_message_cancelled(client, api, registry):
@@ -334,6 +334,7 @@ async def test_cancelled_stream_marks_message_cancelled(client, api, registry):
             assistant_id=assistant_id,
             history=[],
             model="fake-model",
+            workspace_id=UUID(int=1),
         ):
             pass
     except asyncio.CancelledError:

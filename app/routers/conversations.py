@@ -14,8 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db import SessionLocal, get_session
-from app.deps import get_current_user, get_registry, require_scope
-from app.models import Conversation, Message, MessageCitation, UsageEvent, User
+from app.deps import AuthContext, get_jwt_context, get_registry, require_scope
+from app.models import Conversation, Message, MessageCitation, UsageEvent
 from app.providers.base import ChatMessage, LLMProvider, ProviderError, Usage
 from app.providers.registry import ProviderRegistry
 from app.schemas import (
@@ -34,9 +34,9 @@ router = APIRouter(prefix="/conversations", tags=["conversations"])
 logger = logging.getLogger(__name__)
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
-CurrentUser = Annotated[User, Depends(get_current_user)]
-ChatUser = Annotated[User, Depends(require_scope("chat:write"))]
-ReadUser = Annotated[User, Depends(require_scope("kb:read"))]
+JwtContext = Annotated[AuthContext, Depends(get_jwt_context)]
+ChatContext = Annotated[AuthContext, Depends(require_scope("chat:write"))]
+ReadContext = Annotated[AuthContext, Depends(require_scope("kb:read"))]
 
 HISTORY_MESSAGE_LIMIT = 12
 TITLE_MAX_LENGTH = 30
@@ -47,12 +47,12 @@ def _sse(event: str, data: dict[str, object]) -> str:
 
 
 async def _get_owned_conversation(
-    conversation_id: UUID, user_id: UUID, session: AsyncSession
+    conversation_id: UUID, workspace_id: UUID, session: AsyncSession
 ) -> Conversation:
     result = await session.execute(
         select(Conversation).where(
             Conversation.id == conversation_id,
-            Conversation.user_id == user_id,
+            Conversation.workspace_id == workspace_id,
             Conversation.archived_at.is_(None),
         )
     )
@@ -67,6 +67,7 @@ async def _finalize(
     content: str,
     message_status: str,
     usage: Usage | None,
+    workspace_id: UUID,
     citations: Sequence[Citation] = (),
 ) -> None:
     try:
@@ -86,6 +87,7 @@ async def _finalize(
                 if existing_event.scalar_one_or_none() is None:
                     session.add(
                         UsageEvent(
+                            workspace_id=workspace_id,
                             user_id=message.user_id,
                             conversation_id=message.conversation_id,
                             message_id=message.id,
@@ -127,6 +129,7 @@ async def _stream_reply(
     assistant_id: UUID,
     history: list[ChatMessage],
     model: str,
+    workspace_id: UUID,
     citations: Sequence[Citation] = (),
 ) -> AsyncIterator[str]:
     parts: list[str] = []
@@ -170,23 +173,23 @@ async def _stream_reply(
             },
         )
         yield _sse("done", {"finish_reason": finish_reason})
-        await _finalize(assistant_id, "".join(parts), "completed", usage, citations)
+        await _finalize(assistant_id, "".join(parts), "completed", usage, workspace_id, citations)
     except asyncio.CancelledError:
-        await _finalize(assistant_id, "".join(parts), "cancelled", usage, citations)
+        await _finalize(assistant_id, "".join(parts), "cancelled", usage, workspace_id, citations)
         raise
     except ProviderError as exc:
         yield _sse("error", {"code": exc.code, "message": exc.message})
-        await _finalize(assistant_id, "".join(parts), "failed", usage, citations)
+        await _finalize(assistant_id, "".join(parts), "failed", usage, workspace_id, citations)
     except Exception:
         logger.exception("streaming failed for message %s", assistant_id)
         yield _sse("error", {"code": "internal_error", "message": "Streaming failed"})
-        await _finalize(assistant_id, "".join(parts), "failed", usage, citations)
+        await _finalize(assistant_id, "".join(parts), "failed", usage, workspace_id, citations)
 
 
 @router.post("", response_model=ConversationOut, status_code=status.HTTP_201_CREATED)
 async def create_conversation(
     payload: ConversationCreate,
-    current_user: ChatUser,
+    context: ChatContext,
     session: SessionDep,
     registry: Annotated[ProviderRegistry, Depends(get_registry)],
 ) -> Conversation:
@@ -196,10 +199,11 @@ async def create_conversation(
         raise HTTPException(status.HTTP_404_NOT_FOUND, exc.message) from None
 
     if payload.kb_id is not None:
-        await get_owned_knowledge_base(payload.kb_id, current_user.id, session)
+        await get_owned_knowledge_base(payload.kb_id, context.workspace.id, session)
 
     conversation = Conversation(
-        user_id=current_user.id,
+        workspace_id=context.workspace.id,
+        user_id=context.user.id,
         title="",
         provider_id=payload.provider_id,
         model=payload.model,
@@ -212,11 +216,11 @@ async def create_conversation(
 
 
 @router.get("", response_model=list[ConversationOut])
-async def list_conversations(current_user: ReadUser, session: SessionDep) -> list[Conversation]:
+async def list_conversations(context: ReadContext, session: SessionDep) -> list[Conversation]:
     result = await session.execute(
         select(Conversation)
         .where(
-            Conversation.user_id == current_user.id,
+            Conversation.workspace_id == context.workspace.id,
             Conversation.archived_at.is_(None),
         )
         .order_by(Conversation.created_at.desc())
@@ -226,9 +230,9 @@ async def list_conversations(current_user: ReadUser, session: SessionDep) -> lis
 
 @router.get("/{conversation_id}", response_model=ConversationDetailOut)
 async def get_conversation(
-    conversation_id: UUID, current_user: ReadUser, session: SessionDep
+    conversation_id: UUID, context: ReadContext, session: SessionDep
 ) -> ConversationDetailOut:
-    conversation = await _get_owned_conversation(conversation_id, current_user.id, session)
+    conversation = await _get_owned_conversation(conversation_id, context.workspace.id, session)
     result = await session.execute(
         select(Message)
         .where(Message.conversation_id == conversation.id)
@@ -272,9 +276,9 @@ async def get_conversation(
 
 @router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def archive_conversation(
-    conversation_id: UUID, current_user: CurrentUser, session: SessionDep
+    conversation_id: UUID, context: JwtContext, session: SessionDep
 ) -> Response:
-    conversation = await _get_owned_conversation(conversation_id, current_user.id, session)
+    conversation = await _get_owned_conversation(conversation_id, context.workspace.id, session)
     conversation.archived_at = datetime.now(UTC)
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -284,11 +288,11 @@ async def archive_conversation(
 async def send_message(
     conversation_id: UUID,
     payload: SendMessageIn,
-    current_user: ChatUser,
+    context: ChatContext,
     session: SessionDep,
     registry: Annotated[ProviderRegistry, Depends(get_registry)],
 ) -> StreamingResponse:
-    conversation = await _get_owned_conversation(conversation_id, current_user.id, session)
+    conversation = await _get_owned_conversation(conversation_id, context.workspace.id, session)
     try:
         provider = registry.get(conversation.provider_id)
     except ProviderError as exc:
@@ -317,7 +321,7 @@ async def send_message(
         try:
             retrieved = await retrieve_chunks(
                 session,
-                user_id=current_user.id,
+                workspace_id=context.workspace.id,
                 kb_id=conversation.kb_id,
                 query=payload.content,
             )
@@ -336,7 +340,7 @@ async def send_message(
 
     user_message = Message(
         conversation_id=conversation.id,
-        user_id=current_user.id,
+        user_id=context.user.id,
         role="user",
         content=payload.content,
         status="completed",
@@ -345,7 +349,7 @@ async def send_message(
     )
     assistant_message = Message(
         conversation_id=conversation.id,
-        user_id=current_user.id,
+        user_id=context.user.id,
         role="assistant",
         content="",
         status="streaming",
@@ -367,6 +371,7 @@ async def send_message(
             assistant_id=assistant_message.id,
             history=chat_history,
             model=conversation.model,
+            workspace_id=context.workspace.id,
             citations=citations,
         ),
         media_type="text/event-stream",

@@ -8,12 +8,12 @@ from app.models import Document, KnowledgeBase
 
 
 async def get_owned_knowledge_base(
-    kb_id: UUID, user_id: UUID, session: AsyncSession
+    kb_id: UUID, workspace_id: UUID, session: AsyncSession
 ) -> KnowledgeBase:
     result = await session.execute(
         select(KnowledgeBase).where(
             KnowledgeBase.id == kb_id,
-            KnowledgeBase.user_id == user_id,
+            KnowledgeBase.workspace_id == workspace_id,
             KnowledgeBase.deleted_at.is_(None),
         )
     )
@@ -23,11 +23,13 @@ async def get_owned_knowledge_base(
     return kb
 
 
-async def get_owned_document(document_id: UUID, user_id: UUID, session: AsyncSession) -> Document:
+async def get_owned_document(
+    document_id: UUID, workspace_id: UUID, session: AsyncSession
+) -> Document:
     result = await session.execute(
         select(Document).where(
             Document.id == document_id,
-            Document.user_id == user_id,
+            Document.workspace_id == workspace_id,
             Document.deleted_at.is_(None),
         )
     )

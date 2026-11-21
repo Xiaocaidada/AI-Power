@@ -18,8 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db import get_session
-from app.deps import get_current_user, require_scope
-from app.models import Chunk, ChunkEmbedding, Document, IngestionJob, User
+from app.deps import AuthContext, get_jwt_context, require_scope
+from app.models import Chunk, ChunkEmbedding, Document, IngestionJob
 from app.schemas import DocumentOut, DocumentUploadOut
 from app.services.access import get_owned_document, get_owned_knowledge_base
 from app.services.parsing import UnsupportedDocumentType
@@ -30,8 +30,8 @@ router = APIRouter(tags=["documents"])
 logger = logging.getLogger(__name__)
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
-CurrentUser = Annotated[User, Depends(get_current_user)]
-ReadUser = Annotated[User, Depends(require_scope("kb:read"))]
+JwtContext = Annotated[AuthContext, Depends(get_jwt_context)]
+ReadContext = Annotated[AuthContext, Depends(require_scope("kb:read"))]
 QueueDep = Annotated[JobQueue, Depends(get_queue)]
 
 
@@ -72,12 +72,12 @@ async def _enqueue_or_fail(
 async def upload_document(
     kb_id: UUID,
     file: Annotated[UploadFile, File()],
-    current_user: CurrentUser,
+    context: JwtContext,
     session: SessionDep,
     queue: QueueDep,
     response: Response,
 ) -> DocumentUploadOut:
-    await get_owned_knowledge_base(kb_id, current_user.id, session)
+    await get_owned_knowledge_base(kb_id, context.workspace.id, session)
     settings = get_settings()
     try:
         saved = await save_upload(file, settings.upload_dir, settings.max_upload_bytes)
@@ -90,7 +90,7 @@ async def upload_document(
 
     existing_result = await session.execute(
         select(Document).where(
-            Document.user_id == current_user.id,
+            Document.workspace_id == context.workspace.id,
             Document.kb_id == kb_id,
             Document.content_hash == saved.content_hash,
             Document.deleted_at.is_(None),
@@ -104,7 +104,8 @@ async def upload_document(
 
     document = Document(
         kb_id=kb_id,
-        user_id=current_user.id,
+        workspace_id=context.workspace.id,
+        user_id=context.user.id,
         filename=file.filename or saved.storage_name,
         mime=saved.mime,
         size_bytes=saved.size_bytes,
@@ -112,7 +113,7 @@ async def upload_document(
         status="uploaded",
         storage_path=saved.storage_name,
     )
-    job = IngestionJob(status="queued")
+    job = IngestionJob(workspace_id=context.workspace.id, status="queued")
     try:
         session.add(document)
         await session.flush()
@@ -130,15 +131,13 @@ async def upload_document(
 
 
 @router.get("/knowledge-bases/{kb_id}/documents", response_model=list[DocumentOut])
-async def list_documents(
-    kb_id: UUID, current_user: ReadUser, session: SessionDep
-) -> list[Document]:
-    await get_owned_knowledge_base(kb_id, current_user.id, session)
+async def list_documents(kb_id: UUID, context: ReadContext, session: SessionDep) -> list[Document]:
+    await get_owned_knowledge_base(kb_id, context.workspace.id, session)
     result = await session.execute(
         select(Document)
         .where(
             Document.kb_id == kb_id,
-            Document.user_id == current_user.id,
+            Document.workspace_id == context.workspace.id,
             Document.deleted_at.is_(None),
         )
         .order_by(Document.created_at.desc(), Document.id.desc())
@@ -153,11 +152,11 @@ async def list_documents(
 )
 async def retry_document(
     document_id: UUID,
-    current_user: CurrentUser,
+    context: JwtContext,
     session: SessionDep,
     queue: QueueDep,
 ) -> DocumentUploadOut:
-    document = await get_owned_document(document_id, current_user.id, session)
+    document = await get_owned_document(document_id, context.workspace.id, session)
     job = (
         await session.execute(select(IngestionJob).where(IngestionJob.document_id == document.id))
     ).scalar_one_or_none()
@@ -182,15 +181,13 @@ async def retry_document(
 
 
 @router.get("/documents/{document_id}", response_model=DocumentOut)
-async def get_document(document_id: UUID, current_user: ReadUser, session: SessionDep) -> Document:
-    return await get_owned_document(document_id, current_user.id, session)
+async def get_document(document_id: UUID, context: ReadContext, session: SessionDep) -> Document:
+    return await get_owned_document(document_id, context.workspace.id, session)
 
 
 @router.delete("/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_document(
-    document_id: UUID, current_user: CurrentUser, session: SessionDep
-) -> Response:
-    document = await get_owned_document(document_id, current_user.id, session)
+async def delete_document(document_id: UUID, context: JwtContext, session: SessionDep) -> Response:
+    document = await get_owned_document(document_id, context.workspace.id, session)
     document.deleted_at = datetime.now(UTC)
     chunk_ids = select(Chunk.id).where(Chunk.document_id == document.id)
     await session.execute(delete(ChunkEmbedding).where(ChunkEmbedding.chunk_id.in_(chunk_ids)))

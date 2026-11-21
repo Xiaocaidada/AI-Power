@@ -13,7 +13,7 @@ pytestmark = pytest.mark.skipif(
 
 
 async def test_pgvector_stores_1024_dimensions_and_orders_by_l2_distance():
-    from app.models import Base, Chunk, ChunkEmbedding, Document, KnowledgeBase, User
+    from app.models import Base, Chunk, ChunkEmbedding, Document, KnowledgeBase, User, Workspace
 
     engine = create_async_engine(TEST_POSTGRES_URL)
     try:
@@ -27,10 +27,14 @@ async def test_pgvector_stores_1024_dimensions_and_orders_by_l2_distance():
             user = User(email=f"{uuid4()}@pgvector.test", password_hash="x")
             session.add(user)
             await session.flush()
-            kb = KnowledgeBase(user_id=user.id, name="kb")
+            workspace = Workspace(name="kb", plan="free", is_personal=False)
+            session.add(workspace)
+            await session.flush()
+            kb = KnowledgeBase(workspace_id=workspace.id, user_id=user.id, name="kb")
             session.add(kb)
             await session.flush()
             document = Document(
+                workspace_id=workspace.id,
                 kb_id=kb.id,
                 user_id=user.id,
                 filename="a.txt",
@@ -43,6 +47,7 @@ async def test_pgvector_stores_1024_dimensions_and_orders_by_l2_distance():
             session.add(document)
             await session.flush()
             first = Chunk(
+                workspace_id=workspace.id,
                 document_id=document.id,
                 user_id=user.id,
                 kb_id=kb.id,
@@ -51,6 +56,7 @@ async def test_pgvector_stores_1024_dimensions_and_orders_by_l2_distance():
                 text="first",
             )
             second = Chunk(
+                workspace_id=workspace.id,
                 document_id=document.id,
                 user_id=user.id,
                 kb_id=kb.id,

@@ -17,6 +17,7 @@ from app.routers import (
     knowledge_bases,
     providers,
     usage,
+    workspaces,
 )
 from app.services.queue import close_queue
 
@@ -46,6 +47,7 @@ app.include_router(auth.router)
 app.include_router(api_keys.router)
 app.include_router(health.router)
 app.include_router(usage.router)
+app.include_router(workspaces.router)
 app.include_router(providers.router)
 app.include_router(conversations.router)
 app.include_router(documents.router)

@@ -4,7 +4,7 @@ from uuid import UUID
 from sqlalchemy import select
 
 from app.db import SessionLocal
-from app.models import Conversation, Message, UsageEvent
+from app.models import Conversation, Message, UsageEvent, Workspace, WorkspaceMember
 
 DAY_ONE = datetime(2026, 11, 20, 12, 0, tzinfo=UTC)
 DAY_TWO = datetime(2026, 11, 21, 12, 0, tzinfo=UTC)
@@ -16,8 +16,19 @@ async def _setup(client, api, email="usage@example.com"):
     me = await client.get("/auth/me", headers=headers)
     user_id = UUID(me.json()["id"])
     async with SessionLocal() as session:
+        workspace = (
+            await session.execute(
+                select(Workspace)
+                .join(WorkspaceMember, WorkspaceMember.workspace_id == Workspace.id)
+                .where(WorkspaceMember.user_id == user_id, Workspace.is_personal.is_(True))
+            )
+        ).scalar_one()
         conversation = Conversation(
-            user_id=user_id, title="Usage", provider_id="fake", model="fake-model"
+            workspace_id=workspace.id,
+            user_id=user_id,
+            title="Usage",
+            provider_id="fake",
+            model="fake-model",
         )
         session.add(conversation)
         await session.commit()
@@ -36,6 +47,8 @@ async def _seed_event(
     created_at=DAY_ONE,
 ):
     async with SessionLocal() as session:
+        conversation = await session.get(Conversation, conversation_id)
+        assert conversation is not None
         message = Message(
             conversation_id=conversation_id,
             user_id=user_id,
@@ -52,6 +65,7 @@ async def _seed_event(
         await session.flush()
         session.add(
             UsageEvent(
+                workspace_id=conversation.workspace_id,
                 user_id=user_id,
                 conversation_id=conversation_id,
                 message_id=message.id,

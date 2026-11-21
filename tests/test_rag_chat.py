@@ -194,10 +194,13 @@ async def test_rag_never_cites_chunks_owned_by_another_user(
     await _upload(client, alice, kb.json()["id"])
     conversation = await _create_conversation(client, alice, kb.json()["id"])
 
+    bob_workspaces = await client.get("/workspaces", headers=bob)
+    bob_workspace_id = UUID(bob_workspaces.json()[0]["id"])
     async with SessionLocal() as session:
         bob_user = await session.get(User, bob_id)
         assert bob_user is not None
         foreign_document = Document(
+            workspace_id=bob_workspace_id,
             kb_id=UUID(kb.json()["id"]),
             user_id=bob_id,
             filename="bob.txt",
@@ -210,6 +213,7 @@ async def test_rag_never_cites_chunks_owned_by_another_user(
         session.add(foreign_document)
         await session.flush()
         foreign_chunk = Chunk(
+            workspace_id=bob_workspace_id,
             document_id=foreign_document.id,
             user_id=bob_id,
             kb_id=UUID(kb.json()["id"]),

@@ -38,7 +38,7 @@ class Citation:
 async def retrieve_chunks(
     session: AsyncSession,
     *,
-    user_id: UUID,
+    workspace_id: UUID,
     kb_id: UUID,
     query: str,
     top_k: int | None = None,
@@ -59,8 +59,8 @@ async def retrieve_chunks(
     vector = vectors[0]
 
     if session.get_bind().dialect.name == "postgresql":
-        return await _search_with_distance(session, user_id, kb_id, vector, limit)
-    return await _search_in_python(session, user_id, kb_id, vector, limit)
+        return await _search_with_distance(session, workspace_id, kb_id, vector, limit)
+    return await _search_in_python(session, workspace_id, kb_id, vector, limit)
 
 
 def build_citations(chunks: Sequence[RetrievedChunk]) -> list[Citation]:
@@ -76,9 +76,9 @@ def build_citations(chunks: Sequence[RetrievedChunk]) -> list[Citation]:
     ]
 
 
-def _filters(user_id: UUID, kb_id: UUID) -> tuple:
+def _filters(workspace_id: UUID, kb_id: UUID) -> tuple:
     return (
-        Chunk.user_id == user_id,
+        Chunk.workspace_id == workspace_id,
         Chunk.kb_id == kb_id,
         Document.status == "ready",
         Document.deleted_at.is_(None),
@@ -87,7 +87,7 @@ def _filters(user_id: UUID, kb_id: UUID) -> tuple:
 
 async def _search_with_distance(
     session: AsyncSession,
-    user_id: UUID,
+    workspace_id: UUID,
     kb_id: UUID,
     vector: list[float],
     limit: int,
@@ -97,7 +97,7 @@ async def _search_with_distance(
         select(Chunk, Document.filename, distance)
         .join(ChunkEmbedding, ChunkEmbedding.chunk_id == Chunk.id)
         .join(Document, Document.id == Chunk.document_id)
-        .where(*_filters(user_id, kb_id))
+        .where(*_filters(workspace_id, kb_id))
         .order_by(distance, Chunk.chunk_index, Chunk.id)
         .limit(limit)
     )
@@ -109,7 +109,7 @@ async def _search_with_distance(
 
 async def _search_in_python(
     session: AsyncSession,
-    user_id: UUID,
+    workspace_id: UUID,
     kb_id: UUID,
     vector: list[float],
     limit: int,
@@ -119,7 +119,7 @@ async def _search_in_python(
         select(Chunk, Document.filename, ChunkEmbedding.embedding)
         .join(ChunkEmbedding, ChunkEmbedding.chunk_id == Chunk.id)
         .join(Document, Document.id == Chunk.document_id)
-        .where(*_filters(user_id, kb_id))
+        .where(*_filters(workspace_id, kb_id))
     )
     rows = (await session.execute(statement)).all()
     scored = [

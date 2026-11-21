@@ -48,7 +48,7 @@ async def test_hnsw_index_is_created_idempotently():
 
 
 async def test_retrieval_uses_pgvector_ordering_and_filters():
-    from app.models import Base, ChunkEmbedding, KnowledgeBase, User
+    from app.models import Base, ChunkEmbedding, KnowledgeBase, User, Workspace
     from app.services.retrieval import retrieve_chunks
 
     class QueryEmbedder:
@@ -68,8 +68,11 @@ async def test_retrieval_uses_pgvector_ordering_and_filters():
             user = User(email=f"{uuid4()}@retrieval.test", password_hash="x")
             session.add(user)
             await session.flush()
-            kb = KnowledgeBase(user_id=user.id, name="kb")
-            other_kb = KnowledgeBase(user_id=user.id, name="other")
+            workspace = Workspace(name="kb", plan="free", is_personal=False)
+            session.add(workspace)
+            await session.flush()
+            kb = KnowledgeBase(workspace_id=workspace.id, user_id=user.id, name="kb")
+            other_kb = KnowledgeBase(workspace_id=workspace.id, user_id=user.id, name="other")
             session.add_all([kb, other_kb])
             await session.flush()
             near_document = _document(kb, user, "near.txt")
@@ -93,7 +96,7 @@ async def test_retrieval_uses_pgvector_ordering_and_filters():
 
             results = await retrieve_chunks(
                 session,
-                user_id=user.id,
+                workspace_id=kb.workspace_id,
                 kb_id=kb.id,
                 query="anything",
                 embedder=QueryEmbedder(),
@@ -115,6 +118,7 @@ def _document(kb, user, filename: str):
     from app.models import Document
 
     return Document(
+        workspace_id=kb.workspace_id,
         kb_id=kb.id,
         user_id=user.id,
         filename=filename,
@@ -130,6 +134,7 @@ def _chunk(document, user, kb, text: str, index: int):
     from app.models import Chunk
 
     return Chunk(
+        workspace_id=kb.workspace_id,
         document_id=document.id,
         user_id=user.id,
         kb_id=kb.id,

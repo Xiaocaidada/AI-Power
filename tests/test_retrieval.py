@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 from app.config import Settings
 from app.db import SessionLocal
-from app.models import Chunk, ChunkEmbedding, Document, KnowledgeBase, User
+from app.models import Chunk, ChunkEmbedding, Document, KnowledgeBase, User, Workspace
 
 
 def _vector(position: int) -> list[float]:
@@ -18,7 +18,10 @@ async def _seed_owner(session, email: str, kb_name: str = "KB"):
     user = User(email=email, password_hash="x")
     session.add(user)
     await session.flush()
-    kb = KnowledgeBase(user_id=user.id, name=kb_name)
+    workspace = Workspace(name=kb_name, plan="free", is_personal=False)
+    session.add(workspace)
+    await session.flush()
+    kb = KnowledgeBase(workspace_id=workspace.id, user_id=user.id, name=kb_name)
     session.add(kb)
     await session.flush()
     return user, kb
@@ -37,6 +40,7 @@ async def _seed_chunk(
     deleted_at=None,
 ) -> tuple[Chunk, Document]:
     document = Document(
+        workspace_id=kb.workspace_id,
         kb_id=kb.id,
         user_id=user.id,
         filename=filename,
@@ -50,6 +54,7 @@ async def _seed_chunk(
     session.add(document)
     await session.flush()
     chunk = Chunk(
+        workspace_id=kb.workspace_id,
         document_id=document.id,
         user_id=user.id,
         kb_id=kb.id,
@@ -79,7 +84,11 @@ async def test_search_orders_by_distance_and_limits_top_k(keyword_embedder):
         await session.commit()
 
         results = await retrieve_chunks(
-            session, user_id=user.id, kb_id=kb.id, query="alpha?", embedder=keyword_embedder
+            session,
+            workspace_id=kb.workspace_id,
+            kb_id=kb.id,
+            query="alpha?",
+            embedder=keyword_embedder,
         )
 
         assert [result.chunk_id for result in results] == [near.id, far.id]
@@ -89,7 +98,7 @@ async def test_search_orders_by_distance_and_limits_top_k(keyword_embedder):
 
         limited = await retrieve_chunks(
             session,
-            user_id=user.id,
+            workspace_id=kb.workspace_id,
             kb_id=kb.id,
             query="alpha?",
             top_k=1,
@@ -103,7 +112,9 @@ async def test_search_filters_by_user_and_knowledge_base(keyword_embedder):
 
     async with SessionLocal() as session:
         alice, alice_kb = await _seed_owner(session, "search-alice@example.com", "Alice KB")
-        alice_other_kb = KnowledgeBase(user_id=alice.id, name="Other KB")
+        alice_other_kb = KnowledgeBase(
+            workspace_id=alice_kb.workspace_id, user_id=alice.id, name="Other KB"
+        )
         session.add(alice_other_kb)
         await session.flush()
         bob, bob_kb = await _seed_owner(session, "search-bob@example.com", "Bob KB")
@@ -115,7 +126,11 @@ async def test_search_filters_by_user_and_knowledge_base(keyword_embedder):
         await session.commit()
 
         results = await retrieve_chunks(
-            session, user_id=alice.id, kb_id=alice_kb.id, query="wanted", embedder=keyword_embedder
+            session,
+            workspace_id=alice_kb.workspace_id,
+            kb_id=alice_kb.id,
+            query="wanted",
+            embedder=keyword_embedder,
         )
 
         assert [result.text for result in results] == ["wanted"]
@@ -142,7 +157,11 @@ async def test_search_excludes_documents_that_are_not_ready_or_deleted(keyword_e
         await session.commit()
 
         results = await retrieve_chunks(
-            session, user_id=user.id, kb_id=kb.id, query="ready", embedder=keyword_embedder
+            session,
+            workspace_id=kb.workspace_id,
+            kb_id=kb.id,
+            query="ready",
+            embedder=keyword_embedder,
         )
 
         assert [result.text for result in results] == ["ready"]
@@ -156,7 +175,11 @@ async def test_search_returns_empty_when_knowledge_base_has_no_chunks(keyword_em
         await session.commit()
 
         results = await retrieve_chunks(
-            session, user_id=user.id, kb_id=kb.id, query="anything", embedder=keyword_embedder
+            session,
+            workspace_id=kb.workspace_id,
+            kb_id=kb.id,
+            query="anything",
+            embedder=keyword_embedder,
         )
 
         assert results == []
@@ -169,7 +192,11 @@ async def test_search_returns_empty_for_blank_query_without_embedding(keyword_em
         user, kb = await _seed_owner(session, "search-blank@example.com")
 
         results = await retrieve_chunks(
-            session, user_id=user.id, kb_id=kb.id, query="   ", embedder=keyword_embedder
+            session,
+            workspace_id=kb.workspace_id,
+            kb_id=kb.id,
+            query="   ",
+            embedder=keyword_embedder,
         )
 
         assert results == []
@@ -189,7 +216,7 @@ async def test_search_rejects_embedder_returning_missing_query_vector(keyword_em
         with pytest.raises(ProviderError) as excinfo:
             await retrieve_chunks(
                 session,
-                user_id=user.id,
+                workspace_id=kb.workspace_id,
                 kb_id=kb.id,
                 query="anything",
                 embedder=EmptyEmbedder(),
@@ -225,7 +252,7 @@ async def test_search_rejects_non_positive_top_k(keyword_embedder):
         with pytest.raises(ValueError):
             await retrieve_chunks(
                 session,
-                user_id=user.id,
+                workspace_id=kb.workspace_id,
                 kb_id=kb.id,
                 query="anything",
                 top_k=0,
@@ -246,7 +273,7 @@ async def test_search_propagates_embedding_provider_errors():
         with pytest.raises(ProviderError) as excinfo:
             await retrieve_chunks(
                 session,
-                user_id=user.id,
+                workspace_id=kb.workspace_id,
                 kb_id=kb.id,
                 query="anything",
                 embedder=FailingEmbedder(),

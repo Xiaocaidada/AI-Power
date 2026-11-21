@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from app.db import SessionLocal
-from app.models import Document, KnowledgeBase, User
+from app.models import Document, KnowledgeBase, User, Workspace
 
 
 async def _seed_document(storage_path: str):
@@ -11,11 +11,15 @@ async def _seed_document(storage_path: str):
         user = User(email=f"{uuid4()}@maint.local", password_hash="x")
         session.add(user)
         await session.flush()
-        kb = KnowledgeBase(user_id=user.id, name="KB")
+        workspace = Workspace(name="KB", plan="free", is_personal=False)
+        session.add(workspace)
+        await session.flush()
+        kb = KnowledgeBase(workspace_id=workspace.id, user_id=user.id, name="KB")
         session.add(kb)
         await session.flush()
         session.add(
             Document(
+                workspace_id=workspace.id,
                 kb_id=kb.id,
                 user_id=user.id,
                 filename="known.txt",

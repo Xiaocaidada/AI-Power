@@ -1,12 +1,15 @@
 from app.db import SessionLocal
-from app.models import Chunk, ChunkEmbedding, Document, KnowledgeBase, User
+from app.models import Chunk, ChunkEmbedding, Document, KnowledgeBase, User, Workspace
 
 
 async def _seed(session, keyword_embedder):
     user = User(email="eval@example.com", password_hash="x")
     session.add(user)
     await session.flush()
-    kb = KnowledgeBase(user_id=user.id, name="eval")
+    workspace = Workspace(name="eval", plan="free", is_personal=False)
+    session.add(workspace)
+    await session.flush()
+    kb = KnowledgeBase(workspace_id=workspace.id, user_id=user.id, name="eval")
     session.add(kb)
     await session.flush()
 
@@ -15,6 +18,7 @@ async def _seed(session, keyword_embedder):
         [("refund.txt", "退款流程", 0), ("invoice.txt", "发票申请", 1)]
     ):
         document = Document(
+            workspace_id=workspace.id,
             kb_id=kb.id,
             user_id=user.id,
             filename=filename,
@@ -27,6 +31,7 @@ async def _seed(session, keyword_embedder):
         session.add(document)
         await session.flush()
         chunk = Chunk(
+            workspace_id=workspace.id,
             document_id=document.id,
             user_id=user.id,
             kb_id=kb.id,
@@ -58,7 +63,7 @@ async def test_recall_counts_questions_with_a_relevant_hit(keyword_embedder):
 
         report = await evaluate_recall(
             session,
-            user_id=user.id,
+            workspace_id=kb.workspace_id,
             kb_id=kb.id,
             questions=questions,
             top_k=1,
@@ -79,7 +84,7 @@ async def test_recall_is_zero_for_empty_dataset(keyword_embedder):
 
         report = await evaluate_recall(
             session,
-            user_id=user.id,
+            workspace_id=kb.workspace_id,
             kb_id=kb.id,
             questions=[],
             top_k=1,

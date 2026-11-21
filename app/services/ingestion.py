@@ -94,6 +94,7 @@ async def ingest_document(document_id: UUID) -> IngestionOutcome:
                     chunk_rows.append(
                         Chunk(
                             document_id=document.id,
+                            workspace_id=document.workspace_id,
                             user_id=document.user_id,
                             kb_id=document.kb_id,
                             page_no=chunk.page_no,

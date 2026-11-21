@@ -187,3 +187,32 @@ class ApiKeyOut(BaseModel):
 
 class ApiKeyCreatedOut(ApiKeyOut):
     key: str
+
+
+class WorkspaceCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def strip_name(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class WorkspaceOut(BaseModel):
+    id: UUID
+    name: str
+    plan: str
+    is_personal: bool
+    role: str
+    created_at: datetime
+
+
+class MemberCreate(_NormalizedEmailModel):
+    pass
+
+
+class MemberOut(BaseModel):
+    user_id: UUID
+    email: EmailStr
+    role: str
+    created_at: datetime

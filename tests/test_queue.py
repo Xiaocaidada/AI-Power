@@ -4,7 +4,7 @@ from uuid import uuid4
 from sqlalchemy import select
 
 from app.db import SessionLocal
-from app.models import Document, IngestionJob, KnowledgeBase, User
+from app.models import Document, IngestionJob, KnowledgeBase, User, Workspace
 
 
 class FakePool:
@@ -20,10 +20,14 @@ async def _seed_job(status="running", lease=None, attempts=1):
         user = User(email=f"{uuid4()}@queue.local", password_hash="x")
         session.add(user)
         await session.flush()
-        kb = KnowledgeBase(user_id=user.id, name="KB")
+        workspace = Workspace(name="KB", plan="free", is_personal=False)
+        session.add(workspace)
+        await session.flush()
+        kb = KnowledgeBase(workspace_id=workspace.id, user_id=user.id, name="KB")
         session.add(kb)
         await session.flush()
         document = Document(
+            workspace_id=workspace.id,
             kb_id=kb.id,
             user_id=user.id,
             filename="a.txt",
@@ -36,6 +40,7 @@ async def _seed_job(status="running", lease=None, attempts=1):
         session.add(document)
         await session.flush()
         job = IngestionJob(
+            workspace_id=workspace.id,
             document_id=document.id,
             status=status,
             attempts=attempts,

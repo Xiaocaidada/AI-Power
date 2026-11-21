@@ -21,6 +21,7 @@ from app.security import (
     verify_password,
 )
 from app.services.rate_limit import enforce_login_rate_limit
+from app.services.workspaces import create_personal_workspace
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -77,6 +78,7 @@ async def register(payload: RegisterIn, session: SessionDep) -> User:
             detail="Email already registered",
         ) from None
     await session.refresh(user)
+    await create_personal_workspace(session, user)
     return user
 
 

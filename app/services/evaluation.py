@@ -92,7 +92,7 @@ class EvalReport:
 async def evaluate_recall(
     session: AsyncSession,
     *,
-    user_id: UUID,
+    workspace_id: UUID,
     kb_id: UUID,
     questions: Sequence[EvalQuestion],
     top_k: int,
@@ -104,7 +104,7 @@ async def evaluate_recall(
     for item in questions:
         results = await retrieve_chunks(
             session,
-            user_id=user_id,
+            workspace_id=workspace_id,
             kb_id=kb_id,
             query=item.question,
             top_k=top_k,

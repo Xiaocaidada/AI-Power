@@ -8,19 +8,23 @@ async def _seed_document(text="hello world", suffix=".txt", mime="text/plain"):
 
     from app.config import get_settings
     from app.db import SessionLocal
-    from app.models import Document, IngestionJob, KnowledgeBase, User
+    from app.models import Document, IngestionJob, KnowledgeBase, User, Workspace
 
     settings = get_settings()
     async with SessionLocal() as session:
         user = User(email=f"{uuid7()}@ingest.local", password_hash="x")
         session.add(user)
         await session.flush()
-        kb = KnowledgeBase(user_id=user.id, name="KB")
+        workspace = Workspace(name="KB", plan="free", is_personal=False)
+        session.add(workspace)
+        await session.flush()
+        kb = KnowledgeBase(workspace_id=workspace.id, user_id=user.id, name="KB")
         session.add(kb)
         await session.flush()
         path = Path(settings.upload_dir) / f"{uuid7()}{suffix}"
         path.write_text(text, encoding="utf-8")
         document = Document(
+            workspace_id=workspace.id,
             kb_id=kb.id,
             user_id=user.id,
             filename=f"doc{suffix}",
@@ -32,7 +36,7 @@ async def _seed_document(text="hello world", suffix=".txt", mime="text/plain"):
         )
         session.add(document)
         await session.flush()
-        job = IngestionJob(document_id=document.id, status="queued")
+        job = IngestionJob(workspace_id=workspace.id, document_id=document.id, status="queued")
         session.add(job)
         await session.commit()
         return document.id, job.id

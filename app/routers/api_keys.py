@@ -8,15 +8,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
-from app.deps import get_current_user
-from app.models import ApiKey, User
+from app.deps import AuthContext, get_jwt_context
+from app.models import ApiKey
 from app.schemas import ApiKeyCreate, ApiKeyCreatedOut, ApiKeyOut
 from app.security import generate_api_key
 
 router = APIRouter(prefix="/api-keys", tags=["api-keys"])
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
-CurrentUser = Annotated[User, Depends(get_current_user)]
+JwtContext = Annotated[AuthContext, Depends(get_jwt_context)]
 
 DEFAULT_SCOPES = ("chat:write", "kb:read")
 ALLOCATION_ATTEMPTS = 3
@@ -24,13 +24,14 @@ ALLOCATION_ATTEMPTS = 3
 
 @router.post("", response_model=ApiKeyCreatedOut, status_code=status.HTTP_201_CREATED)
 async def create_api_key(
-    payload: ApiKeyCreate, current_user: CurrentUser, session: SessionDep
+    payload: ApiKeyCreate, context: JwtContext, session: SessionDep
 ) -> ApiKeyCreatedOut:
     scopes = sorted(set(payload.scopes or DEFAULT_SCOPES))
     for _ in range(ALLOCATION_ATTEMPTS):
         raw_key, prefix, key_hash = generate_api_key()
         api_key = ApiKey(
-            user_id=current_user.id,
+            workspace_id=context.workspace.id,
+            user_id=context.user.id,
             name=payload.name,
             prefix=prefix,
             key_hash=key_hash,
@@ -50,18 +51,23 @@ async def create_api_key(
 
 
 @router.get("", response_model=list[ApiKeyOut])
-async def list_api_keys(current_user: CurrentUser, session: SessionDep) -> list[ApiKey]:
+async def list_api_keys(context: JwtContext, session: SessionDep) -> list[ApiKey]:
     result = await session.execute(
-        select(ApiKey).where(ApiKey.user_id == current_user.id).order_by(ApiKey.created_at.desc())
+        select(ApiKey)
+        .where(ApiKey.workspace_id == context.workspace.id)
+        .order_by(ApiKey.created_at.desc())
     )
     return list(result.scalars())
 
 
 @router.delete("/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def revoke_api_key(key_id: UUID, current_user: CurrentUser, session: SessionDep) -> Response:
+async def revoke_api_key(key_id: UUID, context: JwtContext, session: SessionDep) -> Response:
     api_key = (
         await session.execute(
-            select(ApiKey).where(ApiKey.id == key_id, ApiKey.user_id == current_user.id)
+            select(ApiKey).where(
+                ApiKey.id == key_id,
+                ApiKey.workspace_id == context.workspace.id,
+            )
         )
     ).scalar_one_or_none()
     if api_key is None:

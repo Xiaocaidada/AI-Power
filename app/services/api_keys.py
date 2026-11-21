@@ -24,7 +24,9 @@ def _as_utc(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
-async def authenticate_api_key(raw_key: str, session: AsyncSession) -> tuple[User, frozenset[str]]:
+async def authenticate_api_key(
+    raw_key: str, session: AsyncSession
+) -> tuple[User, ApiKey, frozenset[str]]:
     if len(raw_key) <= PREFIX_LENGTH or not raw_key.startswith("ap_"):
         raise _unauthorized()
 
@@ -50,4 +52,4 @@ async def authenticate_api_key(raw_key: str, session: AsyncSession) -> tuple[Use
         await session.commit()
 
     scopes = frozenset(scope for scope in stored.scopes.split(",") if scope)
-    return user, scopes
+    return user, stored, scopes

@@ -2,10 +2,12 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     ForeignKey,
     Index,
     Integer,
+    PrimaryKeyConstraint,
     String,
     Text,
     UniqueConstraint,
@@ -35,10 +37,36 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class Workspace(Base):
+    __tablename__ = "workspaces"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    name: Mapped[str] = mapped_column(String(120))
+    plan: Mapped[str] = mapped_column(String(20), default="free")
+    is_personal: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class WorkspaceMember(Base):
+    __tablename__ = "workspace_members"
+
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    role: Mapped[str] = mapped_column(String(20), default="member")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (PrimaryKeyConstraint("workspace_id", "user_id"),)
+
+
 class KnowledgeBase(Base):
     __tablename__ = "knowledge_bases"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -63,6 +91,9 @@ class Conversation(Base):
     __tablename__ = "conversations"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     title: Mapped[str] = mapped_column(String(120), default="")
     provider_id: Mapped[str] = mapped_column(String(50))
@@ -96,6 +127,9 @@ class ApiKey(Base):
     __tablename__ = "api_keys"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(100))
     prefix: Mapped[str] = mapped_column(String(16), unique=True, index=True)
@@ -110,6 +144,9 @@ class UsageEvent(Base):
     __tablename__ = "usage_events"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     conversation_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("conversations.id", ondelete="SET NULL"), default=None, index=True
@@ -123,7 +160,7 @@ class UsageEvent(Base):
     completion_tokens: Mapped[int | None] = mapped_column(Integer, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
-    __table_args__ = (Index("ix_usage_events_user_created", "user_id", "created_at"),)
+    __table_args__ = (Index("ix_usage_events_workspace_created", "workspace_id", "created_at"),)
 
 
 class MessageCitation(Base):
@@ -149,6 +186,9 @@ class Document(Base):
     __tablename__ = "documents"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
     kb_id: Mapped[UUID] = mapped_column(
         ForeignKey("knowledge_bases.id", ondelete="CASCADE"), index=True
     )
@@ -166,8 +206,8 @@ class Document(Base):
 
     __table_args__ = (
         Index(
-            "uq_documents_user_kb_hash",
-            "user_id",
+            "uq_documents_workspace_kb_hash",
+            "workspace_id",
             "kb_id",
             "content_hash",
             unique=True,
@@ -181,6 +221,9 @@ class Chunk(Base):
     __tablename__ = "chunks"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
     document_id: Mapped[UUID] = mapped_column(
         ForeignKey("documents.id", ondelete="CASCADE"), index=True
     )
@@ -206,6 +249,9 @@ class IngestionJob(Base):
     __tablename__ = "ingestion_jobs"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
     document_id: Mapped[UUID] = mapped_column(
         ForeignKey("documents.id", ondelete="CASCADE"), unique=True, index=True
     )

@@ -6,14 +6,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
-from app.deps import get_current_user
-from app.models import UsageEvent, User
+from app.deps import AuthContext, get_jwt_context
+from app.models import UsageEvent
 from app.schemas import UsageBucketOut, UsageSummaryOut
 
 router = APIRouter(prefix="/usage", tags=["usage"])
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
-CurrentUser = Annotated[User, Depends(get_current_user)]
+JwtContext = Annotated[AuthContext, Depends(get_jwt_context)]
 
 DEFAULT_RANGE_DAYS = 30
 
@@ -32,7 +32,7 @@ def _bucket_key(event: UsageEvent, group_by: str) -> str:
 
 @router.get("/summary", response_model=UsageSummaryOut)
 async def usage_summary(
-    current_user: CurrentUser,
+    context: JwtContext,
     session: SessionDep,
     from_ts: Annotated[datetime | None, Query(alias="from")] = None,
     to_ts: Annotated[datetime | None, Query(alias="to")] = None,
@@ -48,7 +48,7 @@ async def usage_summary(
     events = (
         await session.execute(
             select(UsageEvent).where(
-                UsageEvent.user_id == current_user.id,
+                UsageEvent.workspace_id == context.workspace.id,
                 UsageEvent.created_at >= start_at,
                 UsageEvent.created_at <= end_at,
             )
