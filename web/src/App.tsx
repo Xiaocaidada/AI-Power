@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 
 import { AppShell } from './components/AppShell'
+import { PortalLayout } from './components/PortalLayout'
 import { RequireAuth } from './components/RequireAuth'
 import { Spinner } from './components/ui/spinner'
 import { apiRequest } from './lib/http'
@@ -14,8 +15,12 @@ import { KnowledgeDetailPage } from './pages/knowledge/KnowledgeDetailPage'
 import { KnowledgePage } from './pages/knowledge/KnowledgePage'
 import { LoginPage } from './pages/LoginPage'
 import { ModelsPage } from './pages/models/ModelsPage'
+import { ModelDetailPage } from './pages/models/ModelDetailPage'
+import { ModelPlaygroundPage } from './pages/models/ModelPlaygroundPage'
+import { HomePage } from './pages/portal/HomePage'
 import { ApiKeysPage } from './pages/settings/ApiKeysPage'
 import { ProvidersPage } from './pages/settings/ProvidersPage'
+import { SettingsHubPage } from './pages/settings/SettingsHubPage'
 import { AdminPage } from './pages/admin/AdminPage'
 import { CollaborationsPage } from './pages/collaborations/CollaborationsPage'
 import { WorkflowsPage } from './pages/workflows/WorkflowsPage'
@@ -58,12 +63,18 @@ export function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route element={<PortalLayout />}>
+        <Route index element={<HomePage />} />
+        <Route path="models" element={<ModelsPage />} />
+        <Route path="models/:slug" element={<ModelDetailPage />} />
+        <Route element={<RequireAuth />}>
+          <Route path="models/:slug/playground" element={<ModelPlaygroundPage />} />
+        </Route>
+      </Route>
       <Route element={<RequireAuth />}>
         <Route element={<AppShell />}>
-          <Route index element={<Navigate to="/chat" replace />} />
           <Route path="chat" element={<NewChatPage />} />
           <Route path="chat/:id" element={<ChatPage />} />
-          <Route path="models" element={<ModelsPage />} />
           <Route path="workflows" element={<WorkflowsPage />} />
           <Route path="collaborations" element={<CollaborationsPage />} />
           <Route path="admin" element={<AdminPage />} />
@@ -84,7 +95,7 @@ export function App() {
               </Suspense>
             }
           />
-          <Route path="settings" element={<Navigate to="/settings/api-keys" replace />} />
+          <Route path="settings" element={<SettingsHubPage />} />
           <Route path="settings/providers" element={<ProvidersPage />} />
           <Route path="settings/api-keys" element={<ApiKeysPage />} />
           <Route path="settings/webhooks" element={<WebhooksPage />} />
@@ -93,7 +104,7 @@ export function App() {
           <Route path="settings/profile" element={<ProfilePage />} />
         </Route>
       </Route>
-      <Route path="*" element={<Navigate to="/chat" replace />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
 }

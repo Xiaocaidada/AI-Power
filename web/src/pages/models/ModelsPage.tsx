@@ -13,6 +13,7 @@ import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
 import type { MarketModel, ModelEntry, PersonalModel } from '../../lib/types'
 import { cn } from '../../lib/utils'
+import { useAuthStore } from '../../store/auth'
 
 type Tab = 'public' | 'mine' | 'platform'
 const MAX_COMPARE = 3
@@ -26,6 +27,8 @@ function experienceHref(providerId: string, modelId: string): string {
 export function ModelsPage() {
   const { t, language } = useI18n()
   const navigate = useNavigate()
+  const authStatus = useAuthStore((state) => state.status)
+  const authenticated = authStatus === 'authenticated'
   const [tab, setTab] = useState<Tab>('public')
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('')
@@ -52,10 +55,12 @@ export function ModelsPage() {
     queryKey: ['provider-configs', 'models'],
     queryFn: () => apiRequest<PersonalModel[]>('/provider-configs/models'),
     staleTime: 60_000,
+    enabled: authenticated,
   })
   const platform = useQuery({
     queryKey: ['models'],
     queryFn: () => apiRequest<ModelEntry[]>('/models'),
+    enabled: authenticated,
   })
   const compare = useQuery({
     queryKey: ['models-compare', selected.join(',')],
@@ -84,11 +89,13 @@ export function ModelsPage() {
     })
   }
 
-  const tabs: { id: Tab; label: string }[] = [
-    { id: 'public', label: t('models.publicTab') },
-    { id: 'mine', label: t('models.myTab') },
-    { id: 'platform', label: t('models.platformTab') },
-  ]
+  const tabs: { id: Tab; label: string }[] = authenticated
+    ? [
+        { id: 'public', label: t('models.publicTab') },
+        { id: 'mine', label: t('models.myTab') },
+        { id: 'platform', label: t('models.platformTab') },
+      ]
+    : [{ id: 'public', label: t('models.publicTab') }]
 
   return (
     <div className="flex-1 overflow-y-auto">
