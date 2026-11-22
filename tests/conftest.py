@@ -282,9 +282,9 @@ def keyword_embedder() -> KeywordEmbedder:
 
 @pytest.fixture
 def fake_retrieval(monkeypatch, keyword_embedder):
-    from app.services import retrieval
+    from app.services import kb_models
 
-    monkeypatch.setattr(retrieval, "build_embedder", lambda: keyword_embedder)
+    monkeypatch.setattr(kb_models, "build_embedder", lambda: keyword_embedder)
     return keyword_embedder
 
 
@@ -317,5 +317,9 @@ def fake_ingestion(monkeypatch):
     parser = FakeParser()
     embedder = FakeEmbedder()
     monkeypatch.setattr(ingestion, "build_parser", lambda mime: parser)
-    monkeypatch.setattr(ingestion, "build_embedder", lambda: embedder)
+
+    async def fake_kb_embedder(*_args, **_kwargs):
+        return embedder
+
+    monkeypatch.setattr(ingestion, "build_kb_embedder", fake_kb_embedder)
     return SimpleNamespace(parser=parser, embedder=embedder)

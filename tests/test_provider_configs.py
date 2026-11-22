@@ -229,3 +229,25 @@ async def test_provider_config_not_found_is_404(client, api):
     headers = await api.headers("provider-missing@example.com")
     response = await client.get(f"/provider-configs/{UUID(int=0)}", headers=headers)
     assert response.status_code == 404
+
+
+async def test_chat_rejects_unsupported_provider_model_capability(client, api, monkeypatch):
+    from app.services import provider_configs
+
+    monkeypatch.setattr(provider_configs, "build_provider", lambda _config: _FakeProvider())
+    headers = await api.headers("provider-capability@example.com")
+    config_id = (await _create_config(client, headers)).json()["id"]
+    await client.post(
+        f"/provider-configs/{config_id}/models",
+        json={"model_id": "no-chat", "capabilities": ["stream"]},
+        headers=headers,
+    )
+
+    response = await client.post(
+        "/conversations",
+        json={"provider_id": config_id, "model": "no-chat"},
+        headers=headers,
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "capability_unsupported"

@@ -389,3 +389,39 @@ async def build_user_registry(
         except Exception:
             logger.warning("skipping unusable provider config %s", config.id, exc_info=True)
     return ProviderRegistry(providers)
+
+
+async def ensure_model_capability(
+    session: AsyncSession,
+    *,
+    workspace_id: UUID,
+    user_id: UUID,
+    provider_id: str,
+    model_id: str,
+    capability: str,
+) -> None:
+    """Validate a user provider model and capability; platform providers pass through."""
+    try:
+        config_id = UUID(provider_id)
+    except ValueError:
+        return
+    config = (
+        await session.execute(_config_query(config_id, workspace_id, user_id, owner_only=False))
+    ).scalar_one_or_none()
+    if config is None:
+        raise ProviderConfigError("not_found", "Provider config not found")
+    model = (
+        await session.execute(
+            select(ProviderModel).where(
+                ProviderModel.config_id == config.id,
+                ProviderModel.model_id == model_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if model is None or not model.enabled:
+        raise ProviderConfigError("model_not_found", "Provider model not found")
+    if capability not in model.capabilities:
+        raise ProviderConfigError(
+            "capability_unsupported",
+            f"Model does not support {capability}",
+        )

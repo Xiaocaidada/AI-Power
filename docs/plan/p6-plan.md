@@ -1,6 +1,6 @@
 # P6 规划：用户 Provider Hub、模型广场与平台门户
 
-- **Status:** In progress（P6-S1 已完成，2026-11-23）
+- **Status:** In progress（P6-S1、S2 已完成，2026-11-23）
 - **Scope source:** `拓展增强.txt`（用户需求）+ P5 已完成能力
 - **前置:** P0–P5 已完成；P5 测试范围按用户要求缩小
 
@@ -51,13 +51,15 @@ P5 解决“质量、开放平台、成本、长任务”，P6 解决“**用户
 
 > **完成证据**：[`docs/tdd/p6-s1-provider-hub.md`](../tdd/p6-s1-provider-hub.md)、[`docs/api/provider-configs.md`](../api/provider-configs.md)。真实本机 Endpoint 测试/同步/对话通过。
 
-### P6-S2 模型广场与能力
+### P6-S2 模型广场与能力 — **已完成（2026-11-23）**
 
 - `market_models` + 公共目录 API（无需登录）；搜索、筛选、排序、详情。
 - 个人/团队模型广场：聚合 `provider_models`，展示可用状态与配置引导。
 - 能力校验：`chat/stream/tools/vision/embedding/rerank/structured`；不支持的功能禁用。
 - 模型详情 → 立即体验（已配置则直连；未配置则引导 Provider 配置）。
 - KB 的 Embedding/Reranker 可选择用户 Provider 与模型。
+
+> **完成证据**：[`docs/tdd/p6-s2-model-marketplace.md`](../tdd/p6-s2-model-marketplace.md)、[`docs/api/model-marketplace.md`](../api/model-marketplace.md)。
 
 ### P6-S3 首页门户与运营内容
 

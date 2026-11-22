@@ -86,13 +86,13 @@ async def update_knowledge_base_settings(
     session: SessionDep,
 ) -> KnowledgeBaseSettingsOut:
     kb = await get_owned_knowledge_base(kb_id, context.workspace.id, session)
-    current = resolve_kb_settings(kb).model_dump()
-    updates = payload.model_dump(exclude_unset=True)
-    for section in ("chunking", "retrieval"):
+    current = resolve_kb_settings(kb).model_dump(mode="json")
+    updates = payload.model_dump(exclude_unset=True, mode="json")
+    for section in ("chunking", "retrieval", "embedding", "rerank"):
         section_updates = updates.get(section)
         if isinstance(section_updates, dict):
             for key, value in section_updates.items():
-                if value is not None:
+                if value is not None or section in {"embedding", "rerank"}:
                     current[section][key] = value
     try:
         settings = KnowledgeBaseSettings.model_validate(current)
@@ -101,7 +101,7 @@ async def update_knowledge_base_settings(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             {"code": "invalid_settings", "message": "Invalid knowledge base settings"},
         ) from None
-    kb.settings = settings.model_dump()
+    kb.settings = settings.model_dump(mode="json")
     await session.commit()
     return KnowledgeBaseSettingsOut(**settings.model_dump())
 

@@ -77,9 +77,22 @@ class RetrievalSettingsUpdate(BaseModel):
     rerank_enabled: bool | None = None
 
 
+class EmbeddingSettingsUpdate(BaseModel):
+    provider_config_id: UUID | None = None
+    model: str | None = None
+    dimensions: int | None = Field(default=None, ge=1, le=4096)
+
+
+class RerankSettingsUpdate(BaseModel):
+    provider_config_id: UUID | None = None
+    model: str | None = None
+
+
 class KnowledgeBaseSettingsUpdate(BaseModel):
     chunking: ChunkingSettingsUpdate | None = None
     retrieval: RetrievalSettingsUpdate | None = None
+    embedding: EmbeddingSettingsUpdate | None = None
+    rerank: RerankSettingsUpdate | None = None
 
 
 class ChunkingSettingsOut(BaseModel):
@@ -94,9 +107,22 @@ class RetrievalSettingsOut(BaseModel):
     rerank_enabled: bool
 
 
+class EmbeddingSettingsOut(BaseModel):
+    provider_config_id: UUID | None
+    model: str | None
+    dimensions: int
+
+
+class RerankSettingsOut(BaseModel):
+    provider_config_id: UUID | None
+    model: str | None
+
+
 class KnowledgeBaseSettingsOut(BaseModel):
     chunking: ChunkingSettingsOut
     retrieval: RetrievalSettingsOut
+    embedding: EmbeddingSettingsOut
+    rerank: RerankSettingsOut
 
 
 class ChunkOut(BaseModel):
@@ -734,6 +760,73 @@ class PersonalModelOut(BaseModel):
     model_id: str
     display_name: str
     capabilities: list[str]
+
+
+class MarketModelCreate(BaseModel):
+    slug: str = Field(min_length=2, max_length=120, pattern=r"^[a-z0-9][a-z0-9-]*$")
+    name: str = Field(min_length=1, max_length=120)
+    provider_id: str = Field(min_length=1, max_length=100)
+    provider_name: str = Field(min_length=1, max_length=100)
+    model_id: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=4000)
+    category: str = Field(default="general", max_length=50)
+    capabilities: list[str] = Field(default_factory=lambda: ["chat", "stream"])
+    input_types: list[str] = Field(default_factory=lambda: ["text"])
+    output_types: list[str] = Field(default_factory=lambda: ["text"])
+    context_window: int = Field(default=0, ge=0)
+    max_output: int | None = Field(default=None, ge=0)
+    logo_url: str = Field(default="", max_length=500)
+    docs_url: str = Field(default="", max_length=500)
+    featured: bool = False
+    is_new: bool = False
+    sort_order: int = 100
+    enabled: bool = True
+
+
+class MarketModelUpdate(BaseModel):
+    slug: str | None = Field(
+        default=None, min_length=2, max_length=120, pattern=r"^[a-z0-9][a-z0-9-]*$"
+    )
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    provider_id: str | None = Field(default=None, min_length=1, max_length=100)
+    provider_name: str | None = Field(default=None, min_length=1, max_length=100)
+    model_id: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=4000)
+    category: str | None = Field(default=None, max_length=50)
+    capabilities: list[str] | None = None
+    input_types: list[str] | None = None
+    output_types: list[str] | None = None
+    context_window: int | None = Field(default=None, ge=0)
+    max_output: int | None = Field(default=None, ge=0)
+    logo_url: str | None = Field(default=None, max_length=500)
+    docs_url: str | None = Field(default=None, max_length=500)
+    featured: bool | None = None
+    is_new: bool | None = None
+    sort_order: int | None = None
+    enabled: bool | None = None
+
+
+class MarketModelOut(BaseModel):
+    id: UUID
+    slug: str
+    name: str
+    provider_id: str
+    provider_name: str
+    model_id: str
+    description: str
+    category: str
+    capabilities: list[str]
+    input_types: list[str]
+    output_types: list[str]
+    context_window: int
+    max_output: int | None
+    logo_url: str
+    docs_url: str
+    featured: bool
+    is_new: bool
+    sort_order: int
+    enabled: bool
+    available: bool
 
 
 class DocumentOut(BaseModel):

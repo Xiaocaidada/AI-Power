@@ -31,6 +31,12 @@ async def test_knowledge_base_settings_defaults_and_partial_update(client, api):
             "hybrid_enabled": True,
             "rerank_enabled": False,
         },
+        "embedding": {
+            "provider_config_id": None,
+            "model": "bge-m3",
+            "dimensions": 1024,
+        },
+        "rerank": {"provider_config_id": None, "model": "bge-reranker-v2-m3"},
     }
 
     updated = await client.patch(

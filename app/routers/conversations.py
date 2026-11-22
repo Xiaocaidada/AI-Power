@@ -43,6 +43,7 @@ from app.services.access import get_owned_knowledge_base
 from app.services.agent import AgentFailure, AgentRunner
 from app.services.budget import check_workspace_budget
 from app.services.prompts import resolve_conversation_prompt
+from app.services.provider_configs import ProviderConfigError, ensure_model_capability
 from app.services.quotas import add_token_usage, enforce_quota
 from app.services.rag import build_rag_messages, fit_context
 from app.services.retrieval import Citation, build_citations, retrieve_chunks
@@ -580,8 +581,23 @@ async def create_conversation(
     if payload.provider_id != "auto":
         try:
             registry.get(payload.provider_id)
+            await ensure_model_capability(
+                session,
+                workspace_id=context.workspace.id,
+                user_id=context.user.id,
+                provider_id=payload.provider_id,
+                model_id=payload.model,
+                capability="tools" if payload.agent else "chat",
+            )
         except ProviderError as exc:
             raise HTTPException(status.HTTP_404_NOT_FOUND, exc.message) from None
+        except ProviderConfigError as exc:
+            status_code = (
+                status.HTTP_404_NOT_FOUND
+                if exc.code in {"not_found", "model_not_found"}
+                else status.HTTP_422_UNPROCESSABLE_CONTENT
+            )
+            raise HTTPException(status_code, {"code": exc.code, "message": exc.message}) from None
 
     if payload.kb_id is not None:
         await get_owned_knowledge_base(payload.kb_id, context.workspace.id, session)

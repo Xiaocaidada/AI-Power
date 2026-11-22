@@ -19,6 +19,29 @@ export interface Provider {
   models: string[]
 }
 
+export interface MarketModel {
+  id: string
+  slug: string
+  name: string
+  provider_id: string
+  provider_name: string
+  model_id: string
+  description: string
+  category: string
+  capabilities: string[]
+  input_types: string[]
+  output_types: string[]
+  context_window: number
+  max_output: number | null
+  logo_url: string
+  docs_url: string
+  featured: boolean
+  is_new: boolean
+  sort_order: number
+  enabled: boolean
+  available: boolean
+}
+
 export interface ProviderConfig {
   id: string
   name: string
@@ -81,6 +104,15 @@ export interface KnowledgeBaseSettings {
     candidate_k: number
     hybrid_enabled: boolean
     rerank_enabled: boolean
+  }
+  embedding: {
+    provider_config_id: string | null
+    model: string | null
+    dimensions: number
+  }
+  rerank: {
+    provider_config_id: string | null
+    model: string | null
   }
 }
 

@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query'
 import { Save } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
@@ -7,7 +8,7 @@ import { Spinner } from '../../components/ui/spinner'
 import { errorTextKey } from '../../lib/errorText'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
-import type { KnowledgeBaseSettings } from '../../lib/types'
+import type { KnowledgeBaseSettings, PersonalModel } from '../../lib/types'
 
 interface KnowledgeSettingsTabProps {
   kbId: string
@@ -21,11 +22,22 @@ export function KnowledgeSettingsTab({ kbId, settings, onSaved }: KnowledgeSetti
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const providerModels = useQuery({
+    queryKey: ['provider-configs', 'models'],
+    queryFn: () => apiRequest<PersonalModel[]>('/provider-configs/models'),
+    staleTime: 60_000,
+  })
 
   useEffect(() => {
     setForm(settings)
   }, [settings])
 
+  const embeddingModels = (providerModels.data ?? []).filter((model) =>
+    model.capabilities.includes('embedding'),
+  )
+  const rerankModels = (providerModels.data ?? []).filter((model) =>
+    model.capabilities.includes('rerank'),
+  )
   const invalidChunking = form.chunking.chunk_overlap >= form.chunking.chunk_size
   const invalidCandidates = form.retrieval.candidate_k < form.retrieval.top_k
 
@@ -161,6 +173,84 @@ export function KnowledgeSettingsTab({ kbId, settings, onSaved }: KnowledgeSetti
           </label>
         </div>
         <p className="mt-3 text-xs text-ink-muted">{t('knowledge.settings.note')}</p>
+      </section>
+
+
+      <section className="rounded-card border border-border bg-surface p-4">
+        <h2 className="text-sm font-semibold">{t('knowledge.settings.modelsTitle')}</h2>
+        <p className="mt-1 text-xs text-ink-muted">{t('knowledge.settings.modelsLead')}</p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <label className="text-xs text-ink-muted">
+            <span className="mb-1 block">{t('knowledge.settings.embeddingModel')}</span>
+            <select
+              className="h-10 w-full rounded-lg border border-border bg-surface px-2 text-sm"
+              value={
+                form.embedding.provider_config_id !== null && form.embedding.model !== null
+                  ? `${form.embedding.provider_config_id}|${form.embedding.model}`
+                  : ''
+              }
+              onChange={(event) => {
+                const [providerId, modelId] = event.target.value.split('|')
+                setForm((previous) => ({
+                  ...previous,
+                  embedding: {
+                    ...previous.embedding,
+                    provider_config_id: event.target.value === '' ? null : providerId,
+                    model: event.target.value === '' ? null : modelId,
+                  },
+                }))
+              }}
+            >
+              <option value="">{t('knowledge.settings.defaultModel')}</option>
+              {embeddingModels.map((model) => (
+                <option
+                  key={`${model.provider_id}|${model.model_id}`}
+                  value={`${model.provider_id}|${model.model_id}`}
+                >
+                  {model.display_name} · {model.provider_name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs text-ink-muted">
+            <span className="mb-1 block">{t('knowledge.settings.rerankModel')}</span>
+            <select
+              className="h-10 w-full rounded-lg border border-border bg-surface px-2 text-sm"
+              value={
+                form.rerank.provider_config_id !== null && form.rerank.model !== null
+                  ? `${form.rerank.provider_config_id}|${form.rerank.model}`
+                  : ''
+              }
+              onChange={(event) => {
+                const [providerId, modelId] = event.target.value.split('|')
+                setForm((previous) => ({
+                  ...previous,
+                  rerank: {
+                    ...previous.rerank,
+                    provider_config_id: event.target.value === '' ? null : providerId,
+                    model: event.target.value === '' ? null : modelId,
+                  },
+                }))
+              }}
+            >
+              <option value="">{t('knowledge.settings.defaultModel')}</option>
+              {rerankModels.map((model) => (
+                <option
+                  key={`${model.provider_id}|${model.model_id}`}
+                  value={`${model.provider_id}|${model.model_id}`}
+                >
+                  {model.display_name} · {model.provider_name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {embeddingModels.length === 0 && rerankModels.length === 0 && (
+          <p className="mt-2 text-xs text-ink-muted">
+            {t('knowledge.settings.noProviderModels')}
+          </p>
+        )}
+        <p className="mt-2 text-xs text-ink-muted">{t('knowledge.settings.modelsHint')}</p>
       </section>
 
       <div className="flex items-center gap-3">
