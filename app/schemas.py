@@ -65,6 +65,111 @@ class KnowledgeBaseOut(BaseModel):
     created_at: datetime
 
 
+class ChunkingSettingsUpdate(BaseModel):
+    chunk_size: int | None = Field(default=None, ge=50, le=4000)
+    chunk_overlap: int | None = Field(default=None, ge=0, le=1000)
+
+
+class RetrievalSettingsUpdate(BaseModel):
+    top_k: int | None = Field(default=None, ge=1, le=20)
+    candidate_k: int | None = Field(default=None, ge=1, le=100)
+    hybrid_enabled: bool | None = None
+    rerank_enabled: bool | None = None
+
+
+class KnowledgeBaseSettingsUpdate(BaseModel):
+    chunking: ChunkingSettingsUpdate | None = None
+    retrieval: RetrievalSettingsUpdate | None = None
+
+
+class ChunkingSettingsOut(BaseModel):
+    chunk_size: int
+    chunk_overlap: int
+
+
+class RetrievalSettingsOut(BaseModel):
+    top_k: int
+    candidate_k: int
+    hybrid_enabled: bool
+    rerank_enabled: bool
+
+
+class KnowledgeBaseSettingsOut(BaseModel):
+    chunking: ChunkingSettingsOut
+    retrieval: RetrievalSettingsOut
+
+
+class ChunkOut(BaseModel):
+    id: UUID
+    document_id: UUID
+    filename: str
+    chunk_index: int
+    page_no: int | None
+    text: str
+    token_count: int | None
+    char_count: int
+    created_at: datetime
+
+
+class ChunkPageOut(BaseModel):
+    items: list[ChunkOut]
+    total: int
+    limit: int
+    offset: int
+
+
+class KnowledgeBaseStatsOut(BaseModel):
+    document_count: int
+    ready_count: int
+    processing_count: int
+    failed_count: int
+    chunk_count: int
+    char_count: int
+
+
+class RetrievalSearchIn(BaseModel):
+    query: str = Field(min_length=1, max_length=500)
+    top_k: int | None = Field(default=None, ge=1, le=20)
+    candidate_k: int | None = Field(default=None, ge=1, le=100)
+    hybrid_enabled: bool | None = None
+    rerank_enabled: bool | None = None
+
+    @field_validator("query", mode="before")
+    @classmethod
+    def strip_query(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class RetrievalHitOut(BaseModel):
+    chunk_id: UUID
+    document_id: UUID
+    filename: str
+    page_no: int | None
+    chunk_index: int
+    text: str
+    distance: float | None
+    vector_rank: int | None
+    lexical_rank: int | None
+    fused_score: float | None
+    rerank_score: float | None
+
+
+class RetrievalTimingsOut(BaseModel):
+    vector_ms: float
+    lexical_ms: float
+    rerank_ms: float
+    total_ms: float
+
+
+class RetrievalSearchOut(BaseModel):
+    query: str
+    mode: str
+    hybrid_enabled: bool
+    rerank_enabled: bool
+    results: list[RetrievalHitOut]
+    timings: RetrievalTimingsOut
+
+
 class CollaborationRunCreate(BaseModel):
     input: str = Field(min_length=1, max_length=20000)
     provider_id: str = Field(min_length=1, max_length=50)

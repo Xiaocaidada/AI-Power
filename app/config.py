@@ -60,7 +60,16 @@ class Settings(BaseSettings):
     ingestion_lease_minutes: int = 15
 
     retrieval_top_k: int = 5
+    retrieval_candidate_k: int = 20
+    retrieval_hybrid_enabled: bool = True
     retrieval_max_context_chars: int = 6000
+    rerank_enabled: bool = True
+    rerank_base_url: str = "http://192.168.29.100:8001/v1"
+    rerank_api_key: str = ""
+    rerank_model: str = "bge-reranker-v2-m3"
+    rerank_timeout_seconds: float = 10.0
+    rerank_max_candidates: int = 8
+    rerank_max_doc_chars: int = 800
 
     agent_max_steps: int = 8
     agent_tool_timeout_seconds: float = 10.0
@@ -102,8 +111,18 @@ class Settings(BaseSettings):
     def _validate_retrieval_settings(self) -> "Settings":
         if self.retrieval_top_k < 1:
             raise ValueError("RETRIEVAL_TOP_K must be >= 1")
+        if self.retrieval_candidate_k < self.retrieval_top_k:
+            raise ValueError("RETRIEVAL_CANDIDATE_K must be >= RETRIEVAL_TOP_K")
         if self.retrieval_max_context_chars < 1:
             raise ValueError("RETRIEVAL_MAX_CONTEXT_CHARS must be >= 1")
+        if self.rerank_timeout_seconds <= 0:
+            raise ValueError("RERANK_TIMEOUT_SECONDS must be > 0")
+        if self.rerank_max_candidates < 1:
+            raise ValueError("RERANK_MAX_CANDIDATES must be >= 1")
+        if self.rerank_max_doc_chars < 1:
+            raise ValueError("RERANK_MAX_DOC_CHARS must be >= 1")
+        if self.rerank_enabled and not self.rerank_base_url.strip():
+            raise ValueError("RERANK_BASE_URL is required when RERANK_ENABLED is true")
         return self
 
     @model_validator(mode="after")

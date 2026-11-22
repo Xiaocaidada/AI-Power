@@ -1,5 +1,16 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, FileUp, Loader2, RotateCw, Trash2 } from 'lucide-react'
+import {
+  ArrowLeft,
+  FileText,
+  FileUp,
+  Layers,
+  Loader2,
+  RefreshCw,
+  RotateCw,
+  Search,
+  Settings,
+  Trash2,
+} from 'lucide-react'
 import { useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
@@ -20,11 +31,21 @@ import { formatBytes, formatDate } from '../../lib/format'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
 import { PAGE_SIZE, mergePages, pageFromItems } from '../../lib/pagination'
-import type { DocumentItem, KnowledgeBase } from '../../lib/types'
+import type {
+  DocumentItem,
+  KnowledgeBase,
+  KnowledgeBaseSettings,
+  KnowledgeBaseStats,
+} from '../../lib/types'
 import { uploadDocument } from '../../lib/upload'
+import { KnowledgeChunksTab } from './KnowledgeChunksTab'
+import { KnowledgeRetrievalTab } from './KnowledgeRetrievalTab'
+import { KnowledgeSettingsTab } from './KnowledgeSettingsTab'
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 const ALLOWED_EXTENSIONS = ['.pdf', '.md', '.txt']
+
+type TabId = 'documents' | 'chunks' | 'retrieval' | 'settings'
 
 export function KnowledgeDetailPage() {
   const { id = '' } = useParams<{ id: string }>()
@@ -32,15 +53,28 @@ export function KnowledgeDetailPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const fileInput = useRef<HTMLInputElement | null>(null)
+  const [tab, setTab] = useState<TabId>('documents')
   const [uploading, setUploading] = useState<{ name: string; percent: number } | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DocumentItem | null>(null)
+  const [reprocessTarget, setReprocessTarget] = useState<DocumentItem | null>(null)
 
   const kb = useQuery({
     queryKey: ['kb', id],
     queryFn: () => apiRequest<KnowledgeBase>(`/knowledge-bases/${id}`),
     enabled: id !== '',
+  })
+  const settings = useQuery({
+    queryKey: ['kb-settings', id],
+    queryFn: () => apiRequest<KnowledgeBaseSettings>(`/knowledge-bases/${id}/settings`),
+    enabled: id !== '',
+  })
+  const stats = useQuery({
+    queryKey: ['kb-stats', id],
+    queryFn: () => apiRequest<KnowledgeBaseStats>(`/knowledge-bases/${id}/stats`),
+    enabled: id !== '',
+    refetchInterval: (query) => (query.state.data?.processing_count ? 2000 : false),
   })
   const documents = useInfiniteQuery({
     queryKey: ['documents', id],
@@ -59,6 +93,14 @@ export function KnowledgeDetailPage() {
     refetchInterval: (query) =>
       shouldPollDocuments(mergePages(query.state.data?.pages)) ? 2000 : false,
   })
+
+  const refreshKnowledgeBase = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['documents', id] }),
+      queryClient.invalidateQueries({ queryKey: ['kb-chunks', id] }),
+      queryClient.invalidateQueries({ queryKey: ['kb-stats', id] }),
+    ])
+  }
 
   const upload = async (file: File) => {
     const suffix = file.name.slice(file.name.lastIndexOf('.')).toLowerCase()
@@ -80,7 +122,7 @@ export function KnowledgeDetailPage() {
           setUploading((previous) => (previous === null ? previous : { ...previous, percent })),
       })
       if (result.duplicate) setUploadError(t('documents.duplicate'))
-      await queryClient.invalidateQueries({ queryKey: ['documents', id] })
+      await refreshKnowledgeBase()
     } catch (caught) {
       setUploadError(t(errorTextKey(caught)))
     } finally {
@@ -92,9 +134,22 @@ export function KnowledgeDetailPage() {
     setActionError(null)
     try {
       await apiRequest(`/documents/${documentId}/retry`, { method: 'POST' })
-      await queryClient.invalidateQueries({ queryKey: ['documents', id] })
+      await refreshKnowledgeBase()
     } catch (caught) {
       setActionError(t(errorTextKey(caught)))
+    }
+  }
+
+  const reprocess = async () => {
+    if (reprocessTarget === null) return
+    setActionError(null)
+    try {
+      await apiRequest(`/documents/${reprocessTarget.id}/reprocess`, { method: 'POST' })
+      await refreshKnowledgeBase()
+    } catch (caught) {
+      setActionError(t(errorTextKey(caught)))
+    } finally {
+      setReprocessTarget(null)
     }
   }
 
@@ -102,7 +157,7 @@ export function KnowledgeDetailPage() {
     if (deleteTarget === null) return
     try {
       await apiRequest(`/documents/${deleteTarget.id}`, { method: 'DELETE' })
-      await queryClient.invalidateQueries({ queryKey: ['documents', id] })
+      await refreshKnowledgeBase()
     } catch (caught) {
       setActionError(t(errorTextKey(caught)))
     } finally {
@@ -130,6 +185,12 @@ export function KnowledgeDetailPage() {
   }
 
   const rows = mergePages(documents.data?.pages)
+  const tabs: { id: TabId; label: string; icon: typeof FileText }[] = [
+    { id: 'documents', label: t('knowledge.tabs.documents'), icon: FileText },
+    { id: 'chunks', label: t('knowledge.tabs.chunks'), icon: Layers },
+    { id: 'retrieval', label: t('knowledge.tabs.retrieval'), icon: Search },
+    { id: 'settings', label: t('knowledge.tabs.settings'), icon: Settings },
+  ]
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -150,59 +211,55 @@ export function KnowledgeDetailPage() {
               {rows.length > 0 ? ` · ${t('documents.count', { count: rows.length })}` : ''}
             </p>
           </div>
-          <Button onClick={() => fileInput.current?.click()}>
-            <FileUp className="h-4 w-4" />
-            {t('documents.upload')}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+            <span className="rounded-full bg-surface-muted px-2 py-1">
+              {t('knowledge.stats.documents', { count: stats.data?.document_count ?? 0 })}
+            </span>
+            <span className="rounded-full bg-surface-muted px-2 py-1">
+              {t('knowledge.stats.chunks', { count: stats.data?.chunk_count ?? 0 })}
+            </span>
+            <span className="rounded-full bg-surface-muted px-2 py-1">
+              {t('knowledge.stats.chars', { count: stats.data?.char_count ?? 0 })}
+            </span>
+            <Button onClick={() => fileInput.current?.click()}>
+              <FileUp className="h-4 w-4" />
+              {t('documents.upload')}
+            </Button>
+          </div>
         </div>
       </header>
+
+      <nav className="flex gap-1 border-b border-border bg-surface px-6">
+        {tabs.map(({ id: tabId, label, icon: Icon }) => (
+          <button
+            key={tabId}
+            type="button"
+            className={`-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2.5 text-sm transition-colors ${
+              tab === tabId
+                ? 'border-accent text-accent'
+                : 'border-transparent text-ink-muted hover:text-ink'
+            }`}
+            onClick={() => setTab(tabId)}
+          >
+            <Icon className="h-4 w-4" />
+            {label}
+          </button>
+        ))}
+      </nav>
 
       <div className="space-y-4 px-6 py-6">
         <input
           ref={fileInput}
           type="file"
           accept=".pdf,.md,.txt"
+          multiple
           className="hidden"
           onChange={(event) => {
-            const file = event.target.files?.[0]
-            if (file !== undefined) void upload(file)
+            const files = Array.from(event.target.files ?? [])
+            for (const file of files) void upload(file)
             event.target.value = ''
           }}
         />
-
-        <div
-          role="button"
-          tabIndex={0}
-          className="rounded-card border border-dashed border-border bg-surface px-6 py-8 text-center transition-colors hover:border-accent/50 focus:border-accent"
-          onClick={() => fileInput.current?.click()}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') fileInput.current?.click()
-          }}
-          onDragOver={(event) => event.preventDefault()}
-          onDrop={(event) => {
-            event.preventDefault()
-            const file = event.dataTransfer.files[0]
-            if (file !== undefined) void upload(file)
-          }}
-        >
-          <FileUp className="mx-auto h-6 w-6 text-ink-muted" />
-          <p className="mt-2 text-sm text-ink">{t('documents.dropzone')}</p>
-          <p className="mt-1 text-xs text-ink-muted">{t('documents.types')}</p>
-        </div>
-
-        {uploading !== null && (
-          <div className="rounded-lg border border-border bg-surface p-3">
-            <p className="text-xs text-ink-muted">
-              {t('documents.uploading', { name: uploading.name, percent: uploading.percent })}
-            </p>
-            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-muted">
-              <div
-                className="h-full bg-accent transition-all"
-                style={{ width: `${uploading.percent}%` }}
-              />
-            </div>
-          </div>
-        )}
 
         {uploadError !== null && (
           <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">
@@ -215,101 +272,172 @@ export function KnowledgeDetailPage() {
           </p>
         )}
 
-        {documents.isLoading && (
-          <div className="flex items-center gap-2 text-sm text-ink-muted">
-            <Spinner />
-            {t('common.loading')}
-          </div>
-        )}
-
-        {!documents.isLoading && rows.length === 0 && (
-          <EmptyState title={t('documents.empty')} description={t('documents.emptyLead')} />
-        )}
-
-        {rows.length > 0 && (
-          <div className="overflow-x-auto rounded-card border border-border bg-surface">
-            <table className="w-full min-w-[720px] text-left text-sm">
-              <thead className="border-b border-border text-xs uppercase tracking-wide text-ink-muted">
-                <tr>
-                  <th className="px-3 py-2 font-medium">{t('documents.columns.filename')}</th>
-                  <th className="px-3 py-2 font-medium">{t('documents.columns.status')}</th>
-                  <th className="px-3 py-2 font-medium">{t('documents.columns.size')}</th>
-                  <th className="px-3 py-2 font-medium">{t('documents.columns.pages')}</th>
-                  <th className="px-3 py-2 font-medium">{t('documents.columns.error')}</th>
-                  <th className="px-3 py-2 text-right font-medium">
-                    {t('documents.columns.actions')}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((document) => (
-                  <tr key={document.id} className="border-b border-border last:border-0">
-                    <td className="px-3 py-3">
-                      <span className="block max-w-[280px] truncate font-medium text-ink">
-                        {document.filename}
-                      </span>
-                      <span className="text-xs text-ink-muted">
-                        {formatDate(document.created_at, language)}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3">
-                      <Badge tone={documentStatusTone(document.status)}>
-                        {documentIsProcessing(document.status) && (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        )}
-                        {t(documentStatusKey(document.status))}
-                      </Badge>
-                    </td>
-                    <td className="px-3 py-3 font-mono text-xs text-ink-muted">
-                      {formatBytes(document.size_bytes)}
-                    </td>
-                    <td className="px-3 py-3 text-ink-muted">{document.page_count ?? '—'}</td>
-                    <td className="px-3 py-3 text-xs text-danger">
-                      {document.error_code !== null
-                        ? t(documentErrorKey(document.error_code), { code: document.error_code })
-                        : '—'}
-                    </td>
-                    <td className="px-3 py-3">
-                      <div className="flex justify-end gap-1">
-                        {document.status === 'failed' && (
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => void retry(document.id)}
-                          >
-                            <RotateCw className="h-3 w-3" />
-                            {t('documents.retry')}
-                          </Button>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          aria-label={t('documents.delete')}
-                          onClick={() => setDeleteTarget(document)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {documents.hasNextPage && (
-          <div className="flex justify-center">
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={documents.isFetchingNextPage}
-              onClick={() => void documents.fetchNextPage()}
+        {tab === 'documents' && (
+          <>
+            <div
+              role="button"
+              tabIndex={0}
+              className="rounded-card border border-dashed border-border bg-surface px-6 py-8 text-center transition-colors hover:border-accent/50 focus:border-accent"
+              onClick={() => fileInput.current?.click()}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') fileInput.current?.click()
+              }}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault()
+                for (const file of Array.from(event.dataTransfer.files)) void upload(file)
+              }}
             >
-              {documents.isFetchingNextPage ? t('common.loading') : t('common.loadMore')}
-            </Button>
-          </div>
+              <FileUp className="mx-auto h-6 w-6 text-ink-muted" />
+              <p className="mt-2 text-sm text-ink">{t('documents.dropzone')}</p>
+              <p className="mt-1 text-xs text-ink-muted">{t('documents.types')}</p>
+            </div>
+
+            {uploading !== null && (
+              <div className="rounded-lg border border-border bg-surface p-3">
+                <p className="text-xs text-ink-muted">
+                  {t('documents.uploading', {
+                    name: uploading.name,
+                    percent: uploading.percent,
+                  })}
+                </p>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-muted">
+                  <div
+                    className="h-full bg-accent transition-all"
+                    style={{ width: `${uploading.percent}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {documents.isLoading && (
+              <div className="flex items-center gap-2 text-sm text-ink-muted">
+                <Spinner />
+                {t('common.loading')}
+              </div>
+            )}
+
+            {!documents.isLoading && rows.length === 0 && (
+              <EmptyState title={t('documents.empty')} description={t('documents.emptyLead')} />
+            )}
+
+            {rows.length > 0 && (
+              <div className="overflow-x-auto rounded-card border border-border bg-surface">
+                <table className="w-full min-w-[760px] text-left text-sm">
+                  <thead className="border-b border-border text-xs uppercase tracking-wide text-ink-muted">
+                    <tr>
+                      <th className="px-3 py-2 font-medium">{t('documents.columns.filename')}</th>
+                      <th className="px-3 py-2 font-medium">{t('documents.columns.status')}</th>
+                      <th className="px-3 py-2 font-medium">{t('documents.columns.size')}</th>
+                      <th className="px-3 py-2 font-medium">{t('documents.columns.pages')}</th>
+                      <th className="px-3 py-2 font-medium">{t('documents.columns.error')}</th>
+                      <th className="px-3 py-2 text-right font-medium">
+                        {t('documents.columns.actions')}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((document) => (
+                      <tr key={document.id} className="border-b border-border last:border-0">
+                        <td className="px-3 py-3">
+                          <span className="block max-w-[280px] truncate font-medium text-ink">
+                            {document.filename}
+                          </span>
+                          <span className="text-xs text-ink-muted">
+                            {formatDate(document.created_at, language)}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3">
+                          <Badge tone={documentStatusTone(document.status)}>
+                            {documentIsProcessing(document.status) && (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            )}
+                            {t(documentStatusKey(document.status))}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-3 font-mono text-xs text-ink-muted">
+                          {formatBytes(document.size_bytes)}
+                        </td>
+                        <td className="px-3 py-3 text-ink-muted">{document.page_count ?? '—'}</td>
+                        <td className="px-3 py-3 text-xs text-danger">
+                          {document.error_code !== null
+                            ? t(documentErrorKey(document.error_code), {
+                                code: document.error_code,
+                              })
+                            : '—'}
+                        </td>
+                        <td className="px-3 py-3">
+                          <div className="flex justify-end gap-1">
+                            {document.status === 'failed' && (
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => void retry(document.id)}
+                              >
+                                <RotateCw className="h-3 w-3" />
+                                {t('documents.retry')}
+                              </Button>
+                            )}
+                            {!documentIsProcessing(document.status) && (
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                title={t('documents.reprocessHint')}
+                                onClick={() => setReprocessTarget(document)}
+                              >
+                                <RefreshCw className="h-3 w-3" />
+                                {t('documents.reprocess')}
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              aria-label={t('documents.delete')}
+                              onClick={() => setDeleteTarget(document)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {documents.hasNextPage && (
+              <div className="flex justify-center">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={documents.isFetchingNextPage}
+                  onClick={() => void documents.fetchNextPage()}
+                >
+                  {documents.isFetchingNextPage ? t('common.loading') : t('common.loadMore')}
+                </Button>
+              </div>
+            )}
+          </>
         )}
+
+        {tab === 'chunks' && <KnowledgeChunksTab kbId={id} documents={rows} />}
+
+        {tab === 'retrieval' && <KnowledgeRetrievalTab kbId={id} settings={settings.data} />}
+
+        {tab === 'settings' &&
+          (settings.data === undefined ? (
+            <div className="flex items-center gap-2 text-sm text-ink-muted">
+              <Spinner />
+              {t('common.loading')}
+            </div>
+          ) : (
+            <KnowledgeSettingsTab
+              kbId={id}
+              settings={settings.data}
+              onSaved={(saved) => queryClient.setQueryData(['kb-settings', id], saved)}
+            />
+          ))}
       </div>
 
       <Dialog
@@ -328,6 +456,25 @@ export function KnowledgeDetailPage() {
         }
       >
         <p>{t('documents.deleteConfirm')}</p>
+      </Dialog>
+
+      <Dialog
+        open={reprocessTarget !== null}
+        onClose={() => setReprocessTarget(null)}
+        title={t('documents.reprocess')}
+        footer={
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setReprocessTarget(null)}>
+              {t('common.cancel')}
+            </Button>
+            <Button size="sm" onClick={() => void reprocess()}>
+              {t('common.confirm')}
+            </Button>
+          </>
+        }
+      >
+        <p>{t('documents.reprocessConfirm')}</p>
+        <p className="mt-2 text-xs text-ink-muted">{t('documents.reprocessHint')}</p>
       </Dialog>
     </div>
   )

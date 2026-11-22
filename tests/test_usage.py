@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import select
@@ -9,6 +9,10 @@ from app.models import Conversation, Message, UsageEvent, Workspace, WorkspaceMe
 DAY_ONE = datetime(2026, 11, 20, 12, 0, tzinfo=UTC)
 DAY_TWO = datetime(2026, 11, 21, 12, 0, tzinfo=UTC)
 RANGE = "from=2026-11-20T00:00:00Z&to=2026-11-22T00:00:00Z"
+RANGE_WITH_TODAY = (
+    "from=2026-11-20T00:00:00Z&to="
+    f"{(datetime.now(UTC) + timedelta(days=1)).strftime('%Y-%m-%dT%H:%M:%SZ')}"
+)
 
 
 async def _setup(client, api, email="usage@example.com"):
@@ -226,5 +230,5 @@ async def test_chat_records_null_usage_event(client, api, registry, fake_provide
     assert event.prompt_tokens is None
     assert event.completion_tokens is None
 
-    summary = await client.get(f"/usage/summary?{RANGE}", headers=headers)
+    summary = await client.get(f"/usage/summary?{RANGE_WITH_TODAY}", headers=headers)
     assert summary.json()["buckets"][0]["requests"] == 1

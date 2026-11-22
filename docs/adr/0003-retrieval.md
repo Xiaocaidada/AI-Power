@@ -1,6 +1,6 @@
 # ADR-0003: P0 检索、引用与 RAG 对话
 
-- **Status:** Accepted
+- **Status:** Accepted（P5-S1 扩展，2026-11-22）
 - **Date:** 2026-11-21
 - **Deciders:** 项目作者
 - **Related:** [`docs/product/CAPABILITY.md`](../product/CAPABILITY.md) §2.2/§3.2/§3.4/§3.5、[`ADR-0001`](./0001-p0-stack.md)、[`ADR-0002`](./0002-ingestion.md)、[`docs/tdd/p0-s4-retrieval.md`](../tdd/p0-s4-retrieval.md)
@@ -94,10 +94,18 @@ S3 之后，`chunks` + `chunk_embeddings` 已就绪，但对话还不会检索�
 | 把 citations 存进 `messages`（JSON 列） | P0 无 Alembic；前端未开始，先不扩 schema |
 | 每条消息都重排 | P0 非目标，成本高 |
 
+## P5-S1 扩展（2026-11-22）
+
+- 在纯向量检索之上增加 **pg_trgm 词法召回 + RRF 融合**，并接入可选 **bge-reranker-v2-m3** 重排；详细决策与回退语义见 [`ADR-0019`](./0019-hybrid-retrieval.md)。
+- 检索参数下沉到知识库（`knowledge_bases.settings`），聊天 RAG、`kb_search` 工具与检索调试统一读取。
+- 新增 `POST /knowledge-bases/{id}/retrieval/search` 返回向量/词法/融合/重排排名与阶段耗时；新增分块浏览、KB 统计与重新分块接口。
+- 本文 §2 的 `RETRIEVAL_TOP_K` / `RETRIEVAL_MAX_CONTEXT_CHARS` 仍是全局默认值；KB 保存过设置后以 KB 快照为准。
+- 本文 §7 的 50 题基线仍是**纯向量**结果；混合检索与重排的质量对比留待 P5-S2 的 ≥100 题数据集。
+
 ## Follow-ups
 
 1. ~~构造 50 题中文评测集并跑基线~~ **已完成（2026-11-21）**：Recall@5=1.000、Recall@1=0.960，见 [`docs/eval/retrieval-baseline.md`](../eval/retrieval-baseline.md)；下一步扩充更难语料。
 2. P1：citations 持久化（或独立表），会话历史可回放引用。
-3. 评估重排（bge-reranker）与查询改写，用评测数据驱动。
+3. 评估重排（bge-reranker）与查询改写，用评测数据驱动（P5-S1 已接入重排，P5-S2 量化）。
 4. 调 HNSW 参数并在 10k chunk 上测 P95。
-5. 引入 Alembic 后把 HNSW 索引改为迁移脚本。
+5. 引入 Alembic 后把 HNSW 索引改为迁移脚本（已完成；trigram 索引见 `f2a3b4c5d6e7`）。

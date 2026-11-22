@@ -25,6 +25,75 @@ export interface KnowledgeBase {
   created_at: string
 }
 
+export interface KnowledgeBaseSettings {
+  chunking: {
+    chunk_size: number
+    chunk_overlap: number
+  }
+  retrieval: {
+    top_k: number
+    candidate_k: number
+    hybrid_enabled: boolean
+    rerank_enabled: boolean
+  }
+}
+
+export interface KnowledgeBaseStats {
+  document_count: number
+  ready_count: number
+  processing_count: number
+  failed_count: number
+  chunk_count: number
+  char_count: number
+}
+
+export interface ChunkItem {
+  id: string
+  document_id: string
+  filename: string
+  chunk_index: number
+  page_no: number | null
+  text: string
+  token_count: number | null
+  char_count: number
+  created_at: string
+}
+
+export interface ChunkPage {
+  items: ChunkItem[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface RetrievalHit {
+  chunk_id: string
+  document_id: string
+  filename: string
+  page_no: number | null
+  chunk_index: number
+  text: string
+  distance: number | null
+  vector_rank: number | null
+  lexical_rank: number | null
+  fused_score: number | null
+  rerank_score: number | null
+}
+
+export interface RetrievalSearchResult {
+  query: string
+  mode: string
+  hybrid_enabled: boolean
+  rerank_enabled: boolean
+  results: RetrievalHit[]
+  timings: {
+    vector_ms: number
+    lexical_ms: number
+    rerank_ms: number
+    total_ms: number
+  }
+}
+
 export interface Conversation {
   id: string
   title: string
