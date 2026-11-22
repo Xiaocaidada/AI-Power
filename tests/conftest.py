@@ -137,6 +137,8 @@ class InlineQueue:
         self.calls: list[object] = []
         self.unique_flags: list[bool] = []
         self.eval_calls: list[object] = []
+        self.workflow_calls: list[object] = []
+        self.collaboration_calls: list[object] = []
         self.fail = False
 
     async def enqueue_ingestion(self, document_id, *, unique: bool = False) -> None:
@@ -155,6 +157,42 @@ class InlineQueue:
         from app.services.evaluation_runner import run_evaluation
 
         await run_evaluation(run_id)
+
+    async def enqueue_workflow_run(self, run_id) -> None:
+        self.workflow_calls.append(run_id)
+        if self.fail:
+            raise ConnectionError("queue down")
+        from app.services.run_execution import execute_workflow_run
+
+        await execute_workflow_run(
+            run_id, provider_registry=_provider_registry(), redis=_fake_redis()
+        )
+
+    async def enqueue_collaboration_run(self, run_id) -> None:
+        self.collaboration_calls.append(run_id)
+        if self.fail:
+            raise ConnectionError("queue down")
+        from app.services.run_execution import execute_collaboration_run
+
+        await execute_collaboration_run(
+            run_id, provider_registry=_provider_registry(), redis=_fake_redis()
+        )
+
+
+def _provider_registry():
+    from app.deps import get_registry
+    from app.main import app as app_instance
+
+    override = app_instance.dependency_overrides.get(get_registry)
+    return override() if override is not None else None
+
+
+def _fake_redis():
+    from app.clients import get_redis
+    from app.main import app as app_instance
+
+    override = app_instance.dependency_overrides.get(get_redis)
+    return override() if override is not None else None
 
 
 @pytest.fixture(autouse=True)

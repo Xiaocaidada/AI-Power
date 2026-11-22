@@ -30,10 +30,25 @@ hits = client.retrieval_search(kb["id"], "退款多久到账", top_k=5)
 
 ## Workflow / collaboration
 
+`workflow_run` submits a queued run, then streams its persisted events. Use the
+lower-level methods to reconnect or cancel:
+
 ```python
-for event in client.workflow_run("workflow-id", "总结这份资料"):
+created = client.start_workflow_run("workflow-id", "总结这份资料")
+print(created["run_id"], created["status"])  # queued
+
+for event in client.workflow_run_events(created["run_id"], after=0):
     print(event.event, event.json())
+
+# Reconnect from an event sequence
+for event in client.workflow_run_events(created["run_id"], after=12):
+    ...
+
+client.cancel_workflow_run(created["run_id"])
 ```
+
+Collaboration mirrors this with `start_collaboration_run`,
+`collaboration_run_events`, and `cancel_collaboration_run`.
 
 ## Async
 

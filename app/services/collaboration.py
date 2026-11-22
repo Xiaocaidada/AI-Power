@@ -11,6 +11,7 @@ from uuid import UUID
 
 from fastapi import HTTPException
 from pydantic import BaseModel, Field, ValidationError, model_validator
+from sqlalchemy import select
 
 from app.agents.registry import AgentRegistry
 from app.clients import RedisLike
@@ -47,6 +48,13 @@ CRITIC_SYSTEM = (
 class CollaborationEvent:
     kind: str
     data: dict[str, object]
+
+
+class RunCancelled(Exception):
+    """Raised at a step boundary after a cancellation request."""
+
+    def __init__(self) -> None:
+        super().__init__("Run cancelled")
 
 
 class PlanTask(BaseModel):
@@ -130,6 +138,7 @@ class CollaborationRunner:
             {"run_id": str(self._run_id), "input": self._input},
         )
         try:
+            await self._check_cancel()
             yield CollaborationEvent("planner_start", {"run_id": str(self._run_id)})
             plan = await self._plan()
             yield CollaborationEvent(
@@ -142,8 +151,10 @@ class CollaborationRunner:
             feedback = ""
             final_answer = ""
             while True:
+                await self._check_cancel()
                 async for event in self._run_workers(plan, feedback):
                     yield event
+                await self._check_cancel()
                 outputs = self._last_outputs
                 self._rounds += 1
                 yield CollaborationEvent(
@@ -169,6 +180,7 @@ class CollaborationRunner:
                     final_answer = "\n\n".join(outputs.values())
                     break
                 feedback = critique.feedback
+            await self._check_cancel()
             total_ms = _elapsed_ms(started)
             await self._finish_run(
                 "completed", total_ms, round_count=self._rounds, final=final_answer
@@ -189,6 +201,11 @@ class CollaborationRunner:
         except asyncio.CancelledError:
             await self._finish_run("cancelled", 0.0, round_count=self._rounds)
             raise
+        except RunCancelled:
+            total_ms = _elapsed_ms(started)
+            await self._finish_run("cancelled", total_ms, error_code="cancelled")
+            yield self._end_event("cancelled", total_ms, "cancelled")
+            return
         except (AgentFailure, ProviderError) as exc:
             code = getattr(exc, "code", "provider_error")
             total_ms = _elapsed_ms(started)
@@ -211,6 +228,22 @@ class CollaborationRunner:
                 "error_code": error_code,
             },
         )
+
+    async def _check_cancel(self) -> None:
+        try:
+            async with SessionLocal() as session:
+                requested = (
+                    await session.execute(
+                        select(CollaborationRun.cancel_requested_at).where(
+                            CollaborationRun.id == self._run_id
+                        )
+                    )
+                ).scalar_one_or_none()
+        except Exception:
+            logger.warning("failed to check collaboration cancellation", exc_info=True)
+            return
+        if requested is not None:
+            raise RunCancelled()
 
     def _consume_budget(self) -> None:
         if self._budget <= 0:

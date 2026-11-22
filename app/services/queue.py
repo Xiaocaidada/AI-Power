@@ -16,6 +16,10 @@ class JobQueue(Protocol):
 
     async def enqueue_evaluation(self, run_id: UUID) -> None: ...
 
+    async def enqueue_workflow_run(self, run_id: UUID) -> None: ...
+
+    async def enqueue_collaboration_run(self, run_id: UUID) -> None: ...
+
 
 class ArqJobQueue:
     def __init__(self, pool: Any) -> None:
@@ -34,6 +38,20 @@ class ArqJobQueue:
             "run_evaluation_job",
             str(run_id),
             _job_id=f"eval:{run_id}",
+        )
+
+    async def enqueue_workflow_run(self, run_id: UUID) -> None:
+        await self._pool.enqueue_job(
+            "run_workflow_job",
+            str(run_id),
+            _job_id=f"wfrun:{run_id}",
+        )
+
+    async def enqueue_collaboration_run(self, run_id: UUID) -> None:
+        await self._pool.enqueue_job(
+            "run_collaboration_job",
+            str(run_id),
+            _job_id=f"collab:{run_id}",
         )
 
 

@@ -11,7 +11,7 @@
 - **校验**：唯一 id、单入口、全部可达、无环；condition 恰好 true/false 两条出边；parallel ≥2 出边、join ≥2 入边；其他节点 ≤1 出边。
 - **执行器**：事件驱动调度。节点在所有入边被决定后运行；未选中的分支标记 `skipped` 并向后传播；join 等待所有活跃入边；parallel 并发受 `WORKFLOW_PARALLEL_LIMIT` 限制。
 - **可靠性与成本**：节点超时、ProviderError 重试、每个 LLM 节点检查配额；`workflow_runs` / `workflow_node_runs` 持久化状态、尝试次数、耗时与截断摘要；run 成本只记在 run 表。
-- **接口**：`POST /workflows/{id}/runs` 同步 SSE（`workflow_start/node_start/node_end/workflow_end`）。
+- **接口**：`POST /workflows/{id}/runs` 同步 SSE（`workflow_start/node_start/node_end/workflow_end`）。P5-S5 已改为 202 + Arq 异步执行 + 事件回放，见 [ADR-0023](0023-async-runs.md)。
 
 ## Consequences
 

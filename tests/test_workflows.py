@@ -47,11 +47,15 @@ async def _create_workflow(client, headers, definition=None):
 
 
 async def _run(client, headers, workflow_id, payload=None):
-    return await client.post(
+    created = await client.post(
         f"/workflows/{workflow_id}/runs",
         json=payload or {"input": "hello"},
         headers=headers,
     )
+    if created.status_code != 202:
+        return created
+    run_id = created.json()["run_id"]
+    return await client.get(f"/workflows/runs/{run_id}/events", headers=headers)
 
 
 @pytest.mark.parametrize(
@@ -470,10 +474,11 @@ async def test_workflow_run_requires_workflow_scope_for_api_keys(client, api, re
         headers=headers,
     )
 
+    key_headers = {"X-API-Key": valid_key.json()["key"]}
     allowed = await client.post(
         f"/workflows/{workflow_id}/runs",
         json={"input": "hello"},
-        headers={"X-API-Key": valid_key.json()["key"]},
+        headers=key_headers,
     )
     denied = await client.post(
         f"/workflows/{workflow_id}/runs",
@@ -481,7 +486,11 @@ async def test_workflow_run_requires_workflow_scope_for_api_keys(client, api, re
         headers={"X-API-Key": chat_key.json()["key"]},
     )
 
-    assert allowed.status_code == 200
-    assert "workflow_start" in allowed.text
+    assert allowed.status_code == 202
+    events = await client.get(
+        f"/workflows/runs/{allowed.json()['run_id']}/events", headers=key_headers
+    )
+    assert events.status_code == 200
+    assert "workflow_start" in events.text
     assert denied.status_code == 403
     assert denied.json()["detail"]["code"] == "insufficient_scope"

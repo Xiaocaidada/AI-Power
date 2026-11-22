@@ -71,12 +71,20 @@ def find_or_create_workflow(
 def run(
     client: httpx.Client, base: str, headers: dict[str, str], workflow_id: str, prompt: str
 ) -> None:
-    event = None
-    with client.stream(
-        "POST",
+    created = client.post(
         f"{base}/workflows/{workflow_id}/runs",
         headers=headers,
         json={"input": prompt},
+    )
+    created.raise_for_status()
+    run_id = created.json()["run_id"]
+    print(f"run {run_id}: {created.json()['status']}")
+    event = None
+    with client.stream(
+        "GET",
+        f"{base}/workflows/runs/{run_id}/events",
+        headers=headers,
+        params={"after": 0},
         timeout=180,
     ) as response:
         response.raise_for_status()

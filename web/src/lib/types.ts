@@ -227,6 +227,7 @@ export interface CollaborationRun {
   final_output: string
   rounds: number
   error_code: string | null
+  cancel_requested_at: string | null
   prompt_tokens: number
   completion_tokens: number
   cost: number
@@ -285,9 +286,11 @@ export interface WorkflowRun {
   id: string
   workflow_id: string
   version_id: string
+  kb_id: string | null
   status: string
   input_text: string
   error_code: string | null
+  cancel_requested_at: string | null
   prompt_tokens: number
   completion_tokens: number
   cost: number
@@ -295,6 +298,17 @@ export interface WorkflowRun {
   started_at?: string
   finished_at: string | null
   nodes: WorkflowNodeRun[]
+}
+
+export interface RunAccepted {
+  run_id: string
+  status: string
+}
+
+export interface RunCancelResult {
+  run_id: string
+  status: string
+  cancel_requested_at: string | null
 }
 
 export interface AdminWorkspace {

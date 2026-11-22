@@ -227,6 +227,28 @@ class AIPowerClient:
             },
         ).json()
 
+    def start_workflow_run(
+        self,
+        workflow_id: str,
+        input_text: str,
+        *,
+        version: int | None = None,
+        kb_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/workflows/{workflow_id}/runs",
+            retry=False,
+            json={"input": input_text, "version": version, "kb_id": kb_id},
+        ).json()
+
+    def workflow_run_events(self, run_id: str, *, after: int = 0) -> Iterator[SSEEvent]:
+        yield from self._stream(
+            "GET",
+            f"/workflows/runs/{run_id}/events",
+            params={"after": after},
+        )
+
     def workflow_run(
         self,
         workflow_id: str,
@@ -235,10 +257,37 @@ class AIPowerClient:
         version: int | None = None,
         kb_id: str | None = None,
     ) -> Iterator[SSEEvent]:
-        yield from self._stream(
+        created = self.start_workflow_run(workflow_id, input_text, version=version, kb_id=kb_id)
+        yield from self.workflow_run_events(created["run_id"])
+
+    def cancel_workflow_run(self, run_id: str) -> dict[str, Any]:
+        return self._request("POST", f"/workflows/runs/{run_id}/cancel", retry=False).json()
+
+    def start_collaboration_run(
+        self,
+        input_text: str,
+        *,
+        provider_id: str,
+        model: str,
+        kb_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self._request(
             "POST",
-            f"/workflows/{workflow_id}/runs",
-            json={"input": input_text, "version": version, "kb_id": kb_id},
+            "/collaborations/runs",
+            retry=False,
+            json={
+                "input": input_text,
+                "provider_id": provider_id,
+                "model": model,
+                "kb_id": kb_id,
+            },
+        ).json()
+
+    def collaboration_run_events(self, run_id: str, *, after: int = 0) -> Iterator[SSEEvent]:
+        yield from self._stream(
+            "GET",
+            f"/collaborations/runs/{run_id}/events",
+            params={"after": after},
         )
 
     def collaboration_run(
@@ -249,16 +298,13 @@ class AIPowerClient:
         model: str,
         kb_id: str | None = None,
     ) -> Iterator[SSEEvent]:
-        yield from self._stream(
-            "POST",
-            "/collaborations/runs",
-            json={
-                "input": input_text,
-                "provider_id": provider_id,
-                "model": model,
-                "kb_id": kb_id,
-            },
+        created = self.start_collaboration_run(
+            input_text, provider_id=provider_id, model=model, kb_id=kb_id
         )
+        yield from self.collaboration_run_events(created["run_id"])
+
+    def cancel_collaboration_run(self, run_id: str) -> dict[str, Any]:
+        return self._request("POST", f"/collaborations/runs/{run_id}/cancel", retry=False).json()
 
     def usage_summary(
         self,
@@ -485,6 +531,31 @@ class AsyncAIPowerClient:
             )
         ).json()
 
+    async def start_workflow_run(
+        self,
+        workflow_id: str,
+        input_text: str,
+        *,
+        version: int | None = None,
+        kb_id: str | None = None,
+    ) -> dict[str, Any]:
+        return (
+            await self._request(
+                "POST",
+                f"/workflows/{workflow_id}/runs",
+                retry=False,
+                json={"input": input_text, "version": version, "kb_id": kb_id},
+            )
+        ).json()
+
+    async def workflow_run_events(self, run_id: str, *, after: int = 0) -> AsyncIterator[SSEEvent]:
+        async for event in self._stream(
+            "GET",
+            f"/workflows/runs/{run_id}/events",
+            params={"after": after},
+        ):
+            yield event
+
     async def workflow_run(
         self,
         workflow_id: str,
@@ -493,10 +564,44 @@ class AsyncAIPowerClient:
         version: int | None = None,
         kb_id: str | None = None,
     ) -> AsyncIterator[SSEEvent]:
+        created = await self.start_workflow_run(
+            workflow_id, input_text, version=version, kb_id=kb_id
+        )
+        async for event in self.workflow_run_events(created["run_id"]):
+            yield event
+
+    async def cancel_workflow_run(self, run_id: str) -> dict[str, Any]:
+        return (await self._request("POST", f"/workflows/runs/{run_id}/cancel", retry=False)).json()
+
+    async def start_collaboration_run(
+        self,
+        input_text: str,
+        *,
+        provider_id: str,
+        model: str,
+        kb_id: str | None = None,
+    ) -> dict[str, Any]:
+        return (
+            await self._request(
+                "POST",
+                "/collaborations/runs",
+                retry=False,
+                json={
+                    "input": input_text,
+                    "provider_id": provider_id,
+                    "model": model,
+                    "kb_id": kb_id,
+                },
+            )
+        ).json()
+
+    async def collaboration_run_events(
+        self, run_id: str, *, after: int = 0
+    ) -> AsyncIterator[SSEEvent]:
         async for event in self._stream(
-            "POST",
-            f"/workflows/{workflow_id}/runs",
-            json={"input": input_text, "version": version, "kb_id": kb_id},
+            "GET",
+            f"/collaborations/runs/{run_id}/events",
+            params={"after": after},
         ):
             yield event
 
@@ -508,17 +613,16 @@ class AsyncAIPowerClient:
         model: str,
         kb_id: str | None = None,
     ) -> AsyncIterator[SSEEvent]:
-        async for event in self._stream(
-            "POST",
-            "/collaborations/runs",
-            json={
-                "input": input_text,
-                "provider_id": provider_id,
-                "model": model,
-                "kb_id": kb_id,
-            },
-        ):
+        created = await self.start_collaboration_run(
+            input_text, provider_id=provider_id, model=model, kb_id=kb_id
+        )
+        async for event in self.collaboration_run_events(created["run_id"]):
             yield event
+
+    async def cancel_collaboration_run(self, run_id: str) -> dict[str, Any]:
+        return (
+            await self._request("POST", f"/collaborations/runs/{run_id}/cancel", retry=False)
+        ).json()
 
     async def usage_summary(
         self,

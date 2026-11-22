@@ -34,15 +34,19 @@ const workflow = {
 }
 
 const sseBody = [
+  'id: 1',
   'event: workflow_start',
   'data: {"run_id":"run-1","workflow_id":"workflow-1","version":1}',
   '',
+  'id: 2',
   'event: node_start',
   'data: {"run_id":"run-1","node_id":"draft","node_type":"llm"}',
   '',
+  'id: 3',
   'event: node_end',
   'data: {"run_id":"run-1","node_id":"draft","status":"completed","attempts":1,"duration_ms":12,"output":"FINAL"}',
   '',
+  'id: 4',
   'event: workflow_end',
   'data: {"run_id":"run-1","status":"completed","total_ms":20,"prompt_tokens":1,"completion_tokens":1,"cost":0,"output":"FINAL"}',
   '',
@@ -53,9 +57,11 @@ const runDetail = {
   id: 'run-1',
   workflow_id: 'workflow-1',
   version_id: 'version-1',
+  kb_id: null,
   status: 'completed',
   input_text: 'hello',
   error_code: null,
+  cancel_requested_at: null,
   prompt_tokens: 1,
   completion_tokens: 1,
   cost: 0,
@@ -67,6 +73,17 @@ const runDetail = {
 
 async function mockBase(page: import('@playwright/test').Page) {
   await page.route('**/api/auth/login', (route) =>
+    route.fulfill({
+      json: {
+        access_token: 'e2e-access',
+        token_type: 'bearer',
+        expires_in: 1800,
+        refresh_token: 'e2e-refresh-token-0123456789',
+        refresh_expires_in: 604800,
+      },
+    }),
+  )
+  await page.route('**/api/auth/refresh', (route) =>
     route.fulfill({
       json: {
         access_token: 'e2e-access',
@@ -110,21 +127,32 @@ async function mockBase(page: import('@playwright/test').Page) {
   )
 }
 
-test('workflow run shows node timeline and output', async ({ page }) => {
-  await mockBase(page)
+async function mockWorkflow(page: import('@playwright/test').Page) {
   await page.route('**/api/workflows', (route) =>
     route.request().method() === 'GET'
       ? route.fulfill({ json: [workflow] })
       : route.fulfill({ json: workflow }),
   )
-  await page.route('**/api/workflows/workflow-1/runs', (route) =>
+  await page.route('**/api/workflows/workflow-1/runs**', (route) =>
+    route.request().method() === 'POST'
+      ? route.fulfill({ status: 202, json: { run_id: 'run-1', status: 'queued' } })
+      : route.fulfill({ json: [runDetail] }),
+  )
+  await page.route('**/api/workflows/runs/run-1', (route) =>
+    route.fulfill({ json: runDetail }),
+  )
+  await page.route('**/api/workflows/runs/run-1/events**', (route) =>
     route.fulfill({
       status: 200,
       contentType: 'text/event-stream',
       body: sseBody,
     }),
   )
-  await page.route('**/api/workflows/runs/run-1', (route) => route.fulfill({ json: runDetail }))
+}
+
+test('workflow run shows node timeline and output', async ({ page }) => {
+  await mockBase(page)
+  await mockWorkflow(page)
 
   await page.goto('/login')
   await page.getByLabel('邮箱').fill('e2e@example.com')
@@ -138,5 +166,21 @@ test('workflow run shows node timeline and output', async ({ page }) => {
 
   await expect(page.getByText('draft')).toBeVisible()
   await expect(page.getByText('completed').first()).toBeVisible()
+  await expect(page.getByText('FINAL').first()).toBeVisible()
+})
+
+test('workflow run reconnects from the run URL after reload', async ({ page }) => {
+  await mockBase(page)
+  await mockWorkflow(page)
+
+  await page.goto('/login')
+  await page.getByLabel('邮箱').fill('e2e@example.com')
+  await page.getByLabel('密码').fill('E2e!pass123')
+  await page.getByLabel('密码').press('Enter')
+  await expect(page).toHaveURL(/\/chat$/)
+
+  await page.goto('/workflows?workflow=workflow-1&run=run-1')
+
+  await expect(page.getByText('draft')).toBeVisible()
   await expect(page.getByText('FINAL').first()).toBeVisible()
 })

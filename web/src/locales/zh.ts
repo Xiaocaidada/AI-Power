@@ -523,6 +523,11 @@ export const zh = {
     invalidJson: '定义不是合法 JSON',
     definitionHint: '节点类型：llm / kb_search / tool / agent / condition / parallel / join；边可用 when=true/false 分支。',
   },
+  runs: {
+    history: '运行记录',
+    empty: '还没有运行记录。',
+    cancel: '取消运行',
+  },
   admin: {
     title: '管理后台',
     lead: '平台级用户、Workspace、模型、用量与审计。',

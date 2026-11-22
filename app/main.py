@@ -61,19 +61,20 @@ OPENAPI_TAGS = [
     {"name": "traces", "description": "Per-request timing and routing metadata."},
     {"name": "workspaces", "description": "Workspace membership and switching."},
     {"name": "admin", "description": "Platform admin endpoints (admin role only)."},
-    {"name": "workflows", "description": "Versioned workflow definitions and runs."},
-    {"name": "collaborations", "description": "Planner/worker/critic collaboration runs."},
+    {"name": "workflows", "description": "Versioned workflow definitions and async runs."},
+    {"name": "collaborations", "description": "Planner/worker/critic async collaboration runs."},
     {"name": "providers", "description": "Configured provider metadata."},
     {"name": "health", "description": "Liveness and readiness probes."},
 ]
 
 app = FastAPI(
     title="AI Power API",
-    version="0.5.0",
+    version="0.6.0",
     description=(
         "Multi-tenant AI platform: streaming chat, hybrid RAG knowledge bases, model catalog "
         "with auto routing, quotas, traces, multi-agent tools, workflows, prompt templates, "
-        "retrieval/LLM-judge evaluation, webhooks, cost reporting, and an admin console. "
+        "retrieval/LLM-judge evaluation, webhooks, unified usage ledger, async runs, "
+        "cost reporting, and an admin console. "
         "See docs/api/quickstart.md for examples."
     ),
     openapi_tags=OPENAPI_TAGS,

@@ -39,8 +39,10 @@ def test_alembic_upgrade_head_creates_schema(tmp_path):
         "workflow_versions",
         "workflow_runs",
         "workflow_node_runs",
+        "workflow_run_events",
         "collaboration_runs",
         "collaboration_steps",
+        "collaboration_run_events",
         "eval_datasets",
         "eval_questions",
         "eval_runs",
@@ -90,6 +92,19 @@ def test_alembic_upgrade_head_creates_schema(tmp_path):
     assert {"message_id", "citation_index", "document_id", "chunk_id", "page_no", "snippet"} <= (
         citation_columns
     )
+
+    workflow_run_columns = {column["name"] for column in inspector.get_columns("workflow_runs")}
+    assert {"api_key_id", "kb_id", "cancel_requested_at"} <= workflow_run_columns
+    collaboration_run_columns = {
+        column["name"] for column in inspector.get_columns("collaboration_runs")
+    }
+    assert {"api_key_id", "cancel_requested_at"} <= collaboration_run_columns
+    event_columns = {column["name"] for column in inspector.get_columns("workflow_run_events")}
+    assert {"run_id", "seq", "event", "payload", "created_at"} <= event_columns
+    collaboration_event_columns = {
+        column["name"] for column in inspector.get_columns("collaboration_run_events")
+    }
+    assert {"run_id", "seq", "event", "payload", "created_at"} <= (collaboration_event_columns)
 
     api_key_columns = {column["name"] for column in inspector.get_columns("api_keys")}
     assert {

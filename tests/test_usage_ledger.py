@@ -274,7 +274,7 @@ async def test_workflow_writes_one_ledger_event_per_llm_node(client, api, regist
     response = await client.post(
         f"/workflows/{workflow_id}/runs", json={"input": "hello"}, headers=headers
     )
-    assert response.status_code == 200
+    assert response.status_code == 202
 
     async with SessionLocal() as session:
         run = (await session.execute(select(WorkflowRun))).scalar_one()
@@ -313,7 +313,7 @@ async def test_workflow_usage_event_records_api_key(client, api, registry, fake_
         json={"input": "hello"},
         headers={"X-API-Key": key},
     )
-    assert response.status_code == 200
+    assert response.status_code == 202
 
     async with SessionLocal() as session:
         events = list(
@@ -390,7 +390,7 @@ async def test_collaboration_writes_one_ledger_event_per_step(client, api):
         )
     finally:
         app.dependency_overrides.pop(get_registry, None)
-    assert response.status_code == 200
+    assert response.status_code == 202
 
     async with SessionLocal() as session:
         run = (await session.execute(select(CollaborationRun))).scalar_one()

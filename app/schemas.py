@@ -427,6 +427,7 @@ class CollaborationRunOut(BaseModel):
     final_output: str
     rounds: int
     error_code: str | None
+    cancel_requested_at: datetime | None
     prompt_tokens: int
     completion_tokens: int
     cost: float
@@ -500,9 +501,11 @@ class WorkflowRunOut(BaseModel):
     id: UUID
     workflow_id: UUID
     version_id: UUID
+    kb_id: UUID | None
     status: str
     input_text: str
     error_code: str | None
+    cancel_requested_at: datetime | None
     prompt_tokens: int
     completion_tokens: int
     cost: float
@@ -510,6 +513,17 @@ class WorkflowRunOut(BaseModel):
     started_at: datetime
     finished_at: datetime | None
     nodes: list[WorkflowNodeRunOut] = Field(default_factory=list)
+
+
+class RunAcceptedOut(BaseModel):
+    run_id: UUID
+    status: str = "queued"
+
+
+class RunCancelOut(BaseModel):
+    run_id: UUID
+    status: str
+    cancel_requested_at: datetime | None
 
 
 class PromptVersionCreate(BaseModel):

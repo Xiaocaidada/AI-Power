@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import HTTPException
+from sqlalchemy import select
 
 from app.agents.registry import AgentRegistry
 from app.clients import RedisLike
@@ -60,6 +61,13 @@ class NodeFailure(Exception):
         super().__init__(message)
         self.code = code
         self.message = message
+
+
+class RunCancelled(Exception):
+    """Raised at a node boundary after a cancellation request."""
+
+    def __init__(self) -> None:
+        super().__init__("Run cancelled")
 
 
 class WorkflowRunner:
@@ -114,9 +122,15 @@ class WorkflowRunner:
         try:
             async for event in self._run_graph():
                 yield event
+            await self._check_cancel()
         except asyncio.CancelledError:
             await self._finish_run("cancelled", 0.0, "cancelled")
             raise
+        except RunCancelled:
+            total_ms = _elapsed_ms(started)
+            await self._finish_run("cancelled", total_ms, "cancelled")
+            yield self._end_event("cancelled", total_ms, "cancelled")
+            return
         except NodeFailure as exc:
             total_ms = _elapsed_ms(started)
             await self._finish_run("failed", total_ms, exc.code)
@@ -147,6 +161,7 @@ class WorkflowRunner:
         return WorkflowEvent("workflow_end", data)
 
     async def _run_graph(self) -> AsyncIterator[WorkflowEvent]:
+        await self._check_cancel()
         nodes = self._definition.node_map()
         incoming = self._definition.incoming()
         outgoing = self._definition.outgoing()
@@ -162,6 +177,7 @@ class WorkflowRunner:
 
         try:
             while any(state in {"pending", "ready", "running"} for state in states.values()):
+                await self._check_cancel()
                 progressed = True
                 while progressed:
                     progressed = False
@@ -242,9 +258,25 @@ class WorkflowRunner:
                             edge_state[(node_id, edge.to)] = edge.when == outcome.output
                         else:
                             edge_state[(node_id, edge.to)] = True
-        except asyncio.CancelledError:
+        except (asyncio.CancelledError, RunCancelled):
             await _cancel_tasks(running)
             raise
+
+    async def _check_cancel(self) -> None:
+        try:
+            async with SessionLocal() as session:
+                requested = (
+                    await session.execute(
+                        select(WorkflowRun.cancel_requested_at).where(
+                            WorkflowRun.id == self._run_id
+                        )
+                    )
+                ).scalar_one_or_none()
+        except Exception:
+            logger.warning("failed to check workflow cancellation", exc_info=True)
+            return
+        if requested is not None:
+            raise RunCancelled()
 
     async def _execute_with_semaphore(
         self, node: WorkflowNode, semaphore: asyncio.Semaphore

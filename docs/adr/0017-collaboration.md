@@ -18,7 +18,7 @@
 - 支持并行与“评审-修订”，演示效果强于单 supervisor。
 - 依赖模型遵循 JSON 协议；revise 会重跑全部 worker，成本可能翻倍。
 - critic 无数值评分；协作成本未写 `usage_events`。
-- 同步 SSE 执行，长协作占用连接。
+- 同步 SSE 执行，长协作占用连接。P5-S5 已改为 Arq 异步执行与事件回放，见 [ADR-0023](0023-async-runs.md)。
 
 ## Alternatives
 
