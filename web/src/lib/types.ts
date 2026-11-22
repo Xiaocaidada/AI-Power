@@ -94,6 +94,71 @@ export interface RetrievalSearchResult {
   }
 }
 
+export interface EvalDataset {
+  id: string
+  name: string
+  description: string
+  question_count: number
+  created_at: string
+}
+
+export interface EvalQuestion {
+  id: string
+  question: string
+  relevant_document_ids: string[]
+  evidence: string[]
+}
+
+export interface EvalDatasetDetail extends EvalDataset {
+  questions: EvalQuestion[]
+}
+
+export type EvalMetrics = Record<string, number | string | boolean | null>
+
+export interface EvalRun {
+  id: string
+  dataset_id: string
+  kb_id: string
+  status: string
+  config: Record<string, unknown>
+  metrics: EvalMetrics | null
+  error_code: string | null
+  progress_total: number
+  progress_done: number
+  prompt_tokens: number
+  completion_tokens: number
+  cost: number
+  started_at: string | null
+  finished_at: string | null
+  created_at: string
+}
+
+export interface EvalRunItem {
+  id: string
+  question_id: string
+  question_text: string
+  hit_rank: number | null
+  reciprocal_rank: number
+  evidence_hit: boolean | null
+  latency_ms: number | null
+  top_document_ids: string[]
+  top_chunk_ids: string[]
+  answer: string | null
+  judge_score: number | null
+  judge_faithful: boolean | null
+  judge_reason: string | null
+  judge_error: string | null
+  answer_latency_ms: number | null
+  prompt_tokens: number
+  completion_tokens: number
+  cost: number
+  error_code: string | null
+}
+
+export interface EvalRunDetail extends EvalRun {
+  items: EvalRunItem[]
+}
+
 export interface Conversation {
   id: string
   title: string

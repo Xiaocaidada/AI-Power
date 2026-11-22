@@ -14,6 +14,8 @@ from app.models import IngestionJob
 class JobQueue(Protocol):
     async def enqueue_ingestion(self, document_id: UUID, *, unique: bool = False) -> None: ...
 
+    async def enqueue_evaluation(self, run_id: UUID) -> None: ...
+
 
 class ArqJobQueue:
     def __init__(self, pool: Any) -> None:
@@ -25,6 +27,13 @@ class ArqJobQueue:
             "ingest_document_job",
             str(document_id),
             _job_id=job_id,
+        )
+
+    async def enqueue_evaluation(self, run_id: UUID) -> None:
+        await self._pool.enqueue_job(
+            "run_evaluation_job",
+            str(run_id),
+            _job_id=f"eval:{run_id}",
         )
 
 

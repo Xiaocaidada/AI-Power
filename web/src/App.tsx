@@ -9,6 +9,7 @@ import { clearTokens, hasSession, refreshAccessToken } from './lib/tokens'
 import type { User } from './lib/types'
 import { ChatPage } from './pages/chat/ChatPage'
 import { NewChatPage } from './pages/chat/NewChatPage'
+import { EvaluationPage } from './pages/evaluation/EvaluationPage'
 import { KnowledgeDetailPage } from './pages/knowledge/KnowledgeDetailPage'
 import { KnowledgePage } from './pages/knowledge/KnowledgePage'
 import { LoginPage } from './pages/LoginPage'
@@ -66,6 +67,7 @@ export function App() {
           <Route path="admin" element={<AdminPage />} />
           <Route path="knowledge" element={<KnowledgePage />} />
           <Route path="knowledge/:id" element={<KnowledgeDetailPage />} />
+          <Route path="evaluation" element={<EvaluationPage />} />
           <Route
             path="usage"
             element={

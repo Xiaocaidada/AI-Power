@@ -1,6 +1,6 @@
 # P5 规划：检索质量、评测平台与开放平台
 
-- **Status:** In progress（D1–D10 已确认；S1 已完成 2026-11-22）
+- **Status:** In progress（D1–D10 已确认；S1–S2 已完成 2026-11-22）
 - **Date:** 2026-11-22
 - **Scope source:** [`PRODUCT-BRIEF.md`](../../PRODUCT-BRIEF.md) §2 Q2/Q7、§3、[`docs/eval/retrieval-baseline.md`](../eval/retrieval-baseline.md)、[`docs/plan/p4-plan.md`](./p4-plan.md)
 - **前置:** P4 已完成（2026-11-22），见 [`p4-plan.md`](./p4-plan.md)、[`p4-s6-final.md`](../tdd/p4-s6-final.md)
@@ -42,7 +42,7 @@ P5 仍**不做真实支付/计费、复杂 RBAC、移动端与拖拽画布**。�
 | D1 | P5 主线 | **RAG 质量 + 评测平台 + 开放平台（SDK/Webhook）+ 统一账本 + 异步运行**；不做计费/RBAC/移动端 | 只做 RAG（集成能力仍缺）；只做开放平台（质量不可度量） |
 | D2 | 混合检索 | **pgvector 向量召回 + `pg_trgm` 词法召回 + RRF 融合**；Postgres 用 GIN 索引，SQLite 用字符 bigram 词法回退 | 引入 Elasticsearch/Qdrant（多一个组件）；jieba + tsvector（中文分词依赖与维护成本） |
 | D3 | 重排 | **可插拔 `Reranker`**：OpenAI 兼容 `/rerank`（TEI / bge-reranker），默认关闭；未配置或失败时自动回退 RRF，不影响主链路 | 强制部署 bge-reranker（硬件/运维风险）；LLM listwise 重排（慢且贵） |
-| D4 | 评测范围 | **只评检索**：文档级 Recall@1/3/5、MRR、证据命中率、延迟；数据集扩到 ≥100 题 / ≥40 文档，含近似干扰与长文档；不做 LLM-as-judge 的答案质量评测 | RAGAS 全量（需要 judge 模型与成本）；维持 50 题脚本（指标饱和） |
+| D4 | 评测范围 | **检索指标 + 可选 LLM-as-judge**：文档级 Recall@1/3/5、MRR、证据命中率、延迟；另提供可选的答案生成 + LLM 评审（groundedness/relevance，1–5 分、是否忠实、理由），默认关闭以控制耗时与成本；数据集沿用现有 **50 题 / 20 文档**，不扩充 | 只评检索（无法展示答案质量）；RAGAS 全量（成本高）；强制每题都跑 answer+judge（本地模型太慢） |
 | D5 | SDK 形态 | 仓库内 `sdk/python` 可安装包（`pyproject.toml` + `httpx`），同步与异步客户端、类型标注、SSE 迭代器、错误映射与重试；**不发布 PyPI** | 发布 PyPI（账号/版本负担）；只保留 curl 示例（无工程展示） |
 | D6 | Webhook | workspace 级订阅；**HMAC-SHA256 + 时间戳**签名；最多 5 次指数退避；投递日志与重放；密钥加密存储、创建时展示一次；SSRF 校验（默认禁止私网，演示可配置放行） | 仅保留预算 webhook（不可靠）；不重试（集成方无法依赖） |
 | D7 | 统一账本 | `usage_events` 增加 `source`、`api_key_id`、`workflow_node_run_id`、`collaboration_step_id`；`message_id` 改为可空；**每次 LLM 调用写一条事件**（费用发生在调用点），预算/指标/用量页统一聚合；历史行回填 `source='chat'` | 只按 run 写一条（丢失模型维度）；新表 union（预算与指标复杂） |
@@ -51,6 +51,8 @@ P5 仍**不做真实支付/计费、复杂 RBAC、移动端与拖拽画布**。�
 | D10 | 测试策略 | 全部使用确定性 provider、假 Reranker、假 webhook 接收器；pg_trgm 路径用可选 Postgres 集成测试，默认 SQLite 测试覆盖融合与回退逻辑；真实模型验证为 best-effort | 依赖真实模型/真实网络（硬件与网络不稳定导致红灯） |
 
 > **已确认（2026-11-22）**：D1–D10 按建议执行。进入编码仍需逐片批准。
+>
+> **P5-S2 调整（2026-11-22，用户确认）**：数据集沿用 50 题 / 20 文档；增加可选 LLM-as-judge（答案质量评审）。
 
 ## 4. 切片与顺序
 
@@ -72,7 +74,7 @@ P5 仍**不做真实支付/计费、复杂 RBAC、移动端与拖拽画布**。�
 >
 > **完成证据**：[`docs/tdd/p5-s1-retrieval.md`](../tdd/p5-s1-retrieval.md)、[`ADR-0019`](../adr/0019-hybrid-retrieval.md)。
 
-### P5-S2 评测平台与数据集扩展 — 待开始（约 1.5–2 周）
+### P5-S2 评测平台与 LLM-as-judge — **已完成（2026-11-22）**（约 1.5–2 周）
 
 - **表**：
   - `eval_datasets(id, workspace_id, name, description, created_by, created_at, deleted_at)`
@@ -81,13 +83,16 @@ P5 仍**不做真实支付/计费、复杂 RBAC、移动端与拖拽画布**。�
   - `eval_run_items(id, run_id, question_id, hit_rank, reciprocal_rank, evidence_hit, latency_ms, top_document_ids JSON)`
 - **执行**：Arq job 逐题检索；每 10 题更新进度；记录每题 top-k 文档与耗时；失败题保留错误码。
 - **指标**：Recall@1/3/5、MRR、证据命中率（题目提供 `evidence` 时，检索 chunk 包含任一证据片段即命中）、延迟 P50/P95；配置快照写入 `eval_runs.config`，保证可复现。
+- **LLM-as-judge（可选）**：运行时可开启答案生成 + 评审；评审输入为问题、检索到的参考段落、生成答案，输出 JSON `{score:1-5, faithful:bool, reason}`；聚合平均分、及格率（≥4）、忠实率。默认关闭；模型可单独指定 judge provider/model。
 - **API**：数据集 CRUD 与 JSON 导入、题目列表、`POST /evaluations/runs`、`GET /evaluations/runs/{id}`、运行列表、`GET /evaluations/compare?ids=`。
-- **前端 `/evaluation`**：数据集与题目管理（JSON 导入优先）、发起评测（top_k/hybrid/rerank）、进度、指标卡、失败题目表、两次运行对比。
-- **数据集**：把现有 50 题扩到 ≥100 题、≥40 文档；加入同主题近似文档、长文档与多跳问题；保留 `document_id_for` 确定性 ID；更新评测报告。
-- **测试**：指标计算（含无命中/空集）、命中排名、证据命中、运行状态机、workspace 隔离、导入校验、对比接口。
+- **前端 `/evaluation`**：数据集与题目管理（支持导入现有 `eval/dataset.json` bundle）、发起评测（top_k/hybrid/rerank/answer/judge）、进度、指标卡、失败题目表、两次运行对比。
+- **数据集**：沿用现有 50 题 / 20 文档，不扩充；保留 `document_id_for` 确定性 ID；支持把 bundle 里的 filename 映射到所选 KB 的文档。
+- **测试**：指标计算（含无命中/空集）、命中排名、证据命中、运行状态机、workspace 隔离、导入校验、对比接口、judge 解析与失败降级。
 - **文档**：ADR-0020；更新 [`docs/eval/retrieval-baseline.md`](../eval/retrieval-baseline.md)。
 
-> 验收：同一数据集跑 vector 与 hybrid 两次，页面显示 Recall@1/MRR 变化与失败题明细；报告中有可复现命令。
+> 验收：同一数据集跑 vector 与 hybrid 两次，页面显示 Recall@1/MRR 变化与失败题明细；开启 judge 后能看到每题评分/理由与聚合指标；报告中有可复现命令。
+>
+> **完成证据**：[`docs/tdd/p5-s2-evaluation.md`](../tdd/p5-s2-evaluation.md)、[`ADR-0020`](../adr/0020-evaluation-platform.md)。50 题实测：vector Recall@1=0.960 / MRR=0.9767，hybrid 相同，hybrid+rerank 0.980 / 0.9900；单题真机 judge 5/5、faithful=true。
 
 ### P5-S3 开放平台 SDK 与 Webhook — 待开始（约 2 周）
 

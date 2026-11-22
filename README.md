@@ -15,6 +15,7 @@
 | 知识库 | PDF/MD/TXT 上传、持久化入库队列、失败重试、状态轮询、删除清理 |
 | 知识库管理 | 每库分块/检索参数、分块浏览与统计、重新分块、检索调试页 |
 | RAG | bge-m3 + pgvector + pg_trgm 混合检索（RRF），可选 bge-reranker 重排；回答只引用真正进入 prompt 的 chunk |
+| 评测 | 20 文档 / 50 题数据集、Recall@1/3/5 + MRR + 延迟、运行对比、可选答案生成 + LLM-as-judge |
 | 用量 | 按日/Provider/模型聚合 token、请求数与成本（价格快照） |
 | API Key | `X-API-Key`，`chat:write` / `kb:read` scope，一次性展示、可吊销、过期与限流 |
 | 多租户 | Workspace/成员、`X-Workspace-Id`、跨租户 404 |
@@ -109,6 +110,10 @@ docker compose exec -T postgres pg_restore -U ai_power -d ai_power --clean < bac
 # 工作流并发压测
 .venv/Scripts/python.exe scripts/loadtest_workflow.py --base-url http://192.168.29.100:8002 \
   --provider local-qwen --model <model> --concurrency 3
+
+# 准备 20 文档 / 50 题评测集（需要 AI_POWER_EMAIL / AI_POWER_PASSWORD）
+AI_POWER_BASE_URL=http://192.168.29.100:8002 \
+  .venv/Scripts/python.exe scripts/seed_eval_platform.py --kb-name "检索评测集"
 ```
 
 日志默认文本格式；compose 中 API/worker 使用 `LOG_FORMAT=json`，每行包含
@@ -134,7 +139,9 @@ docs/           产品契约、ADR、TDD 证据与规划
 - [docs/plan/p4-plan.md](./docs/plan/p4-plan.md)
 - [docs/plan/p5-plan.md](./docs/plan/p5-plan.md)
 - [docs/tdd/p5-s1-retrieval.md](./docs/tdd/p5-s1-retrieval.md)
+- [docs/tdd/p5-s2-evaluation.md](./docs/tdd/p5-s2-evaluation.md)
 - [docs/adr/0019-hybrid-retrieval.md](./docs/adr/0019-hybrid-retrieval.md)
+- [docs/adr/0020-evaluation-platform.md](./docs/adr/0020-evaluation-platform.md)
 - [docs/api/quickstart.md](./docs/api/quickstart.md)
 - [docs/api/errors.md](./docs/api/errors.md)
 - [docs/api/workflows.md](./docs/api/workflows.md)

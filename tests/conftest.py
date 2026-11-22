@@ -136,6 +136,7 @@ class InlineQueue:
     def __init__(self) -> None:
         self.calls: list[object] = []
         self.unique_flags: list[bool] = []
+        self.eval_calls: list[object] = []
         self.fail = False
 
     async def enqueue_ingestion(self, document_id, *, unique: bool = False) -> None:
@@ -146,6 +147,14 @@ class InlineQueue:
         from app.services.ingestion import ingest_document
 
         await ingest_document(document_id)
+
+    async def enqueue_evaluation(self, run_id) -> None:
+        self.eval_calls.append(run_id)
+        if self.fail:
+            raise ConnectionError("queue down")
+        from app.services.evaluation_runner import run_evaluation
+
+        await run_evaluation(run_id)
 
 
 @pytest.fixture(autouse=True)

@@ -508,3 +508,94 @@ class Trace(Base):
     )
 
     __table_args__ = (Index("ix_traces_workspace_created", "workspace_id", "created_at"),)
+
+
+class EvalDataset(Base):
+    __tablename__ = "eval_datasets"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(String(500), default="")
+    created_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), default=None
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+
+class EvalQuestion(Base):
+    __tablename__ = "eval_questions"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    dataset_id: Mapped[UUID] = mapped_column(
+        ForeignKey("eval_datasets.id", ondelete="CASCADE"), index=True
+    )
+    question: Mapped[str] = mapped_column(Text)
+    relevant_document_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    evidence: Mapped[list[str]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class EvalRun(Base):
+    __tablename__ = "eval_runs"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    dataset_id: Mapped[UUID] = mapped_column(
+        ForeignKey("eval_datasets.id", ondelete="CASCADE"), index=True
+    )
+    kb_id: Mapped[UUID] = mapped_column(
+        ForeignKey("knowledge_bases.id", ondelete="CASCADE"), index=True
+    )
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="queued", index=True)
+    config: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
+    metrics: Mapped[dict[str, object] | None] = mapped_column(JSON, default=None)
+    error_code: Mapped[str | None] = mapped_column(String(50), default=None)
+    progress_total: Mapped[int] = mapped_column(Integer, default=0)
+    progress_done: Mapped[int] = mapped_column(Integer, default=0)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost: Mapped[float] = mapped_column(Float, default=0.0)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (Index("ix_eval_runs_workspace_created", "workspace_id", "created_at"),)
+
+
+class EvalRunItem(Base):
+    __tablename__ = "eval_run_items"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    run_id: Mapped[UUID] = mapped_column(ForeignKey("eval_runs.id", ondelete="CASCADE"), index=True)
+    question_id: Mapped[UUID] = mapped_column(
+        ForeignKey("eval_questions.id", ondelete="CASCADE"), index=True
+    )
+    question_text: Mapped[str] = mapped_column(Text)
+    hit_rank: Mapped[int | None] = mapped_column(Integer, default=None)
+    reciprocal_rank: Mapped[float] = mapped_column(Float, default=0.0)
+    evidence_hit: Mapped[bool | None] = mapped_column(Boolean, default=None)
+    latency_ms: Mapped[float | None] = mapped_column(Float, default=None)
+    top_document_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    top_chunk_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    answer: Mapped[str | None] = mapped_column(Text, default=None)
+    judge_score: Mapped[int | None] = mapped_column(Integer, default=None)
+    judge_faithful: Mapped[bool | None] = mapped_column(Boolean, default=None)
+    judge_reason: Mapped[str | None] = mapped_column(String(1000), default=None)
+    judge_error: Mapped[str | None] = mapped_column(String(100), default=None)
+    answer_latency_ms: Mapped[float | None] = mapped_column(Float, default=None)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost: Mapped[float] = mapped_column(Float, default=0.0)
+    error_code: Mapped[str | None] = mapped_column(String(50), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("run_id", "question_id", name="uq_eval_run_items_run_question"),
+    )

@@ -170,6 +170,155 @@ class RetrievalSearchOut(BaseModel):
     timings: RetrievalTimingsOut
 
 
+class EvalQuestionIn(BaseModel):
+    question: str = Field(min_length=1, max_length=2000)
+    relevant_document_ids: list[UUID] = Field(min_length=1, max_length=20)
+    evidence: list[str] = Field(default_factory=list, max_length=10)
+
+    @field_validator("question", mode="before")
+    @classmethod
+    def strip_question(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class EvalDatasetCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=500)
+    questions: list[EvalQuestionIn] = Field(min_length=1, max_length=500)
+
+    @field_validator("name", "description", mode="before")
+    @classmethod
+    def strip_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class EvalDatasetOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    name: str
+    description: str
+    question_count: int
+    created_at: datetime
+
+
+class EvalQuestionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    question: str
+    relevant_document_ids: list[UUID]
+    evidence: list[str]
+
+
+class EvalDatasetDetailOut(EvalDatasetOut):
+    questions: list[EvalQuestionOut]
+
+
+class EvalBundleDocument(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    text: str = ""
+
+
+class EvalBundleQuestion(BaseModel):
+    question: str = Field(min_length=1, max_length=2000)
+    relevant_filenames: list[str] = Field(min_length=1, max_length=20)
+    evidence: list[str] = Field(default_factory=list, max_length=10)
+
+
+class EvalBundle(BaseModel):
+    description: str = Field(default="", max_length=500)
+    documents: list[EvalBundleDocument] = Field(default_factory=list)
+    questions: list[EvalBundleQuestion] = Field(min_length=1, max_length=500)
+
+
+class EvalDatasetImportIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=500)
+    kb_id: UUID
+    bundle: EvalBundle
+
+    @field_validator("name", "description", mode="before")
+    @classmethod
+    def strip_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class EvalRunCreate(BaseModel):
+    dataset_id: UUID
+    kb_id: UUID
+    top_k: int | None = Field(default=None, ge=1, le=20)
+    candidate_k: int | None = Field(default=None, ge=1, le=100)
+    hybrid_enabled: bool | None = None
+    rerank_enabled: bool | None = None
+    answer_enabled: bool = False
+    judge_enabled: bool = False
+    provider_id: str | None = Field(default=None, max_length=50)
+    model: str | None = Field(default=None, max_length=200)
+    judge_provider_id: str | None = Field(default=None, max_length=50)
+    judge_model: str | None = Field(default=None, max_length=200)
+
+    @model_validator(mode="after")
+    def _validate_judge(self) -> "EvalRunCreate":
+        if self.judge_enabled and not self.answer_enabled:
+            raise ValueError("judge_enabled requires answer_enabled")
+        if self.answer_enabled and (not self.provider_id or not self.model):
+            raise ValueError("answer_enabled requires provider_id and model")
+        return self
+
+
+class EvalRunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    dataset_id: UUID
+    kb_id: UUID
+    status: str
+    config: dict[str, object]
+    metrics: dict[str, object] | None
+    error_code: str | None
+    progress_total: int
+    progress_done: int
+    prompt_tokens: int
+    completion_tokens: int
+    cost: float
+    started_at: datetime | None
+    finished_at: datetime | None
+    created_at: datetime
+
+
+class EvalRunItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    question_id: UUID
+    question_text: str
+    hit_rank: int | None
+    reciprocal_rank: float
+    evidence_hit: bool | None
+    latency_ms: float | None
+    top_document_ids: list[str]
+    top_chunk_ids: list[str]
+    answer: str | None
+    judge_score: int | None
+    judge_faithful: bool | None
+    judge_reason: str | None
+    judge_error: str | None
+    answer_latency_ms: float | None
+    prompt_tokens: int
+    completion_tokens: int
+    cost: float
+    error_code: str | None
+
+
+class EvalRunDetailOut(EvalRunOut):
+    items: list[EvalRunItemOut]
+
+
+class EvalCompareOut(BaseModel):
+    runs: list[EvalRunOut]
+
+
 class CollaborationRunCreate(BaseModel):
     input: str = Field(min_length=1, max_length=20000)
     provider_id: str = Field(min_length=1, max_length=50)
