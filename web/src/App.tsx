@@ -27,6 +27,7 @@ import { ModelDetailPage } from './pages/models/ModelDetailPage'
 import { ModelPlaygroundPage } from './pages/models/ModelPlaygroundPage'
 import { AnnouncementDetailPage } from './pages/portal/AnnouncementDetailPage'
 import { AnnouncementsPage } from './pages/portal/AnnouncementsPage'
+import { HelpPage } from './pages/help/HelpPage'
 import { HomePage } from './pages/portal/HomePage'
 import { ProjectDetailPage } from './pages/projects/ProjectDetailPage'
 import { PluginsPage } from './pages/plugins/PluginsPage'
@@ -83,6 +84,7 @@ export function App() {
         <Route path="models/:slug" element={<ModelDetailPage />} />
         <Route path="announcements" element={<AnnouncementsPage />} />
         <Route path="announcements/:id" element={<AnnouncementDetailPage />} />
+        <Route path="help" element={<HelpPage />} />
         <Route element={<RequireAuth />}>
           <Route path="models/:slug/playground" element={<ModelPlaygroundPage />} />
         </Route>

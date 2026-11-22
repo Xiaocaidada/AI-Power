@@ -5,7 +5,9 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { Button } from '../../components/ui/button'
 import { Dialog } from '../../components/ui/dialog'
+import { Textarea } from '../../components/ui/input'
 import { Spinner } from '../../components/ui/spinner'
+import { uploadChatAttachment } from '../../lib/attachments'
 import { errorTextKey } from '../../lib/errorText'
 import { ApiError } from '../../lib/errors'
 import {
@@ -14,9 +16,15 @@ import {
 } from '../../lib/exportConversation'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
-import { streamChat, streamRegenerate, type SseEvent } from '../../lib/sse'
+import {
+  streamChat,
+  streamRegenerate,
+  streamReply,
+  type SseEvent,
+} from '../../lib/sse'
 import type {
   AgentActivity,
+  ChatAttachment,
   ChatUsage,
   Citation,
   ConversationDetail,
@@ -33,6 +41,7 @@ interface PendingStream {
   assistant: string
   citations: Citation[]
   activity: AgentActivity[]
+  attachments: ChatAttachment[]
   status: 'streaming' | 'failed' | 'cancelled'
   errorCode?: string
   usage: ChatUsage | null
@@ -59,6 +68,14 @@ export function ChatPage() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([])
+  const [attaching, setAttaching] = useState(false)
+  const [attachError, setAttachError] = useState<string | null>(null)
+  const [editTarget, setEditTarget] = useState<DisplayMessage | null>(null)
+  const [editDraft, setEditDraft] = useState('')
+  const [editing, setEditing] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
+  const [editLaterCount, setEditLaterCount] = useState(0)
   const [cooldown, setCooldown] = useState(0)
   const abortRef = useRef<AbortController | null>(null)
   const activityIdRef = useRef(0)
@@ -83,6 +100,7 @@ export function ChatPage() {
     async (
       request: (signal: AbortSignal, onEvent: (event: SseEvent) => void) => Promise<void>,
       userContent: string,
+      pendingAttachments: ChatAttachment[] = [],
     ) => {
       if (conversationId === '') return
       setPending({
@@ -90,6 +108,7 @@ export function ChatPage() {
         assistant: '',
         citations: [],
         activity: [],
+        attachments: pendingAttachments,
         status: 'streaming',
         usage: null,
       })
@@ -188,18 +207,42 @@ export function ChatPage() {
     [conversationId, queryClient],
   )
 
+  const attachFiles = async (files: File[]) => {
+    setAttachError(null)
+    setAttaching(true)
+    try {
+      for (const file of files) {
+        const uploaded = await uploadChatAttachment(file, conversationId)
+        setAttachments((prev) => [...prev, uploaded])
+      }
+    } catch (caught) {
+      setAttachError(t(errorTextKey(caught)))
+    } finally {
+      setAttaching(false)
+    }
+  }
+
   const start = useCallback(
     async (content: string) => {
       if (conversationId === '') return
       stickRef.current = true
       setInput('')
+      const snapshot = attachments
+      setAttachments([])
       await runStream(
         (signal, onEvent) =>
-          streamChat({ conversationId, content, signal, onEvent }),
+          streamChat({
+            conversationId,
+            content,
+            attachmentIds: snapshot.map((item) => item.id),
+            signal,
+            onEvent,
+          }),
         content,
+        snapshot,
       )
     },
-    [conversationId, runStream],
+    [attachments, conversationId, runStream],
   )
 
   const regenerate = useCallback(
@@ -222,6 +265,9 @@ export function ChatPage() {
     setInput('')
     setMenuOpen(false)
     setEditingTitle(false)
+    setAttachments([])
+    setAttachError(null)
+    setEditTarget(null)
     stickRef.current = true
   }, [conversationId])
 
@@ -314,6 +360,41 @@ export function ChatPage() {
     }
   }
 
+  const openEdit = (message: DisplayMessage) => {
+    const index = serverMessages.findIndex((item) => item.id === message.id)
+    setEditLaterCount(index >= 0 ? serverMessages.length - index - 1 : 0)
+    setEditDraft(message.content)
+    setEditError(null)
+    setEditTarget(message)
+  }
+
+  const saveEdit = async () => {
+    if (editTarget === null || editDraft.trim() === '') return
+    const target = editTarget
+    const content = editDraft.trim()
+    setEditing(true)
+    setEditError(null)
+    try {
+      await apiRequest(`/conversations/${conversationId}/messages/${target.id}`, {
+        method: 'PATCH',
+        body: { content },
+      })
+      setEditTarget(null)
+      await queryClient.invalidateQueries({ queryKey: ['conversation', conversationId] })
+      await queryClient.invalidateQueries({ queryKey: ['conversations'] })
+      stickRef.current = true
+      await runStream(
+        (signal, onEvent) =>
+          streamReply({ conversationId, messageId: target.id, signal, onEvent }),
+        '',
+      )
+    } catch (caught) {
+      setEditError(t(errorTextKey(caught)))
+    } finally {
+      setEditing(false)
+    }
+  }
+
   const startEditingTitle = () => {
     titleCancelledRef.current = false
     setTitleDraft(conversation.data?.title ?? '')
@@ -375,6 +456,7 @@ export function ChatPage() {
                   status: 'completed',
                   citations: [],
                   created_at: new Date().toISOString(),
+                  attachments: pending.attachments,
                 },
               ]),
           {
@@ -394,7 +476,16 @@ export function ChatPage() {
         ]
       : []
 
-  const kbName = kbs.data?.find((kb) => kb.id === conversation.data?.kb_id)?.name
+  const conversationKbIds =
+    conversation.data?.kb_ids ??
+    (conversation.data?.kb_id === null || conversation.data?.kb_id === undefined
+      ? []
+      : [conversation.data.kb_id])
+  const kbName = kbs.data?.find((kb) => kb.id === conversationKbIds[0])?.name
+  const kbLabel =
+    conversationKbIds.length > 1
+      ? t('chat.knowledgeBaseCount', { count: conversationKbIds.length })
+      : kbName
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -440,7 +531,7 @@ export function ChatPage() {
                 ? t('models.auto')
                 : conversation.data?.model}
             </span>
-            {kbName !== undefined && <span className="truncate">· {kbName}</span>}
+            {kbLabel !== undefined && <span className="truncate">· {kbLabel}</span>}
             {conversation.data?.prompt_version_id !== null &&
             conversation.data?.prompt_version_id !== undefined ? (
               <span className="truncate">· {t('prompts.active')}</span>
@@ -539,6 +630,7 @@ export function ChatPage() {
                   : undefined
               }
               onFeedback={(messageId, rating) => void setFeedback(messageId, rating)}
+              onEdit={message.role === 'user' ? openEdit : undefined}
             />
           ))}
           {streamMessages.map((message) =>
@@ -569,6 +661,11 @@ export function ChatPage() {
               {t('errors.rateLimitedWait', { seconds: cooldown })}
             </p>
           )}
+          {attachError !== null && (
+            <p role="alert" className="mb-2 rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">
+              {attachError}
+            </p>
+          )}
           <Composer
             value={input}
             onValueChange={setInput}
@@ -576,6 +673,13 @@ export function ChatPage() {
             disabled={cooldown > 0}
             streaming={pending?.status === 'streaming'}
             onStop={() => abortRef.current?.abort()}
+            attachments={attachments}
+            attaching={attaching}
+            onAttachFiles={(files) => void attachFiles(files)}
+            onRemoveAttachment={(id) => {
+              void apiRequest(`/attachments/${id}`, { method: 'DELETE' }).catch(() => {})
+              setAttachments((prev) => prev.filter((item) => item.id !== id))
+            }}
           />
         </div>
       </div>
@@ -635,6 +739,46 @@ export function ChatPage() {
             {t('chat.exportJson')}
           </Button>
         </div>
+      </Dialog>
+
+      <Dialog
+        open={editTarget !== null}
+        onClose={() => {
+          if (!editing) setEditTarget(null)
+        }}
+        title={t('chat.editMessage')}
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={editing}
+              onClick={() => setEditTarget(null)}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              size="sm"
+              disabled={editing || editDraft.trim() === ''}
+              onClick={() => void saveEdit()}
+            >
+              {t('chat.editAndResend')}
+            </Button>
+          </>
+        }
+      >
+        {editLaterCount > 0 && (
+          <p className="mb-2 rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
+            {t('chat.editWarning', { count: editLaterCount })}
+          </p>
+        )}
+        <Textarea
+          className="min-h-32 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-ink focus:border-accent focus:outline-none"
+          value={editDraft}
+          maxLength={20000}
+          onChange={(event) => setEditDraft(event.target.value)}
+        />
+        {editError !== null && <p className="mt-2 text-xs text-danger">{editError}</p>}
       </Dialog>
 
       <Dialog

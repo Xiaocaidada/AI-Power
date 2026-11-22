@@ -45,6 +45,7 @@ export function PortalLayout() {
             <PortalLink to="/" label={t('portal.home')} end />
             <PortalLink to="/models" label={t('portal.models')} />
             <PortalLink to="/announcements" label={t('announcements.title')} />
+            <PortalLink to="/help" label={t('help.title')} />
             <PortalLink to="/chat" label={t('portal.workspace')} />
           </nav>
           <div className="ml-auto flex items-center gap-2">
@@ -172,6 +173,9 @@ export function PortalLayout() {
           <div className="flex gap-4">
             <Link to="/models" className="hover:text-ink">
               {t('portal.models')}
+            </Link>
+            <Link to="/help" className="hover:text-ink">
+              {t('help.title')}
             </Link>
             <Link to="/chat" className="hover:text-ink">
               {t('portal.console')}

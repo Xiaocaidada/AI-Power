@@ -14,6 +14,8 @@ const TYPE_ORDER = [
   'conversation',
   'project',
   'agent',
+  'model',
+  'plugin',
   'prompt',
   'knowledge_base',
   'file',

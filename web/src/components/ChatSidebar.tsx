@@ -2,8 +2,10 @@ import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-quer
 import {
   Archive,
   ArrowLeft,
+  Check,
   FolderInput,
   FolderOpen,
+  ListChecks,
   MoreHorizontal,
   Moon,
   Pencil,
@@ -11,6 +13,7 @@ import {
   Plus,
   Search,
   Sun,
+  Trash2,
   X,
 } from 'lucide-react'
 import {
@@ -22,6 +25,8 @@ import {
 } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 
+import { Button } from './ui/button'
+import { Dialog } from './ui/dialog'
 import { groupConversationsByTime, type TimeGroupKey } from '../lib/conversationGroups'
 import { apiRequest } from '../lib/http'
 import { useI18n } from '../lib/i18n'
@@ -72,6 +77,9 @@ export function ChatSidebar({ open, onClose }: ChatSidebarProps) {
   const deferredSearch = useDeferredValue(search)
   const [projectFilter, setProjectFilter] = useState('')
   const [menuId, setMenuId] = useState<string | null>(null)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [deleteIds, setDeleteIds] = useState<string[] | null>(null)
   const searchRef = useRef<HTMLInputElement | null>(null)
 
   const toggleTheme = () => {
@@ -173,7 +181,87 @@ export function ChatSidebar({ open, onClose }: ChatSidebarProps) {
     if (location.pathname === `/chat/${conversation.id}`) navigate('/chat')
   }
 
+  const activeConversationId = location.pathname.startsWith('/chat/')
+    ? location.pathname.slice('/chat/'.length)
+    : null
+
+  const clearSelection = () => {
+    setSelectMode(false)
+    setSelectedIds([])
+  }
+
+  const toggleSelected = (conversationId: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(conversationId)
+        ? prev.filter((item) => item !== conversationId)
+        : [...prev, conversationId],
+    )
+  }
+
+  const removeConversations = async (ids: string[]) => {
+    try {
+      if (ids.length === 1) {
+        await apiRequest(`/conversations/${ids[0]}/permanent`, { method: 'DELETE' })
+      } else {
+        await apiRequest('/conversations/batch', {
+          method: 'POST',
+          body: { action: 'delete', conversation_ids: ids },
+        })
+      }
+      await queryClient.invalidateQueries({ queryKey: ['conversations'] })
+      if (activeConversationId !== null && ids.includes(activeConversationId)) {
+        navigate('/chat')
+      }
+    } finally {
+      setDeleteIds(null)
+      clearSelection()
+    }
+  }
+
+  const archiveSelected = async () => {
+    if (selectedIds.length === 0) return
+    await apiRequest('/conversations/batch', {
+      method: 'POST',
+      body: { action: 'archive', conversation_ids: selectedIds },
+    })
+    if (activeConversationId !== null && selectedIds.includes(activeConversationId)) {
+      navigate('/chat')
+    }
+    clearSelection()
+    await queryClient.invalidateQueries({ queryKey: ['conversations'] })
+  }
+
   const renderConversation = (conversation: Conversation) => {
+    if (selectMode) {
+      const checked = selectedIds.includes(conversation.id)
+      return (
+        <button
+          key={conversation.id}
+          type="button"
+          onClick={() => toggleSelected(conversation.id)}
+          className={cn(
+            'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px]',
+            checked
+              ? 'bg-accent-soft text-accent'
+              : 'text-ink-muted hover:bg-surface-muted hover:text-ink',
+          )}
+        >
+          <span
+            className={cn(
+              'flex h-4 w-4 shrink-0 items-center justify-center rounded border',
+              checked
+                ? 'border-accent bg-accent text-[rgb(var(--accent-ink))]'
+                : 'border-border',
+            )}
+          >
+            {checked && <Check className="h-3 w-3" />}
+          </span>
+          <span className="truncate">
+            {conversation.title || t('chat.newConversation')}
+          </span>
+        </button>
+      )
+    }
     const active = location.pathname === `/chat/${conversation.id}`
     return (
       <div key={conversation.id} className="group relative">
@@ -232,6 +320,14 @@ export function ChatSidebar({ open, onClose }: ChatSidebarProps) {
                 icon={<Archive className="h-3 w-3" />}
                 label={t('chat.archive')}
                 onClick={() => void archiveConversation(conversation)}
+              />
+              <MenuAction
+                icon={<Trash2 className="h-3 w-3" />}
+                label={t('chat.deletePermanently')}
+                onClick={() => {
+                  setMenuId(null)
+                  setDeleteIds([conversation.id])
+                }}
               />
               <div className="mt-1 border-t border-border pt-1">
                 <p className="px-3 py-1 text-[10px] uppercase tracking-wide text-ink-muted">
@@ -339,9 +435,22 @@ export function ChatSidebar({ open, onClose }: ChatSidebarProps) {
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         <div className="px-1 pb-1 pt-1">
-          <p className="text-[10px] font-medium uppercase tracking-wider text-ink-muted/70">
-            {t('projects.title')}
-          </p>
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] font-medium uppercase tracking-wider text-ink-muted/70">
+              {t('projects.title')}
+            </p>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 text-[10px] text-ink-muted hover:text-ink"
+              onClick={() => {
+                if (selectMode) clearSelection()
+                else setSelectMode(true)
+              }}
+            >
+              <ListChecks className="h-3 w-3" />
+              {selectMode ? t('chat.cancelSelection') : t('chat.batchSelect')}
+            </button>
+          </div>
           <div className="mt-1 space-y-0.5">
             <button
               type="button"
@@ -413,6 +522,35 @@ export function ChatSidebar({ open, onClose }: ChatSidebarProps) {
         </div>
       </div>
 
+      {selectMode && (
+        <div className="space-y-1.5 border-t border-border px-3 py-2">
+          <p className="text-[11px] text-ink-muted">
+            {t('chat.batchSelected', { count: selectedIds.length })}
+          </p>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={selectedIds.length === 0}
+              onClick={() => void archiveSelected()}
+            >
+              <Archive className="h-3 w-3" />
+              {t('chat.archive')}
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="text-danger"
+              disabled={selectedIds.length === 0}
+              onClick={() => setDeleteIds(selectedIds)}
+            >
+              <Trash2 className="h-3 w-3" />
+              {t('chat.delete')}
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div className="mt-auto space-y-2 border-t border-border p-3">
         <div className="flex items-center text-xs">
           <Link
@@ -453,6 +591,30 @@ export function ChatSidebar({ open, onClose }: ChatSidebarProps) {
           </button>
         </div>
       </div>
+
+      <Dialog
+        open={deleteIds !== null}
+        onClose={() => setDeleteIds(null)}
+        title={t('chat.deletePermanently')}
+        footer={
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setDeleteIds(null)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={() => {
+                if (deleteIds !== null) void removeConversations(deleteIds)
+              }}
+            >
+              {t('chat.delete')}
+            </Button>
+          </>
+        }
+      >
+        {t('chat.deleteConfirm', { count: deleteIds?.length ?? 0 })}
+      </Dialog>
     </aside>
   )
 }

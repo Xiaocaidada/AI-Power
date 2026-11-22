@@ -14,7 +14,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from sqlalchemy import delete, select
+from sqlalchemy import String, cast, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients import RedisLike, get_redis
@@ -22,9 +22,9 @@ from app.config import get_settings
 from app.db import get_session
 from app.deps import AuthContext, get_jwt_context, require_scope
 from app.models import Chunk, ChunkEmbedding, Document, IngestionJob
-from app.schemas import DocumentOut, DocumentUploadOut, ErrorOut
+from app.schemas import DocumentOut, DocumentUpdate, DocumentUploadOut, ErrorOut
 from app.services.access import get_owned_document, get_owned_knowledge_base
-from app.services.parsing import UnsupportedDocumentType
+from app.services.parsing import UnsupportedDocumentType, detect_mime, parser_for_mime
 from app.services.queue import JobQueue, get_queue
 from app.services.quotas import enforce_quota
 from app.services.storage import EmptyUpload, UploadTooLarge, save_upload
@@ -93,6 +93,10 @@ async def upload_document(
     await get_owned_knowledge_base(kb_id, context.workspace.id, session)
     settings = get_settings()
     try:
+        parser_for_mime(detect_mime(file.filename, file.content_type))
+    except UnsupportedDocumentType as exc:
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from None
+    try:
         saved = await save_upload(file, settings.upload_dir, settings.max_upload_bytes)
     except UnsupportedDocumentType as exc:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from None
@@ -150,6 +154,8 @@ async def list_documents(
     session: SessionDep,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     before: UUID | None = None,
+    q: str | None = None,
+    tag: str | None = None,
 ) -> list[Document]:
     await get_owned_knowledge_base(kb_id, context.workspace.id, session)
     conditions = [
@@ -159,6 +165,11 @@ async def list_documents(
     ]
     if before is not None:
         conditions.append(Document.id < before)
+    if q is not None and q.strip():
+        term = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        conditions.append(Document.filename.ilike(f"%{term}%", escape="\\"))
+    if tag is not None and tag.strip():
+        conditions.append(cast(Document.tags, String).ilike(f'%"{tag.strip()}"%'))
     result = await session.execute(
         select(Document).where(*conditions).order_by(Document.id.desc()).limit(limit)
     )
@@ -246,6 +257,20 @@ async def reprocess_document(
 
     await _enqueue_or_fail(session, document, job, queue, unique=True)
     return DocumentUploadOut(id=document.id, status=document.status, duplicate=False)
+
+
+@router.patch("/documents/{document_id}", response_model=DocumentOut)
+async def update_document(
+    document_id: UUID,
+    payload: DocumentUpdate,
+    context: JwtContext,
+    session: SessionDep,
+) -> Document:
+    document = await get_owned_document(document_id, context.workspace.id, session)
+    document.tags = payload.tags
+    await session.commit()
+    await session.refresh(document)
+    return document
 
 
 @router.get("/documents/{document_id}", response_model=DocumentOut)

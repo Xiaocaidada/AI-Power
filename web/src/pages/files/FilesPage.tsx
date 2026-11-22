@@ -6,18 +6,26 @@ import { Link } from 'react-router-dom'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { Spinner } from '../../components/ui/spinner'
+import { downloadChatAttachment } from '../../lib/attachments'
 import { formatDate } from '../../lib/format'
 import { apiDownload, apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
-import type { FileItem } from '../../lib/types'
+import type { ChatAttachment, FileItem } from '../../lib/types'
 
 const STATUSES = ['ready', 'uploaded', 'parsing', 'embedding', 'failed']
 
 export function FilesPage() {
   const { t, language } = useI18n()
+  const [tab, setTab] = useState<'documents' | 'attachments'>('documents')
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
+
+  const attachments = useQuery({
+    queryKey: ['chat-attachments', 'all'],
+    queryFn: () => apiRequest<ChatAttachment[]>('/attachments?limit=100'),
+    enabled: tab === 'attachments',
+  })
 
   const files = useQuery({
     queryKey: ['files', search, status],
@@ -55,6 +63,57 @@ export function FilesPage() {
       </header>
 
       <div className="space-y-4 px-6 py-6">
+        <div className="flex gap-2">
+          {(['documents', 'attachments'] as const).map((item) => (
+            <Button
+              key={item}
+              size="sm"
+              variant={tab === item ? 'primary' : 'secondary'}
+              onClick={() => setTab(item)}
+            >
+              {t(`files.tab.${item}`)}
+            </Button>
+          ))}
+        </div>
+
+        {tab === 'attachments' ? (
+          <div className="space-y-2">
+            {attachments.isLoading && <Spinner />}
+            {(attachments.data ?? []).map((attachment) => (
+              <article
+                key={attachment.id}
+                className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3"
+              >
+                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent-soft text-accent">
+                  <FileText className="h-4 w-4" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-ink">
+                    {attachment.filename}
+                  </p>
+                  <p className="truncate text-xs text-ink-muted">
+                    {attachment.kind} · {(attachment.size_bytes / 1024).toFixed(1)} KB ·{' '}
+                    {formatDate(attachment.created_at, language)}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => void downloadChatAttachment(attachment)}
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  {t('files.download')}
+                </Button>
+              </article>
+            ))}
+            {attachments.data !== undefined && attachments.data.length === 0 && (
+              <p className="rounded-2xl border border-dashed border-border px-6 py-16 text-center text-sm text-ink-muted">
+                {t('files.attachmentsEmpty')}
+              </p>
+            )}
+          </div>
+        ) : (
+          <>
         <div className="flex flex-wrap gap-2">
           <input
             value={search}
@@ -123,6 +182,8 @@ export function FilesPage() {
           <p className="rounded-2xl border border-dashed border-border px-6 py-16 text-center text-sm text-ink-muted">
             {t('files.empty')}
           </p>
+        )}
+          </>
         )}
       </div>
     </div>

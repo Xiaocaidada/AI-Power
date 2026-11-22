@@ -12,15 +12,18 @@ import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { Dialog } from '../../components/ui/dialog'
 import { Input } from '../../components/ui/input'
+import { MultiPopoverSelect } from '../../components/ui/multi-popover-select'
 import {
   PopoverSelect,
   type PopoverSelectOption,
 } from '../../components/ui/popover-select'
 import { Spinner } from '../../components/ui/spinner'
+import { uploadChatAttachment } from '../../lib/attachments'
 import { errorTextKey } from '../../lib/errorText'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
 import type {
+  ChatAttachment,
   Conversation,
   CustomAgent,
   KnowledgeBase,
@@ -59,7 +62,10 @@ export function NewChatPage() {
     if (searchParams.get('project') !== null) return 'project'
     return 'auto'
   })
-  const [kbId, setKbId] = useState('')
+  const [kbIds, setKbIds] = useState<string[]>([])
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([])
+  const [attaching, setAttaching] = useState(false)
+  const [attachError, setAttachError] = useState<string | null>(null)
   const [agent, setAgent] = useState(
     () =>
       searchParams.get('agent') !== null || searchParams.get('agentMode') !== null,
@@ -186,11 +192,29 @@ export function NewChatPage() {
     setVariables(Object.fromEntries(declared.map((variable) => [variable, ''])))
   }
 
+  const attachFiles = async (files: File[]) => {
+    setAttachError(null)
+    setAttaching(true)
+    try {
+      for (const file of files) {
+        const uploaded = await uploadChatAttachment(file)
+        setAttachments((prev) => [...prev, uploaded])
+      }
+    } catch (caught) {
+      setAttachError(t(errorTextKey(caught)))
+    } finally {
+      setAttaching(false)
+    }
+  }
+
   const send = async (content: string) => {
     setError(null)
     const body: Record<string, unknown> = {
       prompt_version_id: selectedVersion?.id ?? null,
       prompt_variables: selectedVersion !== undefined ? variables : {},
+    }
+    if (attachments.length > 0) {
+      body.attachment_ids = attachments.map((attachment) => attachment.id)
     }
     if (projectId !== '') body.project_id = projectId
     if (customAgentId !== '') body.custom_agent_id = customAgentId
@@ -214,7 +238,8 @@ export function NewChatPage() {
       }
       body.provider_id = providerId
       body.model = modelName
-      body.kb_id = kbId === '' ? null : kbId
+      body.kb_ids = kbIds
+      body.kb_id = kbIds[0] ?? null
       body.agent = agent
     }
     try {
@@ -240,8 +265,13 @@ export function NewChatPage() {
   const projectKbName = kbsQuery.data?.find(
     (kb) => kb.id === selectedProject?.default_kb_id,
   )?.name
-  const kbValue =
-    modelId === 'project' ? (selectedProject?.default_kb_id ?? '') : kbId
+  const effectiveKbIds =
+    modelId === 'project'
+      ? selectedProject?.default_kb_id !== null &&
+        selectedProject?.default_kb_id !== undefined
+        ? [selectedProject.default_kb_id]
+        : []
+      : kbIds
 
   const projectOptions: PopoverSelectOption[] = [
     { value: '', label: t('chat.noProject') },
@@ -261,10 +291,11 @@ export function NewChatPage() {
     })),
   ]
 
-  const kbOptions: PopoverSelectOption[] = [
-    { value: '', label: t('chat.noKnowledgeBase') },
-    ...(kbsQuery.data ?? []).map((kb) => ({ value: kb.id, label: kb.name })),
-  ]
+  const kbOptions = (kbsQuery.data ?? []).map((kb) => ({
+    value: kb.id,
+    label: kb.name,
+    description: kb.description || undefined,
+  }))
 
   const modelOptions: PopoverSelectOption[] = [
     ...(selectedProject !== undefined
@@ -353,6 +384,13 @@ export function NewChatPage() {
             autoFocus
             footerStart={modelSelect}
             placeholder={t('chat.inputPlaceholder')}
+            attachments={attachments}
+            attaching={attaching}
+            onAttachFiles={(files) => void attachFiles(files)}
+            onRemoveAttachment={(id) => {
+              void apiRequest(`/attachments/${id}`, { method: 'DELETE' }).catch(() => {})
+              setAttachments((prev) => prev.filter((item) => item.id !== id))
+            }}
           />
         </div>
 
@@ -386,14 +424,18 @@ export function NewChatPage() {
             }}
           />
 
-          <PopoverSelect
+          <MultiPopoverSelect
             icon={<BookOpen className="h-3.5 w-3.5" />}
             label={t('chat.knowledgeBase')}
-            value={kbValue}
+            values={effectiveKbIds}
             options={kbOptions}
-            placeholder={modelId === 'project' ? (projectKbName ?? t('chat.noKnowledgeBase')) : undefined}
+            placeholder={
+              modelId === 'project'
+                ? (projectKbName ?? t('chat.noKnowledgeBase'))
+                : t('chat.noKnowledgeBase')
+            }
             disabled={modelId === 'project'}
-            onChange={setKbId}
+            onChange={setKbIds}
           />
 
           <Button
@@ -436,6 +478,11 @@ export function NewChatPage() {
         {error !== null && (
           <p role="alert" className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">
             {error}
+          </p>
+        )}
+        {attachError !== null && (
+          <p role="alert" className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">
+            {attachError}
           </p>
         )}
 

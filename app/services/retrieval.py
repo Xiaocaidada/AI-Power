@@ -92,7 +92,8 @@ async def retrieve_chunks(
     session: AsyncSession,
     *,
     workspace_id: UUID,
-    kb_id: UUID,
+    kb_id: UUID | None = None,
+    kb_ids: Sequence[UUID] | None = None,
     query: str,
     top_k: int | None = None,
     embedder: EmbeddingProvider | None = None,
@@ -102,11 +103,12 @@ async def retrieve_chunks(
     hybrid_enabled: bool | None = None,
     rerank_enabled: bool | None = None,
 ) -> list[RetrievedChunk]:
-    """Retrieve the best chunks for one workspace knowledge base."""
+    """Retrieve the best chunks for one or more workspace knowledge bases."""
     outcome = await retrieve_with_diagnostics(
         session,
         workspace_id=workspace_id,
         kb_id=kb_id,
+        kb_ids=kb_ids,
         query=query,
         top_k=top_k,
         embedder=embedder,
@@ -123,7 +125,8 @@ async def retrieve_with_diagnostics(
     session: AsyncSession,
     *,
     workspace_id: UUID,
-    kb_id: UUID,
+    kb_id: UUID | None = None,
+    kb_ids: Sequence[UUID] | None = None,
     query: str,
     top_k: int | None = None,
     embedder: EmbeddingProvider | None = None,
@@ -137,9 +140,26 @@ async def retrieve_with_diagnostics(
     if top_k is not None and top_k < 1:
         raise ValueError("top_k must be >= 1")
 
-    kb = await session.get(KnowledgeBase, kb_id)
-    if kb is None or kb.workspace_id != workspace_id or kb.deleted_at is not None:
+    requested = list(
+        dict.fromkeys(kb_ids or ([] if kb_id is None else [kb_id]))
+    )
+    if not requested:
         return RetrievalOutcome([], _empty_timings(), "empty", _fallback_options(top_k))
+    kbs = list(
+        (
+            await session.execute(
+                select(KnowledgeBase).where(
+                    KnowledgeBase.id.in_(requested),
+                    KnowledgeBase.workspace_id == workspace_id,
+                    KnowledgeBase.deleted_at.is_(None),
+                )
+            )
+        ).scalars()
+    )
+    if not kbs:
+        return RetrievalOutcome([], _empty_timings(), "empty", _fallback_options(top_k))
+    active_ids = [item.id for item in kbs]
+    kb = next((item for item in kbs if item.id == requested[0]), kbs[0])
     kb_settings = resolve_kb_settings(kb, settings)
     if options is None:
         options = resolve_options(
@@ -175,10 +195,12 @@ async def retrieve_with_diagnostics(
     vector_started = time.perf_counter()
     if session.get_bind().dialect.name == "postgresql":
         vector_results = await _search_with_distance(
-            session, workspace_id, kb_id, vector, vector_limit
+            session, workspace_id, active_ids, vector, vector_limit
         )
     else:
-        vector_results = await _search_in_python(session, workspace_id, kb_id, vector, vector_limit)
+        vector_results = await _search_in_python(
+            session, workspace_id, active_ids, vector, vector_limit
+        )
     vector_results = [
         replace(chunk, vector_rank=index) for index, chunk in enumerate(vector_results, start=1)
     ]
@@ -189,11 +211,11 @@ async def retrieve_with_diagnostics(
         lexical_started = time.perf_counter()
         if session.get_bind().dialect.name == "postgresql":
             lexical_results = await _lexical_search_postgres(
-                session, workspace_id, kb_id, question, options.candidate_k
+                session, workspace_id, active_ids, question, options.candidate_k
             )
         else:
             lexical_results = await _lexical_search_python(
-                session, workspace_id, kb_id, question, options.candidate_k
+                session, workspace_id, active_ids, question, options.candidate_k
             )
         timings["lexical_ms"] = _elapsed_ms(lexical_started)
 
@@ -291,10 +313,10 @@ def build_citations(chunks: Sequence[RetrievedChunk]) -> list[Citation]:
     ]
 
 
-def _filters(workspace_id: UUID, kb_id: UUID) -> tuple:
+def _filters(workspace_id: UUID, kb_ids: Sequence[UUID]) -> tuple:
     return (
         Chunk.workspace_id == workspace_id,
-        Chunk.kb_id == kb_id,
+        Chunk.kb_id.in_(list(kb_ids)),
         Document.status == "ready",
         Document.deleted_at.is_(None),
     )
@@ -303,7 +325,7 @@ def _filters(workspace_id: UUID, kb_id: UUID) -> tuple:
 async def _search_with_distance(
     session: AsyncSession,
     workspace_id: UUID,
-    kb_id: UUID,
+    kb_ids: Sequence[UUID],
     vector: list[float],
     limit: int,
 ) -> list[RetrievedChunk]:
@@ -312,7 +334,7 @@ async def _search_with_distance(
         select(Chunk, Document.filename, distance)
         .join(ChunkEmbedding, ChunkEmbedding.chunk_id == Chunk.id)
         .join(Document, Document.id == Chunk.document_id)
-        .where(*_filters(workspace_id, kb_id))
+        .where(*_filters(workspace_id, kb_ids))
         .order_by(distance, Chunk.chunk_index, Chunk.id)
         .limit(limit)
     )
@@ -325,7 +347,7 @@ async def _search_with_distance(
 async def _search_in_python(
     session: AsyncSession,
     workspace_id: UUID,
-    kb_id: UUID,
+    kb_ids: Sequence[UUID],
     vector: list[float],
     limit: int,
 ) -> list[RetrievedChunk]:
@@ -334,7 +356,7 @@ async def _search_in_python(
         select(Chunk, Document.filename, ChunkEmbedding.embedding)
         .join(ChunkEmbedding, ChunkEmbedding.chunk_id == Chunk.id)
         .join(Document, Document.id == Chunk.document_id)
-        .where(*_filters(workspace_id, kb_id))
+        .where(*_filters(workspace_id, kb_ids))
     )
     rows = (await session.execute(statement)).all()
     scored = [
@@ -347,7 +369,7 @@ async def _search_in_python(
 async def _lexical_search_postgres(
     session: AsyncSession,
     workspace_id: UUID,
-    kb_id: UUID,
+    kb_ids: Sequence[UUID],
     query: str,
     limit: int,
 ) -> list[RetrievedChunk]:
@@ -364,7 +386,7 @@ async def _lexical_search_postgres(
         select(Chunk, Document.filename, score)
         .join(Document, Document.id == Chunk.document_id)
         .where(
-            *_filters(workspace_id, kb_id),
+            *_filters(workspace_id, kb_ids),
             or_(
                 contains,
                 word_score > LEXICAL_WORD_MIN,
@@ -384,7 +406,7 @@ async def _lexical_search_postgres(
 async def _lexical_search_python(
     session: AsyncSession,
     workspace_id: UUID,
-    kb_id: UUID,
+    kb_ids: Sequence[UUID],
     query: str,
     limit: int,
 ) -> list[RetrievedChunk]:
@@ -392,7 +414,7 @@ async def _lexical_search_python(
     statement = (
         select(Chunk, Document.filename)
         .join(Document, Document.id == Chunk.document_id)
-        .where(*_filters(workspace_id, kb_id))
+        .where(*_filters(workspace_id, kb_ids))
     )
     rows = (await session.execute(statement)).all()
     scored = [(chunk, filename, _lexical_score(query, chunk.text)) for chunk, filename in rows]

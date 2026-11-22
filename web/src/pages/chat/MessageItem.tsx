@@ -1,11 +1,27 @@
-import { Check, Copy, Quote, RotateCcw, ThumbsDown, ThumbsUp } from 'lucide-react'
+import {
+  Check,
+  Copy,
+  FileText,
+  Image as ImageIcon,
+  Pencil,
+  Quote,
+  RotateCcw,
+  ThumbsDown,
+  ThumbsUp,
+} from 'lucide-react'
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 
 import { Badge } from '../../components/ui/badge'
+import { downloadChatAttachment } from '../../lib/attachments'
 import { formatTime } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
-import type { AgentActivity, Citation, MessageFeedback } from '../../lib/types'
+import type {
+  AgentActivity,
+  ChatAttachment,
+  Citation,
+  MessageFeedback,
+} from '../../lib/types'
 
 export interface DisplayMessage {
   id: string
@@ -24,6 +40,7 @@ export interface DisplayMessage {
   feedback?: MessageFeedback | null
   agentActivity?: AgentActivity[]
   created_at?: string
+  attachments?: ChatAttachment[]
 }
 
 interface MessageItemProps {
@@ -33,6 +50,7 @@ interface MessageItemProps {
   onOpenTrace?: (requestId: string) => void
   onRegenerate?: (messageId: string) => void
   onFeedback?: (messageId: string, rating: 'up' | 'down') => void
+  onEdit?: (message: DisplayMessage) => void
 }
 
 export function MessageItem({
@@ -42,6 +60,7 @@ export function MessageItem({
   onOpenTrace,
   onRegenerate,
   onFeedback,
+  onEdit,
 }: MessageItemProps) {
   const { t, language } = useI18n()
   const [copied, setCopied] = useState(false)
@@ -62,6 +81,25 @@ export function MessageItem({
         <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-surface-muted px-4 py-2.5 text-sm leading-6 text-ink">
           {message.content}
         </div>
+        {(message.attachments ?? []).length > 0 && (
+          <div className="flex max-w-[80%] flex-wrap justify-end gap-1.5">
+            {(message.attachments ?? []).map((attachment) => (
+              <button
+                key={attachment.id}
+                type="button"
+                onClick={() => void downloadChatAttachment(attachment)}
+                className="inline-flex max-w-[14rem] items-center gap-1.5 rounded-full border border-border bg-surface px-2.5 py-1 text-[11px] text-ink-muted hover:text-ink"
+              >
+                {attachment.kind === 'image' ? (
+                  <ImageIcon className="h-3 w-3" />
+                ) : (
+                  <FileText className="h-3 w-3" />
+                )}
+                <span className="truncate">{attachment.filename}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <div className="flex items-center gap-2 text-[11px] text-ink-muted opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
           {message.created_at !== undefined && (
             <span>{formatTime(message.created_at, language)}</span>
@@ -74,6 +112,16 @@ export function MessageItem({
             {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
             {copied ? t('common.copied') : t('common.copy')}
           </button>
+          {onEdit !== undefined && message.status === 'completed' && (
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 hover:text-ink"
+              onClick={() => onEdit(message)}
+            >
+              <Pencil className="h-3 w-3" />
+              {t('chat.editMessage')}
+            </button>
+          )}
         </div>
       </div>
     )

@@ -42,11 +42,37 @@ class PdfDocumentParser:
         return ParsedDocument(pages=pages)
 
 
+class DocxDocumentParser:
+    def parse(self, path: Path, mime: str) -> ParsedDocument:
+        from docx import Document as DocxDocument
+
+        document = DocxDocument(str(path))
+        parts = [paragraph.text for paragraph in document.paragraphs if paragraph.text.strip()]
+        for table in document.tables:
+            for row in table.rows:
+                parts.append("\t".join(cell.text for cell in row.cells))
+        return ParsedDocument(pages=[ParsedPage(page_no=None, text="\n".join(parts))])
+
+
+class CsvDocumentParser:
+    def parse(self, path: Path, mime: str) -> ParsedDocument:
+        text = path.read_text(encoding="utf-8-sig", errors="replace")
+        return ParsedDocument(pages=[ParsedPage(page_no=None, text=text)])
+
+
 _EXTENSION_MIME = {
     ".pdf": "application/pdf",
     ".md": "text/markdown",
     ".txt": "text/plain",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".csv": "text/csv",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
 }
+
+IMAGE_MIMES = {"image/png", "image/jpeg", "image/webp"}
 
 
 def detect_mime(filename: str | None, content_type: str | None) -> str:
@@ -62,4 +88,8 @@ def parser_for_mime(mime: str) -> DocumentParser:
         return PdfDocumentParser()
     if mime in {"text/plain", "text/markdown"}:
         return TextDocumentParser()
+    if mime == "text/csv":
+        return CsvDocumentParser()
+    if mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+        return DocxDocumentParser()
     raise UnsupportedDocumentType(mime)

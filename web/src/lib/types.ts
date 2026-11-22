@@ -144,6 +144,18 @@ export interface ProviderSyncResult {
 export interface KnowledgeBase {
   id: string
   name: string
+  description: string
+  created_at: string
+}
+
+export interface ChatAttachment {
+  id: string
+  filename: string
+  mime: string
+  size_bytes: number
+  kind: 'document' | 'image'
+  status: string
+  error_code: string | null
   created_at: string
 }
 
@@ -409,6 +421,7 @@ export interface Conversation {
   provider_id: string
   model: string
   kb_id: string | null
+  kb_ids?: string[]
   project_id?: string | null
   custom_agent_id?: string | null
   agent: boolean
@@ -634,6 +647,7 @@ export interface FileItem {
   status: string
   error_code: string | null
   page_count: number | null
+  tags?: string[]
   kb_id: string
   kb_name: string
   created_at: string
@@ -704,6 +718,7 @@ export interface Message {
   created_at: string
   citations: Citation[]
   feedback?: MessageFeedback | null
+  attachments?: ChatAttachment[]
 }
 
 export interface WorkspaceItem {
@@ -785,6 +800,7 @@ export interface DocumentItem {
   status: string
   error_code: string | null
   page_count: number | null
+  tags?: string[]
   created_at: string
 }
 
@@ -842,6 +858,20 @@ export interface UsageByKey {
   total_cost: number
   unpriced_requests: number
   buckets: UsageByKeyBucket[]
+}
+
+export interface UsageRecentItem {
+  id: string
+  source: string
+  provider_id: string | null
+  model: string | null
+  prompt_tokens: number | null
+  completion_tokens: number | null
+  total_tokens: number
+  cost: number
+  status: string | null
+  conversation_id: string | null
+  created_at: string
 }
 
 export interface ApiKeyRecord {

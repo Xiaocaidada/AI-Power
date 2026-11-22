@@ -44,6 +44,29 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   return (await response.json()) as T
 }
 
+export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
+  const send = async (): Promise<Response> => {
+    const headers: Record<string, string> = {}
+    const token = getAccessToken()
+    if (token !== null) headers.Authorization = `Bearer ${token}`
+    const workspaceId = getActiveWorkspaceId()
+    if (workspaceId !== null) headers['X-Workspace-Id'] = workspaceId
+    return fetch(`${API_BASE}${path}`, { method: 'POST', headers, body: form })
+  }
+
+  let response = await send()
+  if (response.status === 401 && hasSession()) {
+    try {
+      await refreshAccessToken()
+    } catch {
+      throw await toApiError(response)
+    }
+    response = await send()
+  }
+  if (!response.ok) throw await toApiError(response)
+  return (await response.json()) as T
+}
+
 export function publicRequest<T>(
   path: string,
   options: Omit<RequestOptions, 'auth' | 'retryOn401'> = {},

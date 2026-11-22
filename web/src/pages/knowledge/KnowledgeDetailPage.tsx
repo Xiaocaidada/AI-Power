@@ -9,6 +9,7 @@ import {
   RotateCw,
   Search,
   Settings,
+  Tags,
   Trash2,
 } from 'lucide-react'
 import { useRef, useState } from 'react'
@@ -58,6 +59,10 @@ export function KnowledgeDetailPage() {
   const [uploads, setUploads] = useState<UploadTask[]>([])
   const [actionError, setActionError] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DocumentItem | null>(null)
+  const [docQuery, setDocQuery] = useState('')
+  const [docTag, setDocTag] = useState('')
+  const [tagTarget, setTagTarget] = useState<DocumentItem | null>(null)
+  const [tagDraft, setTagDraft] = useState('')
   const [reprocessTarget, setReprocessTarget] = useState<DocumentItem | null>(null)
 
   const kb = useQuery({
@@ -77,16 +82,19 @@ export function KnowledgeDetailPage() {
     refetchInterval: (query) => (query.state.data?.processing_count ? 2000 : false),
   })
   const documents = useInfiniteQuery({
-    queryKey: ['documents', id],
-    queryFn: async ({ pageParam }) =>
-      pageFromItems(
+    queryKey: ['documents', id, docQuery, docTag],
+    queryFn: async ({ pageParam }) => {
+      const params = new URLSearchParams({ limit: String(PAGE_SIZE) })
+      if (pageParam) params.set('before', pageParam)
+      if (docQuery.trim()) params.set('q', docQuery.trim())
+      if (docTag.trim()) params.set('tag', docTag.trim())
+      return pageFromItems(
         await apiRequest<DocumentItem[]>(
-          `/knowledge-bases/${id}/documents?limit=${PAGE_SIZE}${
-            pageParam ? `&before=${pageParam}` : ''
-          }`,
+          `/knowledge-bases/${id}/documents?${params.toString()}`,
         ),
         PAGE_SIZE,
-      ),
+      )
+    },
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.next,
     enabled: id !== '',
@@ -171,6 +179,25 @@ export function KnowledgeDetailPage() {
       setActionError(t(errorTextKey(caught)))
     } finally {
       setDeleteTarget(null)
+    }
+  }
+
+  const saveTags = async () => {
+    if (tagTarget === null) return
+    const tags = tagDraft
+      .split(',')
+      .map((item) => item.trim())
+      .filter((item) => item !== '')
+    setActionError(null)
+    try {
+      await apiRequest(`/documents/${tagTarget.id}`, {
+        method: 'PATCH',
+        body: { tags },
+      })
+      await refreshKnowledgeBase()
+      setTagTarget(null)
+    } catch (caught) {
+      setActionError(t(errorTextKey(caught)))
     }
   }
 
@@ -296,6 +323,21 @@ export function KnowledgeDetailPage() {
               <p className="mt-1 text-xs text-ink-muted">{t('documents.types')}</p>
             </div>
 
+            <div className="flex flex-wrap gap-2">
+              <input
+                value={docQuery}
+                onChange={(event) => setDocQuery(event.target.value)}
+                placeholder={t('documents.search')}
+                className="h-9 w-full max-w-xs rounded-lg border border-border bg-surface px-3 text-sm text-ink focus:border-accent focus:outline-none"
+              />
+              <input
+                value={docTag}
+                onChange={(event) => setDocTag(event.target.value)}
+                placeholder={t('documents.tagFilter')}
+                className="h-9 w-40 rounded-lg border border-border bg-surface px-3 text-sm text-ink focus:border-accent focus:outline-none"
+              />
+            </div>
+
             {uploads.length > 0 && (
               <section className="rounded-card border border-border bg-surface p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -364,6 +406,7 @@ export function KnowledgeDetailPage() {
                       <th className="px-3 py-2 font-medium">{t('documents.columns.status')}</th>
                       <th className="px-3 py-2 font-medium">{t('documents.columns.size')}</th>
                       <th className="px-3 py-2 font-medium">{t('documents.columns.pages')}</th>
+                      <th className="px-3 py-2 font-medium">{t('documents.columns.tags')}</th>
                       <th className="px-3 py-2 font-medium">{t('documents.columns.error')}</th>
                       <th className="px-3 py-2 text-right font-medium">
                         {t('documents.columns.actions')}
@@ -393,6 +436,15 @@ export function KnowledgeDetailPage() {
                           {formatBytes(document.size_bytes)}
                         </td>
                         <td className="px-3 py-3 text-ink-muted">{document.page_count ?? '—'}</td>
+                        <td className="px-3 py-3">
+                          <div className="flex flex-wrap gap-1">
+                            {(document.tags ?? []).map((tag) => (
+                              <Badge key={tag} tone="neutral">
+                                {tag}
+                              </Badge>
+                            ))}
+                          </div>
+                        </td>
                         <td className="px-3 py-3 text-xs text-danger">
                           {document.error_code !== null
                             ? t(documentErrorKey(document.error_code), {
@@ -402,6 +454,18 @@ export function KnowledgeDetailPage() {
                         </td>
                         <td className="px-3 py-3">
                           <div className="flex justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              aria-label={t('documents.editTags')}
+                              title={t('documents.editTags')}
+                              onClick={() => {
+                                setTagTarget(document)
+                                setTagDraft((document.tags ?? []).join(', '))
+                              }}
+                            >
+                              <Tags className="h-4 w-4" />
+                            </Button>
                             {document.status === 'failed' && (
                               <Button
                                 variant="secondary"
@@ -473,6 +537,30 @@ export function KnowledgeDetailPage() {
             />
           ))}
       </div>
+
+      <Dialog
+        open={tagTarget !== null}
+        onClose={() => setTagTarget(null)}
+        title={t('documents.editTags')}
+        footer={
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setTagTarget(null)}>
+              {t('common.cancel')}
+            </Button>
+            <Button size="sm" onClick={() => void saveTags()}>
+              {t('common.save')}
+            </Button>
+          </>
+        }
+      >
+        <p className="mb-2 text-xs text-ink-muted">{t('documents.tagHint')}</p>
+        <input
+          value={tagDraft}
+          onChange={(event) => setTagDraft(event.target.value)}
+          placeholder={t('documents.tagPlaceholder')}
+          className="h-9 w-full rounded-lg border border-border bg-surface px-3 text-sm text-ink focus:border-accent focus:outline-none"
+        />
+      </Dialog>
 
       <Dialog
         open={deleteTarget !== null}

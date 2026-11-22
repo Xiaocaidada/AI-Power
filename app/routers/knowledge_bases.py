@@ -19,6 +19,7 @@ from app.schemas import (
     KnowledgeBaseSettingsOut,
     KnowledgeBaseSettingsUpdate,
     KnowledgeBaseStatsOut,
+    KnowledgeBaseUpdate,
     RetrievalHitOut,
     RetrievalSearchIn,
     RetrievalSearchOut,
@@ -43,6 +44,7 @@ async def create_knowledge_base(
         workspace_id=context.workspace.id,
         user_id=context.user.id,
         name=payload.name,
+        description=payload.description,
     )
     session.add(kb)
     await session.commit()
@@ -68,6 +70,24 @@ async def get_knowledge_base(
     kb_id: UUID, context: ReadContext, session: SessionDep
 ) -> KnowledgeBase:
     return await get_owned_knowledge_base(kb_id, context.workspace.id, session)
+
+
+@router.patch("/{kb_id}", response_model=KnowledgeBaseOut)
+async def update_knowledge_base(
+    kb_id: UUID,
+    payload: KnowledgeBaseUpdate,
+    context: JwtContext,
+    session: SessionDep,
+) -> KnowledgeBase:
+    kb = await get_owned_knowledge_base(kb_id, context.workspace.id, session)
+    data = payload.model_dump(exclude_unset=True)
+    if "name" in data and data["name"] is not None:
+        kb.name = str(data["name"])
+    if "description" in data:
+        kb.description = str(data["description"] or "")
+    await session.commit()
+    await session.refresh(kb)
+    return kb
 
 
 @router.get("/{kb_id}/settings", response_model=KnowledgeBaseSettingsOut)

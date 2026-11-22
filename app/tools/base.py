@@ -19,6 +19,7 @@ class ToolContext:
     workspace_id: UUID
     user_id: UUID
     kb_id: UUID | None = None
+    kb_ids: list[UUID] | None = None
     conversation_id: UUID | None = None
     redis: RedisLike | None = None
     citations: list[Citation] | None = None

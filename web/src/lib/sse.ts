@@ -61,6 +61,7 @@ export class SseParser {
 export interface StreamChatOptions {
   conversationId: string
   content: string
+  attachmentIds?: string[]
   signal?: AbortSignal
   onEvent: SseHandler
 }
@@ -159,12 +160,13 @@ export async function streamRunEvents({
 export async function streamChat({
   conversationId,
   content,
+  attachmentIds = [],
   signal,
   onEvent,
 }: StreamChatOptions): Promise<void> {
   return streamResponse(
     `${API_BASE}/conversations/${conversationId}/messages`,
-    { content },
+    { content, attachment_ids: attachmentIds },
     signal,
     onEvent,
   )
@@ -185,6 +187,27 @@ export async function streamRegenerate({
 }: StreamRegenerateOptions): Promise<void> {
   return streamResponse(
     `${API_BASE}/conversations/${conversationId}/messages/${messageId}/regenerate`,
+    {},
+    signal,
+    onEvent,
+  )
+}
+
+export interface StreamReplyOptions {
+  conversationId: string
+  messageId: string
+  signal?: AbortSignal
+  onEvent: SseHandler
+}
+
+export async function streamReply({
+  conversationId,
+  messageId,
+  signal,
+  onEvent,
+}: StreamReplyOptions): Promise<void> {
+  return streamResponse(
+    `${API_BASE}/conversations/${conversationId}/messages/${messageId}/reply`,
     {},
     signal,
     onEvent,

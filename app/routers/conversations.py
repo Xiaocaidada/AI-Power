@@ -5,12 +5,13 @@ import time
 from collections import defaultdict
 from collections.abc import AsyncIterator, Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import delete, exists, or_, select
+from sqlalchemy import and_, delete, exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.base import AgentSpec
@@ -28,7 +29,10 @@ from app.deps import (
 )
 from app.metrics import record_usage_metrics, track_sse_stream
 from app.models import (
+    ChatAttachment,
     Conversation,
+    ConversationKnowledgeBase,
+    ConversationPlugin,
     CustomAgent,
     Document,
     Message,
@@ -40,6 +44,7 @@ from app.observability import request_id_var
 from app.providers.base import ChatChunk, ChatMessage, LLMProvider, ProviderError, Usage
 from app.providers.registry import ProviderRegistry
 from app.schemas import (
+    AttachmentOut,
     CitationOut,
     ConversationBatchIn,
     ConversationBatchOut,
@@ -50,14 +55,26 @@ from app.schemas import (
     ConversationPluginsIn,
     ConversationUpdate,
     ErrorOut,
+    MessageEditOut,
     MessageFeedbackIn,
     MessageFeedbackOut,
     MessageOut,
+    MessageUpdateIn,
     PluginCallOut,
     SendMessageIn,
 )
 from app.services.access import get_owned_knowledge_base
 from app.services.agent import AgentFailure, AgentRunner
+from app.services.attachments import (
+    AttachmentError,
+    attachments_by_message,
+    attachments_for_message,
+    build_user_content,
+    claim_attachments,
+    delete_attachment_rows,
+    is_image,
+    unlinked_conversation_attachments,
+)
 from app.services.budget import check_workspace_budget
 from app.services.custom_agents import (
     CustomAgentError,
@@ -191,6 +208,52 @@ async def _validate_model_choice(
             else status.HTTP_422_UNPROCESSABLE_CONTENT
         )
         raise HTTPException(status_code, {"code": exc.code, "message": exc.message}) from None
+
+
+async def _validate_attachment_images(
+    session: AsyncSession,
+    context: AuthContext,
+    *,
+    provider_id: str,
+    model: str,
+    agent: bool,
+    attachments: Sequence[ChatAttachment],
+) -> None:
+    if not any(is_image(item) for item in attachments):
+        return
+    if agent:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {
+                "code": "image_agent_unsupported",
+                "message": "Image attachments are not supported in agent mode",
+            },
+        )
+    if provider_id == "auto":
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {
+                "code": "vision_model_required",
+                "message": "Choose a vision-capable model for image attachments",
+            },
+        )
+    try:
+        await ensure_model_capability(
+            session,
+            workspace_id=context.workspace.id,
+            user_id=context.user.id,
+            provider_id=provider_id,
+            model_id=model,
+            capability="vision",
+        )
+    except (ProviderError, ProviderConfigError):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {
+                "code": "model_missing_vision",
+                "message": "The selected model does not support image input",
+            },
+        ) from None
 
 
 async def _require_project(session: AsyncSession, workspace_id: UUID, project_id: UUID):
@@ -497,6 +560,7 @@ async def _stream_agent_reply(
     workspace_id: UUID,
     user_id: UUID,
     kb_id: UUID | None,
+    kb_ids: Sequence[UUID] | None = None,
     context: AuthContext,
     redis: RedisLike,
     tool_registry: ToolRegistry,
@@ -519,6 +583,7 @@ async def _stream_agent_reply(
             workspace_id=workspace_id,
             user_id=user_id,
             kb_id=kb_id,
+            kb_ids=list(kb_ids) if kb_ids is not None else None,
             conversation_id=conversation_id,
             redis=redis,
             citations=tool_citations,
@@ -764,10 +829,17 @@ async def create_conversation(
 
     if "kb_id" in payload.model_fields_set:
         kb_id = payload.kb_id
+    elif payload.kb_ids:
+        kb_id = payload.kb_ids[0]
     elif custom_agent is not None and custom_agent.default_kb_id is not None:
         kb_id = custom_agent.default_kb_id
     else:
         kb_id = project.default_kb_id if project is not None else None
+    kb_ids = list(dict.fromkeys(payload.kb_ids))
+    if kb_id is not None and kb_id not in kb_ids:
+        kb_ids.insert(0, kb_id)
+    kb_ids = kb_ids[:10]
+    kb_id = kb_ids[0] if kb_ids else None
 
     if custom_agent is not None:
         agent = True
@@ -807,8 +879,8 @@ async def create_conversation(
             )
             raise HTTPException(status_code, {"code": exc.code, "message": exc.message}) from None
 
-    if kb_id is not None:
-        await get_owned_knowledge_base(kb_id, context.workspace.id, session)
+    for item in kb_ids:
+        await get_owned_knowledge_base(item, context.workspace.id, session)
 
     prompt_version_id = None
     system_prompt = None
@@ -850,6 +922,39 @@ async def create_conversation(
     )
     session.add(conversation)
     await session.flush()
+    if kb_ids:
+        session.add_all(
+            [
+                ConversationKnowledgeBase(
+                    conversation_id=conversation.id, kb_id=item
+                )
+                for item in kb_ids
+            ]
+        )
+    if payload.attachment_ids:
+        try:
+            attachments = await claim_attachments(
+                session,
+                workspace_id=context.workspace.id,
+                user_id=context.user.id,
+                attachment_ids=payload.attachment_ids,
+                conversation_id=conversation.id,
+            )
+        except AttachmentError as exc:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND
+                if exc.code == "attachment_not_found"
+                else status.HTTP_422_UNPROCESSABLE_CONTENT,
+                {"code": exc.code, "message": exc.message},
+            ) from None
+        await _validate_attachment_images(
+            session,
+            context,
+            provider_id=provider_id,
+            model=model,
+            agent=agent,
+            attachments=attachments,
+        )
     if plugin_ids:
         try:
             await set_conversation_plugins(
@@ -932,6 +1037,23 @@ async def list_conversations(
     return list(result.scalars())
 
 
+async def _conversation_kb_ids(
+    session: AsyncSession, conversation: Conversation
+) -> list[UUID]:
+    ids = list(
+        (
+            await session.execute(
+                select(ConversationKnowledgeBase.kb_id).where(
+                    ConversationKnowledgeBase.conversation_id == conversation.id
+                )
+            )
+        ).scalars()
+    )
+    if not ids and conversation.kb_id is not None:
+        ids = [conversation.kb_id]
+    return ids
+
+
 async def _conversation_detail(
     conversation: Conversation,
     session: AsyncSession,
@@ -974,9 +1096,29 @@ async def _conversation_detail(
                     updated_at=feedback.updated_at,
                 )
 
+    attachment_map = await attachments_by_message(
+        session,
+        workspace_id=conversation.workspace_id,
+        conversation_id=conversation.id,
+        message_ids=[message.id for message in messages],
+    )
+    kb_ids = list(
+        (
+            await session.execute(
+                select(ConversationKnowledgeBase.kb_id).where(
+                    ConversationKnowledgeBase.conversation_id == conversation.id
+                )
+            )
+        ).scalars()
+    )
+    if not kb_ids and conversation.kb_id is not None:
+        kb_ids = [conversation.kb_id]
+
     plugin_rows = await list_conversation_plugins(session, conversation.id)
+    base = ConversationOut.model_validate(conversation).model_dump()
+    base["kb_ids"] = kb_ids
     return ConversationDetailOut(
-        **ConversationOut.model_validate(conversation).model_dump(),
+        **base,
         plugins=[
             ConversationPluginOut(
                 plugin_id=definition.id,
@@ -1001,10 +1143,43 @@ async def _conversation_detail(
                         for citation in citations_by_message.get(message.id, [])
                     ],
                     "feedback": feedback_by_message.get(message.id),
+                    "attachments": [
+                        AttachmentOut.model_validate(item)
+                        for item in attachment_map.get(message.id, [])
+                    ],
                 }
             )
             for message in messages
         ],
+    )
+
+
+async def _delete_conversations(
+    session: AsyncSession, conversation_ids: list[UUID]
+) -> None:
+    await delete_attachment_rows(session, conversation_ids)
+    await session.execute(
+        delete(ConversationKnowledgeBase).where(
+            ConversationKnowledgeBase.conversation_id.in_(conversation_ids)
+        )
+    )
+    message_ids = select(Message.id).where(Message.conversation_id.in_(conversation_ids))
+    await session.execute(
+        delete(MessageCitation).where(MessageCitation.message_id.in_(message_ids))
+    )
+    await session.execute(
+        delete(MessageFeedback).where(MessageFeedback.message_id.in_(message_ids))
+    )
+    await session.execute(
+        delete(Message).where(Message.conversation_id.in_(conversation_ids))
+    )
+    await session.execute(
+        delete(ConversationPlugin).where(
+            ConversationPlugin.conversation_id.in_(conversation_ids)
+        )
+    )
+    await session.execute(
+        delete(Conversation).where(Conversation.id.in_(conversation_ids))
     )
 
 
@@ -1076,6 +1251,131 @@ async def update_conversation(
     return conversation
 
 
+@router.patch(
+    "/{conversation_id}/messages/{message_id}", response_model=MessageEditOut
+)
+async def edit_message(
+    conversation_id: UUID,
+    message_id: UUID,
+    payload: MessageUpdateIn,
+    context: JwtContext,
+    session: SessionDep,
+) -> MessageEditOut:
+    conversation = await _get_owned_conversation(
+        conversation_id, context.workspace.id, session
+    )
+    target = await session.get(Message, message_id)
+    if (
+        target is None
+        or target.conversation_id != conversation.id
+        or target.role != "user"
+    ):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Message not found")
+    if target.status != "completed":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"code": "message_not_editable", "message": "Message cannot be edited"},
+        )
+
+    later_rows = (
+        await session.execute(
+            select(Message).where(
+                Message.conversation_id == conversation.id,
+                or_(
+                    Message.created_at > target.created_at,
+                    and_(
+                        Message.created_at == target.created_at,
+                        Message.id > target.id,
+                    ),
+                ),
+            )
+        )
+    ).scalars()
+    later = list(later_rows)
+    if any(message.status == "streaming" for message in later):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"code": "conversation_busy", "message": "A reply is still streaming"},
+        )
+
+    target.content = payload.content
+    if later:
+        later_ids = [message.id for message in later]
+        later_attachments = list(
+            (
+                await session.execute(
+                    select(ChatAttachment).where(
+                        ChatAttachment.message_id.in_(later_ids)
+                    )
+                )
+            ).scalars()
+        )
+        for row in later_attachments:
+            Path(row.storage_path).unlink(missing_ok=True)
+        if later_attachments:
+            await session.execute(
+                delete(ChatAttachment).where(
+                    ChatAttachment.id.in_([row.id for row in later_attachments])
+                )
+            )
+        await session.execute(
+            delete(MessageCitation).where(MessageCitation.message_id.in_(later_ids))
+        )
+        await session.execute(
+            delete(MessageFeedback).where(MessageFeedback.message_id.in_(later_ids))
+        )
+        await session.execute(delete(Message).where(Message.id.in_(later_ids)))
+    conversation.updated_at = datetime.now(UTC)
+    await session.commit()
+    await session.refresh(target)
+    return MessageEditOut(
+        message=MessageOut.model_validate(target).model_copy(
+            update={"citations": [], "feedback": None}
+        ),
+        removed=len(later),
+    )
+
+
+@router.post("/{conversation_id}/messages/{message_id}/reply")
+async def reply_to_message(
+    conversation_id: UUID,
+    message_id: UUID,
+    context: ChatContext,
+    session: SessionDep,
+    registry: Annotated[ProviderRegistry, Depends(get_scoped_registry)],
+    redis: RedisDep,
+    tool_registry: ToolRegistryDep,
+    agent_registry: AgentRegistryDep,
+) -> StreamingResponse:
+    conversation = await _get_owned_conversation(
+        conversation_id, context.workspace.id, session
+    )
+    target = await session.get(Message, message_id)
+    if (
+        target is None
+        or target.conversation_id != conversation.id
+        or target.role != "user"
+        or target.status != "completed"
+    ):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Message not found")
+    current_attachments = await attachments_for_message(
+        session, workspace_id=context.workspace.id, message_id=target.id
+    )
+    return await _start_chat_turn(
+        conversation=conversation,
+        content=target.content,
+        context=context,
+        session=session,
+        registry=registry,
+        redis=redis,
+        tool_registry=tool_registry,
+        agent_registry=agent_registry,
+        history_before=target.created_at,
+        persist_user_message=False,
+        current_attachments=current_attachments,
+    )
+
+
 @router.post("/batch", response_model=ConversationBatchOut)
 async def batch_conversations(
     payload: ConversationBatchIn,
@@ -1092,6 +1392,11 @@ async def batch_conversations(
     conversations = list(result.scalars())
     if len(conversations) != len(conversation_ids):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
+
+    if payload.action == "delete":
+        await _delete_conversations(session, conversation_ids)
+        await session.commit()
+        return ConversationBatchOut(updated=len(conversations))
 
     project_id = payload.project_id
     if payload.action == "move" and project_id is not None:
@@ -1273,6 +1578,18 @@ async def export_conversation(
     )
 
 
+@router.delete("/{conversation_id}/permanent", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_conversation_permanently(
+    conversation_id: UUID, context: JwtContext, session: SessionDep
+) -> Response:
+    conversation = await _get_workspace_conversation(
+        conversation_id, context.workspace.id, session, include_archived=True
+    )
+    await _delete_conversations(session, [conversation.id])
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def archive_conversation(
     conversation_id: UUID, context: JwtContext, session: SessionDep
@@ -1329,6 +1646,8 @@ async def _start_chat_turn(
     exclude_message_id: UUID | None = None,
     history_before: datetime | None = None,
     persist_user_message: bool = True,
+    attachment_ids: Sequence[UUID] = (),
+    current_attachments: Sequence[ChatAttachment] | None = None,
 ) -> StreamingResponse:
     await enforce_quota(redis, context)
     started = time.perf_counter()
@@ -1355,22 +1674,83 @@ async def _start_chat_turn(
     )
     prior_messages = list(history_result.scalars())
 
+    history_attachments = await attachments_by_message(
+        session,
+        workspace_id=context.workspace.id,
+        conversation_id=conversation.id,
+        message_ids=[message.id for message in prior_messages],
+    )
     chat_history = [
-        ChatMessage(role=message.role, content=message.content)
+        ChatMessage(
+            role=message.role,
+            content=build_user_content(
+                message.content,
+                history_attachments.get(message.id, []),
+                include_images=False,
+            ),
+        )
         for message in prior_messages
         if message.content
     ]
-    chat_history.append(ChatMessage(role="user", content=content))
+
+    current_rows = list(current_attachments or [])
+    if persist_user_message:
+        unlinked = await unlinked_conversation_attachments(
+            session,
+            workspace_id=context.workspace.id,
+            conversation_id=conversation.id,
+            user_id=context.user.id,
+        )
+        known_ids = {item.id for item in current_rows}
+        current_rows.extend(item for item in unlinked if item.id not in known_ids)
+    if attachment_ids:
+        try:
+            current_rows.extend(
+                await claim_attachments(
+                    session,
+                    workspace_id=context.workspace.id,
+                    user_id=context.user.id,
+                    attachment_ids=attachment_ids,
+                    conversation_id=conversation.id,
+                )
+            )
+        except AttachmentError as exc:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND
+                if exc.code == "attachment_not_found"
+                else status.HTTP_422_UNPROCESSABLE_CONTENT,
+                {"code": exc.code, "message": exc.message},
+            ) from None
+    await _validate_attachment_images(
+        session,
+        context,
+        provider_id=conversation.provider_id,
+        model=conversation.model,
+        agent=conversation.agent,
+        attachments=current_rows,
+    )
+
+    chat_history.append(
+        ChatMessage(
+            role="user",
+            content=build_user_content(
+                content,
+                current_rows,
+                include_images=not conversation.agent,
+            ),
+        )
+    )
     chat_history = chat_history[-HISTORY_MESSAGE_LIMIT:]
 
     citations: list[Citation] = []
-    if conversation.kb_id is not None and not conversation.agent:
+    conversation_kbs = await _conversation_kb_ids(session, conversation)
+    if conversation_kbs and not conversation.agent:
         retrieval_started = time.perf_counter()
         try:
             retrieved = await retrieve_chunks(
                 session,
                 workspace_id=context.workspace.id,
-                kb_id=conversation.kb_id,
+                kb_ids=conversation_kbs,
                 query=content,
             )
         except ProviderError:
@@ -1432,7 +1812,7 @@ async def _start_chat_turn(
     root_agent = SUPERVISOR_AGENT
     if custom_agent is not None:
         extra_tools = list(plugin_tool_names(plugin_tools))
-        if conversation.kb_id is not None and "kb_search" not in extra_tools:
+        if conversation_kbs and "kb_search" not in extra_tools:
             extra_tools.append("kb_search")
         spec = build_agent_spec(custom_agent, tuple(extra_tools))
         effective_agents = AgentRegistry([*agent_registry.all(), spec])
@@ -1454,19 +1834,19 @@ async def _start_chat_turn(
         conversation.title = content[:TITLE_MAX_LENGTH]
 
     messages_to_add: list[object] = []
+    user_message: Message | None = None
     if persist_user_message:
-        messages_to_add.append(
-            Message(
-                conversation_id=conversation.id,
-                user_id=context.user.id,
-                role="user",
-                content=content,
-                status="completed",
-                provider_id=provider.id,
-                model=routed_model,
-                request_id=request_id,
-            )
+        user_message = Message(
+            conversation_id=conversation.id,
+            user_id=context.user.id,
+            role="user",
+            content=content,
+            status="completed",
+            provider_id=provider.id,
+            model=routed_model,
+            request_id=request_id,
         )
+        messages_to_add.append(user_message)
     assistant_message = Message(
         conversation_id=conversation.id,
         user_id=context.user.id,
@@ -1492,6 +1872,10 @@ async def _start_chat_turn(
     messages_to_add.extend([assistant_message, trace])
     session.add_all(messages_to_add)
     await session.flush()
+    if user_message is not None:
+        for row in current_rows:
+            if row.message_id is None:
+                row.message_id = user_message.id
     trace.message_id = assistant_message.id
     await session.commit()
     await session.refresh(assistant_message)
@@ -1510,6 +1894,7 @@ async def _start_chat_turn(
             workspace_id=context.workspace.id,
             user_id=context.user.id,
             kb_id=conversation.kb_id,
+            kb_ids=conversation_kbs,
             context=context,
             redis=redis,
             tool_registry=effective_tools,
@@ -1581,6 +1966,7 @@ async def send_message(
         redis=redis,
         tool_registry=tool_registry,
         agent_registry=agent_registry,
+        attachment_ids=payload.attachment_ids,
     )
 
 
@@ -1631,6 +2017,9 @@ async def regenerate_message(
     ).scalar_one_or_none()
     if user_message is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "No user message to regenerate")
+    current_attachments = await attachments_for_message(
+        session, workspace_id=context.workspace.id, message_id=user_message.id
+    )
     return await _start_chat_turn(
         conversation=conversation,
         content=user_message.content,
@@ -1644,6 +2033,7 @@ async def regenerate_message(
         exclude_message_id=target.id,
         history_before=user_message.created_at,
         persist_user_message=False,
+        current_attachments=current_attachments,
     )
 
 
