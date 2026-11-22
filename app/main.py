@@ -14,6 +14,7 @@ from app.routers import (
     api_keys,
     auth,
     collaborations,
+    content,
     conversations,
     documents,
     evaluations,
@@ -59,6 +60,11 @@ OPENAPI_TAGS = [
     {"name": "webhooks", "description": "Workspace webhook subscriptions and delivery logs."},
     {"name": "models", "description": "Model catalog, health, and comparison."},
     {"name": "market", "description": "Public model marketplace (unauthenticated)."},
+    {
+        "name": "content",
+        "description": "Public home feed and announcements (unauthenticated).",
+    },
+    {"name": "notifications", "description": "Authenticated announcement read receipts."},
     {"name": "prompt-templates", "description": "Versioned workspace prompt templates."},
     {"name": "usage", "description": "Quota, token usage, and cost summaries."},
     {"name": "traces", "description": "Per-request timing and routing metadata."},
@@ -106,6 +112,9 @@ app.include_router(provider_configs.router)
 app.include_router(models.router)
 app.include_router(market.router)
 app.include_router(market.admin_router)
+app.include_router(content.router)
+app.include_router(content.notifications_router)
+app.include_router(content.admin_router)
 app.include_router(conversations.router)
 app.include_router(documents.router)
 app.include_router(knowledge_bases.router)

@@ -1,15 +1,25 @@
 import { useQuery } from '@tanstack/react-query'
-import { ArrowRight, BookOpen, Boxes, Layers, MessageSquare, Sparkles } from 'lucide-react'
-import { useState } from 'react'
+import {
+  ArrowRight,
+  BookOpen,
+  Boxes,
+  CalendarDays,
+  Layers,
+  MessageSquare,
+  Pin,
+  Sparkles,
+} from 'lucide-react'
+import { useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { Textarea } from '../../components/ui/input'
 import { Spinner } from '../../components/ui/spinner'
+import { formatDate } from '../../lib/format'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
-import type { MarketModel } from '../../lib/types'
+import type { Announcement, HomeFeed, HomePlacement, MarketModel } from '../../lib/types'
 import { useAuthStore } from '../../store/auth'
 
 export function HomePage() {
@@ -27,6 +37,13 @@ export function HomePage() {
     queryKey: ['home-new-models'],
     queryFn: () => apiRequest<MarketModel[]>('/market/models?sort=new', { auth: false }),
   })
+  const home = useQuery({
+    queryKey: ['home-feed'],
+    queryFn: () => apiRequest<HomeFeed>('/home', { auth: false }),
+  })
+  const banners = home.data?.banners ?? []
+  const placements = [...(home.data?.featured ?? []), ...(home.data?.activities ?? [])]
+  const announcements = home.data?.announcements ?? []
 
   const start = () => {
     const selected = (featured.data ?? []).find((model) => model.slug === modelSlug)
@@ -96,6 +113,14 @@ export function HomePage() {
               </Button>
             </div>
           </div>
+
+          {banners.length > 0 && (
+            <div className="mx-auto mt-6 grid max-w-3xl gap-3 text-left sm:grid-cols-2">
+              {banners.map((banner) => (
+                <BannerCard key={banner.id} banner={banner} />
+              ))}
+            </div>
+          )}
         </div>
       </section>
 
@@ -123,6 +148,20 @@ export function HomePage() {
         </div>
       </section>
 
+      {placements.length > 0 && (
+        <section className="border-t border-border bg-surface-muted/40">
+          <div className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6">
+            <h2 className="text-lg font-semibold text-ink">{t('portal.activityTitle')}</h2>
+            <p className="mt-1 text-sm text-ink-muted">{t('portal.activityLead')}</p>
+            <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {placements.map((placement) => (
+                <PlacementCard key={placement.id} placement={placement} />
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
       <section className="border-y border-border bg-surface">
         <div className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6">
           <div className="flex flex-wrap items-end justify-between gap-2">
@@ -141,6 +180,32 @@ export function HomePage() {
           </div>
         </div>
       </section>
+
+      {announcements.length > 0 && (
+        <section className="border-t border-border bg-surface">
+          <div className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6">
+            <div className="flex flex-wrap items-end justify-between gap-2">
+              <div>
+                <h2 className="text-lg font-semibold text-ink">
+                  {t('portal.announcementsTitle')}
+                </h2>
+                <p className="mt-1 text-sm text-ink-muted">
+                  {t('portal.announcementsLead')}
+                </p>
+              </div>
+              <Link to="/announcements" className="inline-flex items-center gap-1 text-sm text-accent">
+                {t('portal.allAnnouncements')}
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            </div>
+            <div className="mt-5 divide-y divide-border rounded-2xl border border-border">
+              {announcements.map((item) => (
+                <AnnouncementRow key={item.id} announcement={item} />
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6">
         <h2 className="text-lg font-semibold text-ink">{t('portal.entryTitle')}</h2>
@@ -201,6 +266,110 @@ function ModelCard({ model }: { model: MarketModel }) {
           </Badge>
         ))}
       </div>
+    </Link>
+  )
+}
+
+function SmartLink({
+  href,
+  className,
+  children,
+}: {
+  href: string
+  className: string
+  children: ReactNode
+}) {
+  if (href.startsWith('http://') || href.startsWith('https://')) {
+    return (
+      <a href={href} target="_blank" rel="noreferrer" className={className}>
+        {children}
+      </a>
+    )
+  }
+  if (href.startsWith('/')) {
+    return (
+      <Link to={href} className={className}>
+        {children}
+      </Link>
+    )
+  }
+  return <div className={className}>{children}</div>
+}
+
+function BannerCard({ banner }: { banner: HomePlacement }) {
+  return (
+    <SmartLink
+      href={banner.link_url}
+      className="group flex gap-3 rounded-2xl border border-border bg-surface p-4 text-left shadow-sm transition hover:border-accent/50 hover:shadow-lg"
+    >
+      {banner.image_url !== '' ? (
+        <img
+          src={banner.image_url}
+          alt=""
+          className="h-16 w-24 shrink-0 rounded-xl object-cover"
+        />
+      ) : (
+        <span className="flex h-16 w-24 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
+          <Sparkles className="h-5 w-5" />
+        </span>
+      )}
+      <div className="min-w-0">
+        <h3 className="truncate text-sm font-semibold text-ink">{banner.title}</h3>
+        <p className="mt-1 line-clamp-2 text-xs leading-5 text-ink-muted">
+          {banner.subtitle || banner.body}
+        </p>
+        {banner.link_label !== '' && (
+          <span className="mt-1 inline-flex items-center gap-1 text-xs text-accent">
+            {banner.link_label}
+            <ArrowRight className="h-3 w-3" />
+          </span>
+        )}
+      </div>
+    </SmartLink>
+  )
+}
+
+function PlacementCard({ placement }: { placement: HomePlacement }) {
+  return (
+    <SmartLink
+      href={placement.link_url}
+      className="group flex flex-col rounded-2xl border border-border bg-surface p-5 transition hover:border-accent/50 hover:shadow-lg"
+    >
+      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-accent">
+        <Sparkles className="h-4 w-4" />
+      </span>
+      <h3 className="mt-3 text-sm font-semibold text-ink">{placement.title}</h3>
+      {placement.subtitle !== '' && (
+        <p className="mt-1 text-xs text-ink-muted">{placement.subtitle}</p>
+      )}
+      {placement.body !== '' && (
+        <p className="mt-2 line-clamp-3 text-xs leading-5 text-ink-muted">{placement.body}</p>
+      )}
+      {placement.link_label !== '' && (
+        <span className="mt-3 inline-flex items-center gap-1 text-xs text-accent">
+          {placement.link_label}
+          <ArrowRight className="h-3 w-3" />
+        </span>
+      )}
+    </SmartLink>
+  )
+}
+
+function AnnouncementRow({ announcement }: { announcement: Announcement }) {
+  const { t, language } = useI18n()
+  return (
+    <Link
+      to={`/announcements/${announcement.id}`}
+      className="flex flex-wrap items-center gap-3 px-4 py-3 transition hover:bg-surface-muted"
+    >
+      {announcement.pinned && <Pin className="h-3.5 w-3.5 shrink-0 text-accent" />}
+      <Badge tone="neutral">{t(`announcements.category.${announcement.category}`)}</Badge>
+      <span className="min-w-0 flex-1 truncate text-sm text-ink">{announcement.title}</span>
+      <span className="inline-flex items-center gap-1 text-xs text-ink-muted">
+        <CalendarDays className="h-3 w-3" />
+        {formatDate(announcement.published_at ?? announcement.created_at, language)}
+      </span>
+      <ArrowRight className="h-3.5 w-3.5 shrink-0 text-ink-muted" />
     </Link>
   )
 }

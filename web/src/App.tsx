@@ -17,11 +17,14 @@ import { LoginPage } from './pages/LoginPage'
 import { ModelsPage } from './pages/models/ModelsPage'
 import { ModelDetailPage } from './pages/models/ModelDetailPage'
 import { ModelPlaygroundPage } from './pages/models/ModelPlaygroundPage'
+import { AnnouncementDetailPage } from './pages/portal/AnnouncementDetailPage'
+import { AnnouncementsPage } from './pages/portal/AnnouncementsPage'
 import { HomePage } from './pages/portal/HomePage'
 import { ApiKeysPage } from './pages/settings/ApiKeysPage'
 import { ProvidersPage } from './pages/settings/ProvidersPage'
 import { SettingsHubPage } from './pages/settings/SettingsHubPage'
 import { AdminPage } from './pages/admin/AdminPage'
+import { AdminContentPage } from './pages/admin/AdminContentPage'
 import { CollaborationsPage } from './pages/collaborations/CollaborationsPage'
 import { WorkflowsPage } from './pages/workflows/WorkflowsPage'
 import { ProfilePage } from './pages/settings/ProfilePage'
@@ -67,6 +70,8 @@ export function App() {
         <Route index element={<HomePage />} />
         <Route path="models" element={<ModelsPage />} />
         <Route path="models/:slug" element={<ModelDetailPage />} />
+        <Route path="announcements" element={<AnnouncementsPage />} />
+        <Route path="announcements/:id" element={<AnnouncementDetailPage />} />
         <Route element={<RequireAuth />}>
           <Route path="models/:slug/playground" element={<ModelPlaygroundPage />} />
         </Route>
@@ -78,6 +83,7 @@ export function App() {
           <Route path="workflows" element={<WorkflowsPage />} />
           <Route path="collaborations" element={<CollaborationsPage />} />
           <Route path="admin" element={<AdminPage />} />
+          <Route path="admin/content" element={<AdminContentPage />} />
           <Route path="knowledge" element={<KnowledgePage />} />
           <Route path="knowledge/:id" element={<KnowledgeDetailPage />} />
           <Route path="evaluation" element={<EvaluationPage />} />

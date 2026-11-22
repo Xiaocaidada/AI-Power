@@ -829,6 +829,189 @@ class MarketModelOut(BaseModel):
     available: bool
 
 
+def _validate_public_url(value: str) -> str:
+    """Admin-entered links may be site-relative or http(s); never javascript: etc."""
+    if value == "":
+        return value
+    if value.startswith("/") and not value.startswith("//"):
+        return value
+    if value.lower().startswith(("http://", "https://")):
+        return value
+    raise ValueError("URL must be site-relative or http(s)")
+
+
+class HomePlacementCreate(BaseModel):
+    kind: Literal["banner", "featured", "activity"] = "banner"
+    title: str = Field(min_length=1, max_length=120)
+    subtitle: str = Field(default="", max_length=200)
+    body: str = Field(default="", max_length=2000)
+    image_url: str = Field(default="", max_length=500)
+    link_url: str = Field(default="", max_length=500)
+    link_label: str = Field(default="", max_length=50)
+    sort_order: int = 100
+    enabled: bool = True
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+
+    @field_validator(
+        "title", "subtitle", "body", "image_url", "link_url", "link_label", mode="before"
+    )
+    @classmethod
+    def strip_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("image_url", "link_url")
+    @classmethod
+    def validate_urls(cls, value: str) -> str:
+        return _validate_public_url(value)
+
+    @model_validator(mode="after")
+    def validate_window(self) -> "HomePlacementCreate":
+        if (
+            self.starts_at is not None
+            and self.ends_at is not None
+            and self.ends_at <= self.starts_at
+        ):
+            raise ValueError("ends_at must be after starts_at")
+        return self
+
+
+class HomePlacementUpdate(BaseModel):
+    kind: Literal["banner", "featured", "activity"] | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=120)
+    subtitle: str | None = Field(default=None, max_length=200)
+    body: str | None = Field(default=None, max_length=2000)
+    image_url: str | None = Field(default=None, max_length=500)
+    link_url: str | None = Field(default=None, max_length=500)
+    link_label: str | None = Field(default=None, max_length=50)
+    sort_order: int | None = None
+    enabled: bool | None = None
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+
+    @field_validator(
+        "title", "subtitle", "body", "image_url", "link_url", "link_label", mode="before"
+    )
+    @classmethod
+    def strip_optional_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("image_url", "link_url")
+    @classmethod
+    def validate_urls(cls, value: str | None) -> str | None:
+        return None if value is None else _validate_public_url(value)
+
+
+class HomePlacementOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    kind: str
+    title: str
+    subtitle: str
+    body: str
+    image_url: str
+    link_url: str
+    link_label: str
+    sort_order: int
+    enabled: bool
+    starts_at: datetime | None
+    ends_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class AnnouncementCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    summary: str = Field(default="", max_length=500)
+    body: str = Field(min_length=1, max_length=20000)
+    cover_url: str = Field(default="", max_length=500)
+    category: Literal["notice", "update", "event", "maintenance"] = "notice"
+    pinned: bool = False
+    status: Literal["draft", "published", "archived"] = "draft"
+    published_at: datetime | None = None
+    expires_at: datetime | None = None
+
+    @field_validator("title", "summary", "body", "cover_url", mode="before")
+    @classmethod
+    def strip_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("cover_url")
+    @classmethod
+    def validate_cover(cls, value: str) -> str:
+        return _validate_public_url(value)
+
+    @model_validator(mode="after")
+    def validate_window(self) -> "AnnouncementCreate":
+        if (
+            self.published_at is not None
+            and self.expires_at is not None
+            and self.expires_at <= self.published_at
+        ):
+            raise ValueError("expires_at must be after published_at")
+        return self
+
+
+class AnnouncementUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    summary: str | None = Field(default=None, max_length=500)
+    body: str | None = Field(default=None, min_length=1, max_length=20000)
+    cover_url: str | None = Field(default=None, max_length=500)
+    category: Literal["notice", "update", "event", "maintenance"] | None = None
+    pinned: bool | None = None
+    status: Literal["draft", "published", "archived"] | None = None
+    published_at: datetime | None = None
+    expires_at: datetime | None = None
+
+    @field_validator("title", "summary", "body", "cover_url", mode="before")
+    @classmethod
+    def strip_optional_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("cover_url")
+    @classmethod
+    def validate_cover(cls, value: str | None) -> str | None:
+        return None if value is None else _validate_public_url(value)
+
+
+class AnnouncementOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    title: str
+    summary: str
+    body: str
+    cover_url: str
+    category: str
+    pinned: bool
+    status: str
+    published_at: datetime | None
+    expires_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class NotificationOut(AnnouncementOut):
+    read_at: datetime | None = None
+
+
+class NotificationFeedOut(BaseModel):
+    unread_count: int
+    items: list[NotificationOut]
+
+
+class NotificationMarkAllOut(BaseModel):
+    marked: int
+
+
+class HomeFeedOut(BaseModel):
+    banners: list[HomePlacementOut]
+    featured: list[HomePlacementOut]
+    activities: list[HomePlacementOut]
+    announcements: list[AnnouncementOut]
+
+
 class DocumentOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

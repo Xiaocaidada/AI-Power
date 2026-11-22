@@ -1,6 +1,6 @@
 # P6 规划：用户 Provider Hub、模型广场与平台门户
 
-- **Status:** In progress（P6-S1、S2 已完成；S3a/S3b 已完成，S3c 待做，2026-11-23）
+- **Status:** In progress（P6-S1、S2 已完成；S3 已完成，2026-11-23）
 - **Scope source:** `拓展增强.txt`（用户需求）+ P5 已完成能力
 - **前置:** P0–P5 已完成；P5 测试范围按用户要求缩小
 
@@ -61,14 +61,16 @@ P5 解决“质量、开放平台、成本、长任务”，P6 解决“**用户
 
 > **完成证据**：[`docs/tdd/p6-s2-model-marketplace.md`](../tdd/p6-s2-model-marketplace.md)、[`docs/api/model-marketplace.md`](../api/model-marketplace.md)。
 
-### P6-S3 首页门户与运营内容 — **S3a/S3b 已完成（2026-11-23），S3c 待做**
+### P6-S3 首页门户与运营内容 — **已完成（2026-11-23）**
 
 - 公开首页：顶部导航、中央大输入框、模型/Provider 选择、推荐区、底部入口。
 - `announcements`/`notifications`/`home_placements` 与管理员 CRUD、发布/下线/排序/定时。
 - 未登录可浏览；点击对话/收藏等功能跳登录。
 - 管理员概览补充内容/公告/Provider 统计。
 
-> **S3a/S3b 完成证据**：[`docs/tdd/p6-s3-portal.md`](../tdd/p6-s3-portal.md)。公开首页/双模型页/独立 playground、门户壳与控制台导航减负已完成；Banner/公告/推荐位与通知（S3c）待做。
+> **S3a/S3b 完成证据**：[`docs/tdd/p6-s3-portal.md`](../tdd/p6-s3-portal.md)。公开首页/双模型页/独立 playground、门户壳与控制台导航减负已完成。
+>
+> **S3c 完成证据**：[`docs/tdd/p6-s3c-content.md`](../tdd/p6-s3c-content.md)。首页 Banner/推荐位/活动、公告列表/详情、登录通知与未读数、管理员内容 CRUD 已完成。
 
 ### P6-S4 项目与聊天工作区
 

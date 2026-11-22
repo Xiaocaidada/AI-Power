@@ -42,6 +42,59 @@ export interface MarketModel {
   available: boolean
 }
 
+export type PlacementKind = 'banner' | 'featured' | 'activity'
+
+export interface HomePlacement {
+  id: string
+  kind: PlacementKind
+  title: string
+  subtitle: string
+  body: string
+  image_url: string
+  link_url: string
+  link_label: string
+  sort_order: number
+  enabled: boolean
+  starts_at: string | null
+  ends_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type AnnouncementCategory = 'notice' | 'update' | 'event' | 'maintenance'
+export type AnnouncementStatus = 'draft' | 'published' | 'archived'
+
+export interface Announcement {
+  id: string
+  title: string
+  summary: string
+  body: string
+  cover_url: string
+  category: AnnouncementCategory
+  pinned: boolean
+  status: AnnouncementStatus
+  published_at: string | null
+  expires_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface HomeFeed {
+  banners: HomePlacement[]
+  featured: HomePlacement[]
+  activities: HomePlacement[]
+  announcements: Announcement[]
+}
+
+export interface NotificationItem extends Announcement {
+  read_at: string | null
+}
+
+export interface NotificationFeed {
+  unread_count: number
+  items: NotificationItem[]
+}
+
 export interface ProviderConfig {
   id: string
   name: string
