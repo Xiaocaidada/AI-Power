@@ -54,6 +54,7 @@ logger = logging.getLogger(__name__)
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 ChatContext = Annotated[AuthContext, Depends(require_scope("chat:write"))]
+RunContext = Annotated[AuthContext, Depends(require_scope("workflow:run"))]
 RedisDep = Annotated[RedisLike, Depends(get_redis)]
 RegistryDep = Annotated[ProviderRegistry, Depends(get_registry)]
 ToolRegistryDep = Annotated[ToolRegistry, Depends(get_tool_registry)]
@@ -291,7 +292,7 @@ async def list_workflow_runs(
 async def create_workflow_run(
     workflow_id: UUID,
     payload: WorkflowRunCreate,
-    context: ChatContext,
+    context: RunContext,
     session: SessionDep,
     registry: RegistryDep,
     tool_registry: ToolRegistryDep,

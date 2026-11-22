@@ -10,6 +10,7 @@ from app.clients import RedisLike
 from app.config import get_settings
 from app.models import AuditLog, UsageEvent, Workspace
 from app.services.quotas import plan_limits
+from app.services.webhooks import enqueue_event
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,18 @@ async def check_workspace_budget(
     )
     await session.flush()
     await _send_webhook(workspace, cost, limit, day_start)
+    await enqueue_event(
+        workspace_id,
+        "budget.exceeded",
+        {
+            "workspace_id": str(workspace.id),
+            "workspace_name": workspace.name,
+            "plan": workspace.plan,
+            "cost_usd": round(cost, 6),
+            "limit_usd": limit,
+            "date": day_start.date().isoformat(),
+        },
+    )
     return True
 
 

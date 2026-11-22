@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     quota_free_daily_cost_usd: float = 1.0
     quota_pro_daily_cost_usd: float = 50.0
     budget_webhook_url: str = ""
+    webhook_secret_key: str = ""
+    webhook_allow_private_hosts: bool = False
+    webhook_timeout_seconds: float = 10.0
+    webhook_max_attempts: int = 5
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://192.168.29.100:8080"
 
     deepseek_base_url: str = "https://api.deepseek.com"
@@ -93,6 +97,8 @@ class Settings(BaseSettings):
     def _forbid_dev_secret_outside_dev(self) -> "Settings":
         if self.app_env != "dev" and self.jwt_secret.startswith("dev-"):
             raise ValueError("JWT_SECRET must be set to a generated value outside dev")
+        if self.app_env != "dev" and not self.webhook_secret_key.strip():
+            raise ValueError("WEBHOOK_SECRET_KEY must be set outside dev")
         return self
 
     @model_validator(mode="after")
@@ -135,6 +141,10 @@ class Settings(BaseSettings):
             raise ValueError("AGENT_TOOL_OUTPUT_MAX_CHARS must be >= 1")
         if self.audit_log_retention_days < 1:
             raise ValueError("AUDIT_LOG_RETENTION_DAYS must be >= 1")
+        if self.webhook_timeout_seconds <= 0:
+            raise ValueError("WEBHOOK_TIMEOUT_SECONDS must be > 0")
+        if self.webhook_max_attempts < 1:
+            raise ValueError("WEBHOOK_MAX_ATTEMPTS must be >= 1")
         if self.workflow_node_timeout_seconds <= 0:
             raise ValueError("WORKFLOW_NODE_TIMEOUT_SECONDS must be > 0")
         if self.workflow_node_attempts < 1:

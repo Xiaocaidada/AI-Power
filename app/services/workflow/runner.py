@@ -20,6 +20,7 @@ from app.providers.base import ChatMessage, ProviderError, Usage
 from app.providers.registry import ProviderRegistry
 from app.services.agent import AgentFailure, AgentRunner
 from app.services.costs import compute_cost, price_snapshot
+from app.services.webhooks import enqueue_event
 from app.services.workflow.schema import (
     AgentNodeConfig,
     ConditionNodeConfig,
@@ -518,6 +519,20 @@ class WorkflowRunner:
                 run.cost = round(self._cost, 6)
                 run.finished_at = datetime.now(UTC)
                 await session.commit()
+                await enqueue_event(
+                    run.workspace_id,
+                    "workflow.completed",
+                    {
+                        "run_id": str(run.id),
+                        "workflow_id": str(run.workflow_id),
+                        "status": run.status,
+                        "error_code": run.error_code,
+                        "total_ms": run.total_ms,
+                        "prompt_tokens": run.prompt_tokens,
+                        "completion_tokens": run.completion_tokens,
+                        "cost": run.cost,
+                    },
+                )
         except Exception:
             logger.exception("failed to finalize workflow run")
 

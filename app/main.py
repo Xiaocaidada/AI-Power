@@ -24,6 +24,7 @@ from app.routers import (
     providers,
     traces,
     usage,
+    webhooks,
     workflows,
     workspaces,
 )
@@ -53,6 +54,7 @@ OPENAPI_TAGS = [
         "name": "evaluations",
         "description": "Retrieval and LLM-as-judge evaluation datasets and runs.",
     },
+    {"name": "webhooks", "description": "Workspace webhook subscriptions and delivery logs."},
     {"name": "models", "description": "Model catalog, health, and comparison."},
     {"name": "prompt-templates", "description": "Versioned workspace prompt templates."},
     {"name": "usage", "description": "Quota, token usage, and cost summaries."},
@@ -67,11 +69,11 @@ OPENAPI_TAGS = [
 
 app = FastAPI(
     title="AI Power API",
-    version="0.4.0",
+    version="0.5.0",
     description=(
         "Multi-tenant AI platform: streaming chat, hybrid RAG knowledge bases, model catalog "
         "with auto routing, quotas, traces, multi-agent tools, workflows, prompt templates, "
-        "retrieval/LLM-judge evaluation, cost reporting, and an admin console. "
+        "retrieval/LLM-judge evaluation, webhooks, cost reporting, and an admin console. "
         "See docs/api/quickstart.md for examples."
     ),
     openapi_tags=OPENAPI_TAGS,
@@ -100,6 +102,7 @@ app.include_router(conversations.router)
 app.include_router(documents.router)
 app.include_router(knowledge_bases.router)
 app.include_router(evaluations.router)
+app.include_router(webhooks.router)
 app.include_router(prompts.router)
 app.include_router(admin.router)
 app.include_router(workflows.router)

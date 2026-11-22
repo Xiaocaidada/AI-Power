@@ -12,6 +12,7 @@ import {
   Shield,
   Sun,
   Users,
+  Webhook,
   Workflow,
   X,
 } from 'lucide-react'
@@ -38,6 +39,7 @@ const navItems = [
   { to: '/settings/prompts', labelKey: 'nav.prompts', icon: FileText },
   { to: '/usage', labelKey: 'nav.usage', icon: BarChart3 },
   { to: '/settings/api-keys', labelKey: 'nav.settings', icon: Settings },
+  { to: '/settings/webhooks', labelKey: 'nav.webhooks', icon: Webhook },
 ]
 
 function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {

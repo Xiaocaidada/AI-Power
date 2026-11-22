@@ -48,6 +48,7 @@ from app.services.quotas import add_token_usage, enforce_quota
 from app.services.rag import build_rag_messages, fit_context
 from app.services.retrieval import Citation, build_citations, retrieve_chunks
 from app.services.routing import record_failure, reset_failures, route_candidates
+from app.services.webhooks import enqueue_event
 from app.tools.base import ToolContext, ToolRegistry
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
@@ -132,6 +133,7 @@ async def _finalize(
             message.status = message_status
             message.prompt_tokens = usage.prompt_tokens if usage else None
             message.completion_tokens = usage.completion_tokens if usage else None
+            cost_value = 0.0
 
             if message.role == "assistant":
                 existing_event = await session.execute(
@@ -147,6 +149,7 @@ async def _finalize(
                         input_price,
                         output_price,
                     )
+                    cost_value = cost
                     session.add(
                         UsageEvent(
                             workspace_id=workspace_id,
@@ -192,6 +195,22 @@ async def _finalize(
                             ]
                         )
             await session.commit()
+            if message.role == "assistant":
+                await enqueue_event(
+                    workspace_id,
+                    "message.completed",
+                    {
+                        "message_id": str(message.id),
+                        "conversation_id": str(message.conversation_id),
+                        "status": message.status,
+                        "provider_id": message.provider_id,
+                        "model": message.model,
+                        "prompt_tokens": message.prompt_tokens,
+                        "completion_tokens": message.completion_tokens,
+                        "cost": cost_value,
+                        "content": (content or "")[:2000],
+                    },
+                )
     except Exception:
         logger.exception("failed to finalize message %s", message_id)
 

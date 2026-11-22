@@ -599,3 +599,47 @@ class EvalRunItem(Base):
     __table_args__ = (
         UniqueConstraint("run_id", "question_id", name="uq_eval_run_items_run_question"),
     )
+
+
+class Webhook(Base):
+    __tablename__ = "webhooks"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    url: Mapped[str] = mapped_column(String(1000))
+    secret_encrypted: Mapped[str] = mapped_column(String(1000))
+    events: Mapped[str] = mapped_column(String(500), default="")
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), default=None
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+
+class WebhookDelivery(Base):
+    __tablename__ = "webhook_deliveries"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    webhook_id: Mapped[UUID] = mapped_column(
+        ForeignKey("webhooks.id", ondelete="CASCADE"), index=True
+    )
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    event: Mapped[str] = mapped_column(String(50))
+    payload: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    response_status: Mapped[int | None] = mapped_column(Integer, default=None)
+    error: Mapped[str | None] = mapped_column(String(500), default=None)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+    __table_args__ = (
+        Index("ix_webhook_deliveries_due", "status", "next_attempt_at"),
+        Index("ix_webhook_deliveries_workspace_created", "workspace_id", "created_at"),
+    )

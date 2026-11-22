@@ -37,7 +37,7 @@ P1 需要让用户用程序调用平台能力，而不是只能依赖浏览器 J
 
 ### 3. 作用域与路由映射
 
-最小 scope 集：`chat:write`、`kb:read`；默认 Key 同时拥有两者。
+最小 scope 集：`chat:write`、`kb:read`、`workflow:run`；默认 Key 只拥有前两者，`workflow:run` 需显式勾选。
 
 | 端点 | 认证 | 需要的 scope |
 |---|---|---|
@@ -48,6 +48,7 @@ P1 需要让用户用程序调用平台能力，而不是只能依赖浏览器 J
 | `GET /knowledge-bases`、`GET /knowledge-bases/{id}` | JWT 或 Key | `kb:read` |
 | `POST/DELETE /knowledge-bases` | JWT-only | — |
 | `GET /documents/{id}` | JWT 或 Key | `kb:read` |
+| `POST /workflows/{id}/runs` | JWT 或 Key | `workflow:run` |
 | 上传/重试/删除文档 | JWT-only | — |
 | `/api-keys/*`、`/auth/me`、`/usage/*` | JWT-only | — |
 
