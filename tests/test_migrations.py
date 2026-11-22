@@ -33,6 +33,9 @@ def test_alembic_upgrade_head_creates_schema(tmp_path):
         "message_citations",
         "api_keys",
         "market_models",
+        "home_placements",
+        "announcements",
+        "announcement_reads",
         "provider_configs",
         "provider_models",
         "prompt_templates",
@@ -122,6 +125,35 @@ def test_alembic_upgrade_head_creates_schema(tmp_path):
         "is_new",
         "enabled",
     } <= market_columns
+
+    placement_columns = {column["name"] for column in inspector.get_columns("home_placements")}
+    assert {
+        "kind",
+        "title",
+        "subtitle",
+        "image_url",
+        "link_url",
+        "sort_order",
+        "enabled",
+        "starts_at",
+        "ends_at",
+    } <= placement_columns
+    announcement_columns = {column["name"] for column in inspector.get_columns("announcements")}
+    assert {
+        "title",
+        "summary",
+        "body",
+        "cover_url",
+        "category",
+        "pinned",
+        "status",
+        "published_at",
+        "expires_at",
+    } <= announcement_columns
+    read_columns = {
+        column["name"] for column in inspector.get_columns("announcement_reads")
+    }
+    assert {"announcement_id", "user_id", "read_at"} <= read_columns
 
     provider_config_columns = {
         column["name"] for column in inspector.get_columns("provider_configs")

@@ -3,6 +3,7 @@ import {
   BarChart3,
   BookOpen,
   FlaskConical,
+  Megaphone,
   Menu,
   MessageSquare,
   Moon,
@@ -60,7 +61,7 @@ function NavGroup({
           <NavLink
             key={to}
             to={to}
-            end={to === '/settings'}
+            end={to === '/settings' || to === '/admin'}
             className={({ isActive }) =>
               cn(
                 'flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm',
@@ -121,7 +122,10 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
 
   const adminNav =
     user?.role === 'admin'
-      ? [{ to: '/admin', labelKey: 'nav.admin', icon: Shield }]
+      ? [
+          { to: '/admin', labelKey: 'nav.admin', icon: Shield },
+          { to: '/admin/content', labelKey: 'nav.contentAdmin', icon: Megaphone },
+        ]
       : []
 
   const conversations = useInfiniteQuery({

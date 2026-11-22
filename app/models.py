@@ -463,6 +463,68 @@ class MarketModel(Base):
     )
 
 
+class HomePlacement(Base):
+    __tablename__ = "home_placements"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    kind: Mapped[str] = mapped_column(String(20), default="banner", index=True)
+    title: Mapped[str] = mapped_column(String(120))
+    subtitle: Mapped[str] = mapped_column(String(200), default="")
+    body: Mapped[str] = mapped_column(Text, default="")
+    image_url: Mapped[str] = mapped_column(String(500), default="")
+    link_url: Mapped[str] = mapped_column(String(500), default="")
+    link_label: Mapped[str] = mapped_column(String(50), default="")
+    sort_order: Mapped[int] = mapped_column(Integer, default=100)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    __table_args__ = (Index("ix_home_placements_kind_enabled", "kind", "enabled"),)
+
+
+class Announcement(Base):
+    __tablename__ = "announcements"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    title: Mapped[str] = mapped_column(String(200))
+    summary: Mapped[str] = mapped_column(String(500), default="")
+    body: Mapped[str] = mapped_column(Text)
+    cover_url: Mapped[str] = mapped_column(String(500), default="")
+    category: Mapped[str] = mapped_column(String(30), default="notice", index=True)
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    status: Mapped[str] = mapped_column(String(20), default="draft", index=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    __table_args__ = (Index("ix_announcements_status_published", "status", "published_at"),)
+
+
+class AnnouncementRead(Base):
+    __tablename__ = "announcement_reads"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    announcement_id: Mapped[UUID] = mapped_column(
+        ForeignKey("announcements.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    read_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "announcement_id", "user_id", name="uq_announcement_reads_announcement_user"
+        ),
+        Index("ix_announcement_reads_user_read", "user_id", "read_at"),
+    )
+
+
 class UsageEvent(Base):
     __tablename__ = "usage_events"
 
