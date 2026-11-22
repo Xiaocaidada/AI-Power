@@ -17,8 +17,10 @@ from app.routers import (
     collaborations,
     content,
     conversations,
+    dashboard,
     documents,
     evaluations,
+    files,
     health,
     knowledge_bases,
     market,
@@ -28,6 +30,7 @@ from app.routers import (
     prompts,
     provider_configs,
     providers,
+    search,
     traces,
     usage,
     webhooks,
@@ -71,6 +74,9 @@ OPENAPI_TAGS = [
     {"name": "projects", "description": "Workspace projects and conversation defaults."},
     {"name": "agents", "description": "Agent marketplace and custom agents."},
     {"name": "plugins", "description": "Plugin marketplace, configuration, and calls."},
+    {"name": "dashboard", "description": "Personal console aggregation."},
+    {"name": "search", "description": "Workspace-wide search across resources."},
+    {"name": "files", "description": "Cross-KB file center and downloads."},
     {"name": "prompt-templates", "description": "Versioned workspace prompt templates."},
     {"name": "usage", "description": "Quota, token usage, and cost summaries."},
     {"name": "traces", "description": "Per-request timing and routing metadata."},
@@ -125,6 +131,9 @@ app.include_router(projects.router)
 app.include_router(agents.router)
 app.include_router(plugins.router)
 app.include_router(plugins.admin_router)
+app.include_router(dashboard.router)
+app.include_router(search.router)
+app.include_router(files.router)
 app.include_router(conversations.router)
 app.include_router(conversations.messages_router)
 app.include_router(documents.router)

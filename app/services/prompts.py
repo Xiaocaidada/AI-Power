@@ -3,10 +3,10 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import PromptTemplate, PromptVersion
+from app.models import PromptFavorite, PromptTemplate, PromptVersion
 
 VARIABLE_PATTERN = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}")
 
@@ -83,16 +83,100 @@ async def list_versions(session: AsyncSession, template_id: UUID) -> list[Prompt
     return list(result.scalars())
 
 
-async def list_templates(session: AsyncSession, workspace_id: UUID) -> list[PromptTemplate]:
+async def list_templates(
+    session: AsyncSession,
+    workspace_id: UUID,
+    *,
+    q: str | None = None,
+    category: str | None = None,
+    favorite_user_id: UUID | None = None,
+    favorite_only: bool = False,
+) -> list[PromptTemplate]:
+    conditions = [
+        PromptTemplate.workspace_id == workspace_id,
+        PromptTemplate.deleted_at.is_(None),
+    ]
+    if category:
+        conditions.append(PromptTemplate.category == category)
+    if q and q.strip():
+        term = f"%{q.strip()}%"
+        conditions.append(
+            or_(
+                PromptTemplate.name.ilike(term),
+                PromptTemplate.description.ilike(term),
+                exists(
+                    select(PromptVersion.id).where(
+                        PromptVersion.template_id == PromptTemplate.id,
+                        PromptVersion.system_prompt.ilike(term),
+                    )
+                ),
+            )
+        )
+    if favorite_only and favorite_user_id is not None:
+        conditions.append(
+            exists(
+                select(PromptFavorite.id).where(
+                    PromptFavorite.template_id == PromptTemplate.id,
+                    PromptFavorite.user_id == favorite_user_id,
+                )
+            )
+        )
     result = await session.execute(
         select(PromptTemplate)
-        .where(
-            PromptTemplate.workspace_id == workspace_id,
-            PromptTemplate.deleted_at.is_(None),
-        )
+        .where(*conditions)
         .order_by(PromptTemplate.created_at.desc(), PromptTemplate.id.desc())
     )
     return list(result.scalars())
+
+
+async def favorite_ids(
+    session: AsyncSession, user_id: UUID, template_ids: list[UUID]
+) -> set[UUID]:
+    if not template_ids:
+        return set()
+    rows = (
+        await session.execute(
+            select(PromptFavorite.template_id).where(
+                PromptFavorite.user_id == user_id,
+                PromptFavorite.template_id.in_(template_ids),
+            )
+        )
+    ).scalars().all()
+    return set(rows)
+
+
+async def set_favorite(
+    session: AsyncSession, template_id: UUID, user_id: UUID, favorite: bool
+) -> bool:
+    existing = (
+        await session.execute(
+            select(PromptFavorite).where(
+                PromptFavorite.template_id == template_id,
+                PromptFavorite.user_id == user_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if favorite and existing is None:
+        session.add(PromptFavorite(template_id=template_id, user_id=user_id))
+    elif not favorite and existing is not None:
+        await session.execute(
+            delete(PromptFavorite).where(
+                PromptFavorite.template_id == template_id,
+                PromptFavorite.user_id == user_id,
+            )
+        )
+    await session.flush()
+    return favorite
+
+
+async def update_template(
+    session: AsyncSession, template: PromptTemplate, values: dict[str, object]
+) -> PromptTemplate:
+    for key, value in values.items():
+        setattr(template, key, value)
+    await session.commit()
+    await session.refresh(template)
+    return template
 
 
 async def create_template(
@@ -103,11 +187,13 @@ async def create_template(
     name: str,
     description: str,
     system_prompt: str,
+    category: str = "general",
 ) -> tuple[PromptTemplate, PromptVersion]:
     template = PromptTemplate(
         workspace_id=workspace_id,
         name=name,
         description=description,
+        category=category,
         created_by=user_id,
     )
     session.add(template)

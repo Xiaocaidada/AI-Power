@@ -47,6 +47,7 @@ def test_alembic_upgrade_head_creates_schema(tmp_path):
         "provider_models",
         "prompt_templates",
         "prompt_versions",
+        "prompt_favorites",
         "audit_logs",
         "workflows",
         "workflow_versions",
@@ -231,6 +232,14 @@ def test_alembic_upgrade_head_creates_schema(tmp_path):
     assert {"workspace_id", "conversation_id", "plugin_id", "status", "latency_ms"} <= (
         call_columns
     )
+    prompt_columns = {
+        column["name"] for column in inspector.get_columns("prompt_templates")
+    }
+    assert "category" in prompt_columns
+    favorite_columns = {
+        column["name"] for column in inspector.get_columns("prompt_favorites")
+    }
+    assert {"template_id", "user_id", "created_at"} <= favorite_columns
 
     provider_config_columns = {
         column["name"] for column in inspector.get_columns("provider_configs")

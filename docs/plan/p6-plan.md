@@ -1,6 +1,6 @@
 # P6 规划：用户 Provider Hub、模型广场与平台门户
 
-- **Status:** In progress（P6-S1–S5 已完成；S6 待做，2026-11-23）
+- **Status:** 已完成（P6-S1–S6，2026-11-24）
 - **Scope source:** `拓展增强.txt`（用户需求）+ P5 已完成能力
 - **前置:** P0–P5 已完成；P5 测试范围按用户要求缩小
 
@@ -89,11 +89,15 @@ P5 解决“质量、开放平台、成本、长任务”，P6 解决“**用户
 
 > **完成证据**：[`docs/tdd/p6-s5-agents-plugins.md`](../tdd/p6-s5-agents-plugins.md)、[`docs/api/agents-plugins.md`](../api/agents-plugins.md)。Agent 广场/自定义 Agent、Agent 会话、插件定义/配置、会话插件、敏感确认、调用记录已完成。
 
-### P6-S6 辅助与收口
+### P6-S6 辅助与收口 — **已完成（2026-11-24）**
 
 - 个人控制台聚合、提示词收藏/分类、文件中心、全局搜索。
 - 外部 Key 用量说明：平台统计与第三方实际计费分离。
 - 文档、演示、部署复核；按用户要求控制测试规模，但保留 Provider 加密/隔离/能力校验测试。
+
+> **完成证据**：[`docs/tdd/p6-s6-assist.md`](../tdd/p6-s6-assist.md)、[`docs/api/assist.md`](../api/assist.md)。个人控制台、提示词分类/收藏、文件中心、全局搜索与用量口径说明已完成；P6 收口。
+>
+> **演示走查**：[`docs/demo/p6-walkthrough.md`](../demo/p6-walkthrough.md)。
 
 ## 5. P6-A / P6-B
 

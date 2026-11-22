@@ -40,6 +40,7 @@ export function NewChatPage() {
   const [searchParams] = useSearchParams()
   const initialProvider = searchParams.get('provider')
   const initialModel = searchParams.get('model')
+  const initialPromptVersion = searchParams.get('promptVersion')
   const appliedQueryRef = useRef(false)
   const [projectId, setProjectId] = useState(() => searchParams.get('project') ?? '')
   const [modelId, setModelId] = useState(() => {
@@ -154,6 +155,17 @@ export function NewChatPage() {
   useEffect(() => {
     if (!supportsTools) setAgent(false)
   }, [supportsTools])
+
+  useEffect(() => {
+    if (initialPromptVersion === null) return
+    const template = (templatesQuery.data ?? []).find((item) =>
+      item.versions.some((version) => version.id === initialPromptVersion),
+    )
+    if (template === undefined) return
+    setTemplateId(template.id)
+    const declared = template.versions[0]?.variables ?? []
+    setVariables(Object.fromEntries(declared.map((variable) => [variable, ''])))
+  }, [initialPromptVersion, templatesQuery.data])
 
   const selectTemplate = (nextId: string) => {
     setTemplateId(nextId)

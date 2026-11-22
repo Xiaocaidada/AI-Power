@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { FilePlus2, Plus, Trash2 } from 'lucide-react'
+import { FilePlus2, Plus, Star, Trash2 } from 'lucide-react'
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
@@ -20,9 +21,14 @@ const textareaClass =
 export function PromptTemplatesPage() {
   const { t, language } = useI18n()
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [createOpen, setCreateOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState('')
+  const [favoriteOnly, setFavoriteOnly] = useState(false)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [category, setCategory] = useState('general')
   const [prompt, setPrompt] = useState('')
   const [versionTarget, setVersionTarget] = useState<PromptTemplate | null>(null)
   const [versionPrompt, setVersionPrompt] = useState('')
@@ -34,8 +40,15 @@ export function PromptTemplatesPage() {
   const [busy, setBusy] = useState(false)
 
   const templates = useQuery({
-    queryKey: ['prompt-templates'],
-    queryFn: () => apiRequest<PromptTemplate[]>('/prompt-templates'),
+    queryKey: ['prompt-templates', search, categoryFilter, favoriteOnly],
+    queryFn: () =>
+      apiRequest<PromptTemplate[]>(
+        `/prompt-templates?${new URLSearchParams({
+          ...(search.trim() !== '' ? { q: search.trim() } : {}),
+          ...(categoryFilter !== '' ? { category: categoryFilter } : {}),
+          ...(favoriteOnly ? { favorite: 'true' } : {}),
+        }).toString()}`,
+      ),
   })
 
   const resetError = () => setError(null)
@@ -50,6 +63,7 @@ export function PromptTemplatesPage() {
         body: {
           name: name.trim(),
           description: description.trim(),
+          category: category.trim() || 'general',
           system_prompt: prompt.trim(),
         },
       })
@@ -57,6 +71,7 @@ export function PromptTemplatesPage() {
       setCreateOpen(false)
       setName('')
       setDescription('')
+      setCategory('general')
       setPrompt('')
     } catch (caught) {
       setError(t(errorTextKey(caught)))
@@ -123,6 +138,19 @@ export function PromptTemplatesPage() {
     }
   }
 
+  const toggleFavorite = async (template: PromptTemplate) => {
+    await apiRequest(`/prompt-templates/${template.id}/favorite`, {
+      method: template.favorite ? 'DELETE' : 'POST',
+    })
+    await queryClient.invalidateQueries({ queryKey: ['prompt-templates'] })
+  }
+
+  const useTemplate = (template: PromptTemplate) => {
+    const version = template.versions[0]
+    if (version === undefined) return
+    navigate(`/chat?promptVersion=${version.id}`)
+  }
+
   const latest = previewTarget?.versions[0]
 
   return (
@@ -144,6 +172,29 @@ export function PromptTemplatesPage() {
             {error}
           </p>
         )}
+
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder={t('prompts.search')}
+            className="h-9 w-full max-w-xs rounded-lg border border-border bg-surface px-3 text-sm text-ink focus:border-accent focus:outline-none"
+          />
+          <input
+            value={categoryFilter}
+            onChange={(event) => setCategoryFilter(event.target.value)}
+            placeholder={t('prompts.category')}
+            className="h-9 w-40 rounded-lg border border-border bg-surface px-3 text-sm text-ink focus:border-accent focus:outline-none"
+          />
+          <label className="flex items-center gap-1.5 text-xs text-ink">
+            <input
+              type="checkbox"
+              checked={favoriteOnly}
+              onChange={(event) => setFavoriteOnly(event.target.checked)}
+            />
+            {t('prompts.favoritesOnly')}
+          </label>
+        </div>
 
         {templates.isLoading && (
           <div className="mt-8 flex items-center gap-2 text-sm text-ink-muted">
@@ -170,7 +221,22 @@ export function PromptTemplatesPage() {
                       {template.description || t('prompts.noDescription')}
                     </p>
                   </div>
-                  <Badge tone="accent">v{current?.version ?? 1}</Badge>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      aria-label={t('prompts.favorite')}
+                      onClick={() => void toggleFavorite(template)}
+                      className="rounded p-1 text-ink-muted hover:text-accent"
+                    >
+                      <Star
+                        className={`h-4 w-4 ${
+                          template.favorite ? 'fill-current text-accent' : ''
+                        }`}
+                      />
+                    </button>
+                    <Badge tone="neutral">{template.category}</Badge>
+                    <Badge tone="accent">v{current?.version ?? 1}</Badge>
+                  </div>
                 </div>
                 {current !== undefined && current.variables.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
@@ -188,6 +254,9 @@ export function PromptTemplatesPage() {
                   {current?.system_prompt}
                 </p>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <Button size="sm" onClick={() => useTemplate(template)}>
+                    {t('prompts.use')}
+                  </Button>
                   <Button variant="secondary" size="sm" onClick={() => openPreview(template)}>
                     {t('prompts.preview')}
                   </Button>
@@ -248,6 +317,12 @@ export function PromptTemplatesPage() {
             onChange={(event) => setDescription(event.target.value)}
             placeholder={t('prompts.description')}
             maxLength={500}
+          />
+          <Input
+            value={category}
+            onChange={(event) => setCategory(event.target.value)}
+            placeholder={t('prompts.category')}
+            maxLength={50}
           />
           <Textarea
             className={textareaClass}

@@ -564,11 +564,27 @@ class PromptVersionCreate(BaseModel):
 class PromptTemplateCreate(PromptVersionCreate):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=500)
+    category: str = Field(default="general", max_length=50)
 
-    @field_validator("name", "description", mode="before")
+    @field_validator("name", "description", "category", mode="before")
     @classmethod
     def strip_text(cls, value: object) -> object:
         return value.strip() if isinstance(value, str) else value
+
+
+class PromptTemplateUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+    category: str | None = Field(default=None, max_length=50)
+
+    @field_validator("name", "description", "category", mode="before")
+    @classmethod
+    def strip_optional_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class PromptFavoriteOut(BaseModel):
+    favorite: bool
 
 
 class PromptRenderIn(BaseModel):
@@ -590,6 +606,8 @@ class PromptTemplateOut(BaseModel):
     id: UUID
     name: str
     description: str
+    category: str = "general"
+    favorite: bool = False
     created_at: datetime
     versions: list[PromptVersionOut] = Field(default_factory=list)
 
@@ -1563,3 +1581,55 @@ class AuditLogOut(BaseModel):
     target_id: str | None
     detail: dict[str, object] | None
     created_at: datetime
+
+
+class FileOut(BaseModel):
+    id: UUID
+    filename: str
+    mime: str
+    size_bytes: int
+    status: str
+    error_code: str | None
+    page_count: int | None
+    kb_id: UUID
+    kb_name: str
+    created_at: datetime
+
+
+class DashboardCountsOut(BaseModel):
+    providers: int
+    models: int
+    conversations: int
+    projects: int
+    knowledge_bases: int
+    agents: int
+    plugins: int
+    unread_notifications: int
+    requests_30d: int
+    tokens_30d: int
+    cost_30d: float
+
+
+class DashboardRecentProjectOut(BaseModel):
+    id: UUID
+    name: str
+    updated_at: datetime
+
+
+class DashboardOut(BaseModel):
+    counts: DashboardCountsOut
+    recent_conversations: list[ConversationOut] = Field(default_factory=list)
+    recent_projects: list[DashboardRecentProjectOut] = Field(default_factory=list)
+
+
+class SearchResultOut(BaseModel):
+    type: str
+    id: str
+    title: str
+    subtitle: str
+    href: str
+
+
+class SearchOut(BaseModel):
+    query: str
+    results: list[SearchResultOut] = Field(default_factory=list)

@@ -94,11 +94,27 @@ class PromptTemplate(Base):
     )
     name: Mapped[str] = mapped_column(String(120))
     description: Mapped[str] = mapped_column(String(500), default="")
+    category: Mapped[str] = mapped_column(String(50), default="general", index=True)
     created_by: Mapped[UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), default=None
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+
+class PromptFavorite(Base):
+    __tablename__ = "prompt_favorites"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    template_id: Mapped[UUID] = mapped_column(
+        ForeignKey("prompt_templates.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("template_id", "user_id", name="uq_prompt_favorites_template_user"),
+    )
 
 
 class PromptVersion(Base):

@@ -158,6 +158,9 @@ export function UsagePage() {
       </header>
 
       <div className="space-y-5 px-6 py-6">
+        <p className="rounded-lg bg-surface-muted px-3 py-2 text-xs leading-5 text-ink-muted">
+          {t('usage.externalKeyNote')}
+        </p>
         {quota.data !== undefined && (
           <section className="rounded-card border border-border bg-surface p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">

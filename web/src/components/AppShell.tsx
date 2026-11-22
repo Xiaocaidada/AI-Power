@@ -4,8 +4,11 @@ import {
   BarChart3,
   BookOpen,
   Bot,
+  FileText,
   FlaskConical,
   FolderInput,
+  FolderOpen,
+  LayoutDashboard,
   Megaphone,
   Menu,
   MessageSquare,
@@ -15,6 +18,7 @@ import {
   Pin,
   Plug,
   Puzzle,
+  Search,
   Settings,
   Shield,
   Sun,
@@ -38,6 +42,8 @@ import { useAuthStore } from '../store/auth'
 const workNav = [
   { to: '/chat', labelKey: 'nav.chat', icon: MessageSquare },
   { to: '/agents', labelKey: 'nav.agents', icon: Bot },
+  { to: '/settings/prompts', labelKey: 'nav.prompts', icon: FileText },
+  { to: '/files', labelKey: 'nav.files', icon: FolderOpen },
   { to: '/knowledge', labelKey: 'nav.knowledge', icon: BookOpen },
 ]
 
@@ -48,6 +54,7 @@ const buildNav = [
 ]
 
 const bottomNav = [
+  { to: '/dashboard', labelKey: 'nav.dashboard', icon: LayoutDashboard },
   { to: '/usage', labelKey: 'nav.usage', icon: BarChart3 },
   { to: '/plugins', labelKey: 'nav.plugins', icon: Plug },
   { to: '/settings', labelKey: 'nav.settings', icon: Settings },
@@ -71,7 +78,7 @@ function NavGroup({
           <NavLink
             key={to}
             to={to}
-            end={to === '/settings' || to === '/admin'}
+            end={to === '/settings' || to === '/admin' || to === '/settings/prompts'}
             className={({ isActive }) =>
               cn(
                 'flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm',
@@ -336,6 +343,10 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
           </NavLink>
           <NavLink to="/archive" className="hover:text-ink">
             {t('chat.archived')}
+          </NavLink>
+          <NavLink to="/search" className="inline-flex items-center gap-1 hover:text-ink">
+            <Search className="h-3 w-3" />
+            {t('search.short')}
           </NavLink>
         </div>
       </div>
