@@ -50,8 +50,9 @@ class RefreshTokenIn(BaseModel):
 
 class KnowledgeBaseCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
+    description: str = Field(default="", max_length=500)
 
-    @field_validator("name", mode="before")
+    @field_validator("name", "description", mode="before")
     @classmethod
     def strip_name(cls, value: object) -> object:
         return value.strip() if isinstance(value, str) else value
@@ -62,7 +63,18 @@ class KnowledgeBaseOut(BaseModel):
 
     id: UUID
     name: str
+    description: str = ""
     created_at: datetime
+
+
+class KnowledgeBaseUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=500)
+
+    @field_validator("name", "description", mode="before")
+    @classmethod
+    def strip_optional(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
 
 
 class ChunkingSettingsUpdate(BaseModel):
@@ -857,6 +869,8 @@ class ConversationCreate(BaseModel):
     provider_id: str | None = Field(default=None, max_length=50)
     model: str | None = Field(default=None, max_length=200)
     kb_id: UUID | None = None
+    kb_ids: list[UUID] = Field(default_factory=list, max_length=10)
+    attachment_ids: list[UUID] = Field(default_factory=list, max_length=10)
     agent: bool = False
     custom_agent_id: UUID | None = None
     plugin_ids: list[UUID] = Field(default_factory=list, max_length=20)
@@ -879,6 +893,7 @@ class ConversationOut(BaseModel):
     provider_id: str
     model: str
     kb_id: UUID | None
+    kb_ids: list[UUID] = Field(default_factory=list)
     project_id: UUID | None = None
     custom_agent_id: UUID | None = None
     agent: bool = False
@@ -906,7 +921,7 @@ class ConversationUpdate(BaseModel):
 
 
 class ConversationBatchIn(BaseModel):
-    action: Literal["archive", "unarchive", "move"]
+    action: Literal["archive", "unarchive", "move", "delete"]
     conversation_ids: list[UUID] = Field(min_length=1, max_length=100)
     project_id: UUID | None = None
 
@@ -930,6 +945,19 @@ class MessageFeedbackOut(BaseModel):
     updated_at: datetime
 
 
+class AttachmentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    filename: str
+    mime: str
+    size_bytes: int
+    kind: str
+    status: str
+    error_code: str | None = None
+    created_at: datetime
+
+
 class MessageOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -946,11 +974,26 @@ class MessageOut(BaseModel):
     created_at: datetime
     citations: list[CitationOut] = Field(default_factory=list)
     feedback: MessageFeedbackOut | None = None
+    attachments: list[AttachmentOut] = Field(default_factory=list)
 
 
 class ConversationDetailOut(ConversationOut):
     messages: list[MessageOut] = Field(default_factory=list)
     plugins: list[ConversationPluginOut] = Field(default_factory=list)
+
+
+class MessageUpdateIn(BaseModel):
+    content: str = Field(min_length=1, max_length=20000)
+
+    @field_validator("content", mode="before")
+    @classmethod
+    def strip_content(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class MessageEditOut(BaseModel):
+    message: MessageOut
+    removed: int
 
 
 class MessageFeedbackIn(BaseModel):
@@ -965,6 +1008,7 @@ class MessageFeedbackIn(BaseModel):
 
 class SendMessageIn(BaseModel):
     content: str = Field(min_length=1, max_length=20000)
+    attachment_ids: list[UUID] = Field(default_factory=list, max_length=10)
 
     @field_validator("content", mode="before")
     @classmethod
@@ -1330,7 +1374,26 @@ class DocumentOut(BaseModel):
     status: str
     error_code: str | None
     page_count: int | None
+    tags: list[str] = Field(default_factory=list)
     created_at: datetime
+
+
+class DocumentUpdate(BaseModel):
+    tags: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def clean_tags(cls, value: object) -> object:
+        if not isinstance(value, list):
+            return value
+        cleaned: list[str] = []
+        for item in value:
+            if not isinstance(item, str):
+                continue
+            tag = item.strip()
+            if tag and tag not in cleaned and len(tag) <= 30:
+                cleaned.append(tag)
+        return cleaned[:20]
 
 
 class DocumentUploadOut(BaseModel):
@@ -1386,7 +1449,21 @@ class UsageByKeyOut(BaseModel):
     total_requests: int
     total_cost: float
     unpriced_requests: int
-    buckets: list[UsageByKeyBucketOut] = Field(default_factory=list)
+    buckets: list[UsageByKeyBucketOut]
+
+
+class UsageRecentItemOut(BaseModel):
+    id: UUID
+    source: str
+    provider_id: str | None
+    model: str | None
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    total_tokens: int
+    cost: float
+    status: str | None
+    conversation_id: UUID | None
+    created_at: datetime = Field(default_factory=list)
 
 
 class ApiKeyCreate(BaseModel):

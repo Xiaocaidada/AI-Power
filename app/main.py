@@ -13,6 +13,7 @@ from app.routers import (
     admin,
     agents,
     api_keys,
+    attachments,
     auth,
     collaborations,
     content,
@@ -57,6 +58,7 @@ OPENAPI_TAGS = [
     {"name": "auth", "description": "Registration, login, refresh, and account lookup."},
     {"name": "api-keys", "description": "Workspace API keys with chat/kb scopes."},
     {"name": "conversations", "description": "Chat sessions and SSE streaming messages."},
+    {"name": "attachments", "description": "Chat file attachments with workspace isolation."},
     {"name": "documents", "description": "Upload, list, retry, and delete documents."},
     {"name": "knowledge-bases", "description": "Workspace knowledge bases."},
     {
@@ -136,6 +138,7 @@ app.include_router(search.router)
 app.include_router(files.router)
 app.include_router(conversations.router)
 app.include_router(conversations.messages_router)
+app.include_router(attachments.router)
 app.include_router(documents.router)
 app.include_router(knowledge_bases.router)
 app.include_router(evaluations.router)

@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { BookOpen, Plus, Trash2 } from 'lucide-react'
+import { BookOpen, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
@@ -20,9 +20,13 @@ export function KnowledgePage() {
   const queryClient = useQueryClient()
   const [createOpen, setCreateOpen] = useState(false)
   const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<KnowledgeBase | null>(null)
+  const [editTarget, setEditTarget] = useState<KnowledgeBase | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editDescription, setEditDescription] = useState('')
 
   const kbs = useQuery({
     queryKey: ['kbs'],
@@ -37,12 +41,31 @@ export function KnowledgePage() {
     try {
       const kb = await apiRequest<KnowledgeBase>('/knowledge-bases', {
         method: 'POST',
-        body: { name: trimmed },
+        body: { name: trimmed, description: description.trim() },
       })
       await queryClient.invalidateQueries({ queryKey: ['kbs'] })
       setCreateOpen(false)
       setName('')
+      setDescription('')
       navigate(`/knowledge/${kb.id}`)
+    } catch (caught) {
+      setError(t(errorTextKey(caught)))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const saveEdit = async () => {
+    if (editTarget === null || editName.trim() === '') return
+    setBusy(true)
+    setError(null)
+    try {
+      await apiRequest(`/knowledge-bases/${editTarget.id}`, {
+        method: 'PATCH',
+        body: { name: editName.trim(), description: editDescription.trim() },
+      })
+      await queryClient.invalidateQueries({ queryKey: ['kbs'] })
+      setEditTarget(null)
     } catch (caught) {
       setError(t(errorTextKey(caught)))
     } finally {
@@ -124,19 +147,36 @@ export function KnowledgePage() {
                   </span>
                   <span className="min-w-0">
                     <span className="block truncate text-sm font-medium text-ink">{kb.name}</span>
+                    <span className="block truncate text-xs text-ink-muted">
+                      {kb.description || ''}
+                    </span>
                     <span className="block text-xs text-ink-muted">
                       {t('knowledge.created', { date: formatDate(kb.created_at, language) })}
                     </span>
                   </span>
                 </button>
-                <button
-                  type="button"
-                  aria-label={t('knowledge.delete')}
-                  className="rounded-md p-1 text-ink-muted opacity-0 transition-opacity hover:bg-danger/10 hover:text-danger group-hover:opacity-100"
-                  onClick={() => setDeleteTarget(kb)}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    aria-label={t('knowledge.edit')}
+                    className="rounded-md p-1 text-ink-muted opacity-0 transition-opacity hover:bg-surface-muted hover:text-ink group-hover:opacity-100"
+                    onClick={() => {
+                      setEditTarget(kb)
+                      setEditName(kb.name)
+                      setEditDescription(kb.description ?? '')
+                    }}
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={t('knowledge.delete')}
+                    className="rounded-md p-1 text-ink-muted opacity-0 transition-opacity hover:bg-danger/10 hover:text-danger group-hover:opacity-100"
+                    onClick={() => setDeleteTarget(kb)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
               <div className="mt-3 flex justify-end">
                 <Button variant="ghost" size="sm" onClick={() => navigate(`/knowledge/${kb.id}`)}>
@@ -175,6 +215,54 @@ export function KnowledgePage() {
             onKeyDown={(event) => {
               if (event.key === 'Enter') void create()
             }}
+          />
+        </label>
+        <label className="mt-3 block text-sm">
+          <span className="mb-1.5 block text-ink-muted">{t('knowledge.description')}</span>
+          <Input
+            value={description}
+            maxLength={500}
+            placeholder={t('knowledge.descriptionPlaceholder')}
+            onChange={(event) => setDescription(event.target.value)}
+          />
+        </label>
+        {error !== null && <p className="mt-3 text-sm text-danger">{error}</p>}
+      </Dialog>
+
+      <Dialog
+        open={editTarget !== null}
+        onClose={() => setEditTarget(null)}
+        title={t('knowledge.edit')}
+        footer={
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setEditTarget(null)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              size="sm"
+              disabled={busy || editName.trim() === ''}
+              onClick={() => void saveEdit()}
+            >
+              {busy && <Spinner />}
+              {t('common.save')}
+            </Button>
+          </>
+        }
+      >
+        <label className="block text-sm">
+          <span className="mb-1.5 block text-ink-muted">{t('knowledge.name')}</span>
+          <Input
+            value={editName}
+            maxLength={100}
+            onChange={(event) => setEditName(event.target.value)}
+          />
+        </label>
+        <label className="mt-3 block text-sm">
+          <span className="mb-1.5 block text-ink-muted">{t('knowledge.description')}</span>
+          <Input
+            value={editDescription}
+            maxLength={500}
+            onChange={(event) => setEditDescription(event.target.value)}
           />
         </label>
         {error !== null && <p className="mt-3 text-sm text-danger">{error}</p>}

@@ -3,12 +3,13 @@ from dataclasses import dataclass
 from typing import Literal, Protocol
 
 Role = Literal["system", "user", "assistant"]
+MessageContent = str | list[dict[str, object]]
 
 
 @dataclass(frozen=True, slots=True)
 class ChatMessage:
     role: Role
-    content: str
+    content: MessageContent
 
 
 @dataclass(frozen=True, slots=True)

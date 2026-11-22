@@ -16,14 +16,15 @@ class KnowledgeSearchArgs(BaseModel):
 
 
 async def knowledge_search(context: ToolContext, args: KnowledgeSearchArgs) -> str:
-    if context.kb_id is None:
+    kb_ids = list(context.kb_ids or ([] if context.kb_id is None else [context.kb_id]))
+    if not kb_ids:
         raise ToolError("no_knowledge_base", "No knowledge base is attached to this conversation")
     async with SessionLocal() as session:
         try:
             chunks = await retrieve_chunks(
                 session,
                 workspace_id=context.workspace_id,
-                kb_id=context.kb_id,
+                kb_ids=kb_ids,
                 query=args.query,
             )
         except ProviderError:

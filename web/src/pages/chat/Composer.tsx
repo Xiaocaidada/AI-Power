@@ -1,10 +1,12 @@
-import { ArrowUp, Paperclip, Square } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { ArrowUp, FileText, Image as ImageIcon, Paperclip, Square, X } from 'lucide-react'
+import { useRef, useState, type ReactNode } from 'react'
 
 import { Textarea } from '../../components/ui/input'
 import { Button } from '../../components/ui/button'
+import { ATTACHMENT_ACCEPT } from '../../lib/attachments'
 import { MAX_MESSAGE_CHARS } from '../../lib/config'
 import { useI18n } from '../../lib/i18n'
+import type { ChatAttachment } from '../../lib/types'
 import { cn } from '../../lib/utils'
 
 interface ComposerProps {
@@ -19,6 +21,10 @@ interface ComposerProps {
   autoFocus?: boolean
   footerStart?: ReactNode
   showAttach?: boolean
+  attachments?: ChatAttachment[]
+  attaching?: boolean
+  onAttachFiles?: (files: File[]) => void
+  onRemoveAttachment?: (id: string) => void
 }
 
 export function Composer({
@@ -33,9 +39,14 @@ export function Composer({
   autoFocus = false,
   footerStart,
   showAttach = true,
+  attachments = [],
+  attaching = false,
+  onAttachFiles,
+  onRemoveAttachment,
 }: ComposerProps) {
   const { t } = useI18n()
   const [sending, setSending] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const submit = async () => {
     const text = value.trim()
@@ -61,6 +72,38 @@ export function Composer({
         hero ? 'p-3' : 'p-2',
       )}
     >
+      {(attachments.length > 0 || attaching) && (
+        <div className="flex flex-wrap gap-1.5 px-1 pb-2 pt-1">
+          {attachments.map((attachment) => (
+            <span
+              key={attachment.id}
+              className="inline-flex max-w-[14rem] items-center gap-1.5 rounded-full bg-surface-muted px-2.5 py-1 text-[11px] text-ink"
+            >
+              {attachment.kind === 'image' ? (
+                <ImageIcon className="h-3 w-3 text-ink-muted" />
+              ) : (
+                <FileText className="h-3 w-3 text-ink-muted" />
+              )}
+              <span className="truncate">{attachment.filename}</span>
+              {onRemoveAttachment !== undefined && (
+                <button
+                  type="button"
+                  aria-label={t('chat.removeAttachment')}
+                  className="rounded p-0.5 text-ink-muted hover:text-danger"
+                  onClick={() => onRemoveAttachment(attachment.id)}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </span>
+          ))}
+          {attaching && (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-muted px-2.5 py-1 text-[11px] text-ink-muted">
+              {t('chat.uploadingAttachment')}
+            </span>
+          )}
+        </div>
+      )}
       <Textarea
         rows={1}
         value={value}
@@ -87,16 +130,35 @@ export function Composer({
       <div className="flex items-center justify-between gap-2 px-1 pt-1">
         <div className="flex min-w-0 items-center gap-1.5">
           {showAttach && (
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled
-              className="h-8 px-2"
-              aria-label={t('chat.attach')}
-              title={t('chat.attachmentSoon')}
-            >
-              <Paperclip className="h-3.5 w-3.5" />
-            </Button>
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept={ATTACHMENT_ACCEPT}
+                className="hidden"
+                onChange={(event) => {
+                  const files = Array.from(event.target.files ?? [])
+                  if (files.length > 0) onAttachFiles?.(files)
+                  event.target.value = ''
+                }}
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={onAttachFiles === undefined || attaching}
+                className="h-8 px-2"
+                aria-label={t('chat.attach')}
+                title={
+                  onAttachFiles === undefined
+                    ? t('chat.attachmentSoon')
+                    : t('chat.attachHint')
+                }
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Paperclip className="h-3.5 w-3.5" />
+              </Button>
+            </>
           )}
           {footerStart}
           <span className="text-[11px] text-ink-muted">

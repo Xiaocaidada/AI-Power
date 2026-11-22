@@ -316,6 +316,7 @@ class KnowledgeBase(Base):
     )
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(100))
+    description: Mapped[str] = mapped_column(String(500), default="")
     settings: Mapped[dict[str, object] | None] = mapped_column(JSON, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
@@ -439,6 +440,59 @@ class Conversation(Base):
             "archived_at",
         ),
         Index("ix_conversations_workspace_pinned", "workspace_id", "pinned"),
+    )
+
+
+class ChatAttachment(Base):
+    __tablename__ = "chat_attachments"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    conversation_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="SET NULL"), default=None, index=True
+    )
+    message_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("messages.id", ondelete="SET NULL"), default=None, index=True
+    )
+    filename: Mapped[str] = mapped_column(String(255))
+    mime: Mapped[str] = mapped_column(String(120))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    storage_path: Mapped[str] = mapped_column(String(500))
+    kind: Mapped[str] = mapped_column(String(20), default="document")
+    status: Mapped[str] = mapped_column(String(20), default="ready")
+    error_code: Mapped[str | None] = mapped_column(String(50), default=None)
+    extracted_text: Mapped[str | None] = mapped_column(Text, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+    __table_args__ = (
+        Index(
+            "ix_chat_attachments_workspace_conversation",
+            "workspace_id",
+            "conversation_id",
+        ),
+    )
+
+
+class ConversationKnowledgeBase(Base):
+    __tablename__ = "conversation_knowledge_bases"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    conversation_id: Mapped[UUID] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), index=True
+    )
+    kb_id: Mapped[UUID] = mapped_column(
+        ForeignKey("knowledge_bases.id", ondelete="CASCADE"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "conversation_id", "kb_id", name="uq_conversation_knowledge_bases_pair"
+        ),
     )
 
 
@@ -660,7 +714,7 @@ class UsageEvent(Base):
         ForeignKey("conversations.id", ondelete="SET NULL"), default=None, index=True
     )
     message_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("messages.id", ondelete="CASCADE"), unique=True, index=True, default=None
+        ForeignKey("messages.id", ondelete="SET NULL"), unique=True, index=True, default=None
     )
     source: Mapped[str] = mapped_column(String(20), default="chat", index=True)
     api_key_id: Mapped[UUID | None] = mapped_column(
@@ -735,6 +789,7 @@ class Document(Base):
     status: Mapped[str] = mapped_column(String(20), default="uploaded")
     error_code: Mapped[str | None] = mapped_column(String(50), default=None)
     page_count: Mapped[int | None] = mapped_column(Integer, default=None)
+    tags: Mapped[list[str]] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 

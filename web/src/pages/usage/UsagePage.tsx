@@ -12,10 +12,12 @@ import {
   YAxis,
 } from 'recharts'
 
+import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { EmptyState } from '../../components/ui/empty-state'
 import { Input } from '../../components/ui/input'
 import { Spinner } from '../../components/ui/spinner'
+import { formatTime } from '../../lib/format'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
 import { mergePages, pageFromItems } from '../../lib/pagination'
@@ -24,6 +26,7 @@ import type {
   TraceRecord,
   UsageByKey,
   UsageCost,
+  UsageRecentItem,
   UsageSummary,
 } from '../../lib/types'
 import { cn } from '../../lib/utils'
@@ -86,6 +89,11 @@ export function UsagePage() {
     enabled: validRange,
   })
   const costByKey = new Map((cost.data?.buckets ?? []).map((bucket) => [bucket.key, bucket]))
+
+  const recent = useQuery({
+    queryKey: ['usage-recent'],
+    queryFn: () => apiRequest<UsageRecentItem[]>('/usage/recent?limit=20'),
+  })
 
   const byKey = useQuery({
     queryKey: ['usage-by-key', range.from, range.to],
@@ -302,6 +310,78 @@ export function UsagePage() {
             )}
           </div>
         </div>
+
+        <section className="overflow-hidden rounded-card border border-border bg-surface">
+          <div className="border-b border-border px-4 py-3">
+            <h2 className="text-sm font-medium">{t('usage.recentTitle')}</h2>
+            <p className="text-[11px] text-ink-muted">{t('usage.recentHint')}</p>
+          </div>
+          {recent.isLoading ? (
+            <div className="flex items-center gap-2 px-4 py-4 text-sm text-ink-muted">
+              <Spinner />
+              {t('common.loading')}
+            </div>
+          ) : (recent.data ?? []).length === 0 ? (
+            <p className="px-4 py-6 text-sm text-ink-muted">{t('usage.recentEmpty')}</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-surface-muted text-ink-muted">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">{t('usage.recentTime')}</th>
+                    <th className="px-3 py-2 font-medium">{t('usage.recentSource')}</th>
+                    <th className="px-3 py-2 font-medium">{t('usage.recentModel')}</th>
+                    <th className="px-3 py-2 text-right font-medium">
+                      {t('usage.recentTokens')}
+                    </th>
+                    <th className="px-3 py-2 text-right font-medium">{t('usage.cost')}</th>
+                    <th className="px-3 py-2 font-medium">{t('usage.recentStatus')}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {(recent.data ?? []).map((item) => (
+                    <tr key={item.id}>
+                      <td className="whitespace-nowrap px-3 py-2 text-ink-muted">
+                        {formatTime(item.created_at, language)}
+                      </td>
+                      <td className="px-3 py-2 text-ink">{item.source}</td>
+                      <td className="max-w-[16rem] truncate px-3 py-2 font-mono text-ink-muted">
+                        {item.provider_id ?? '—'} · {item.model ?? '—'}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono text-ink">
+                        {format(item.total_tokens)}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono text-ink">
+                        {formatCost(item.cost)}
+                      </td>
+                      <td className="px-3 py-2">
+                        {item.status === null ? (
+                          <span className="text-ink-muted">{t('usage.recentUnknown')}</span>
+                        ) : (
+                          <Badge
+                            tone={
+                              item.status === 'completed' || item.status === 'ok'
+                                ? 'success'
+                                : item.status === 'failed'
+                                  ? 'danger'
+                                  : 'neutral'
+                            }
+                          >
+                            {item.status === 'completed' || item.status === 'ok'
+                              ? t('usage.recentSuccess')
+                              : item.status === 'failed'
+                                ? t('usage.recentFailed')
+                                : item.status}
+                          </Badge>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
 
         {usage.isLoading ? (
           <div className="flex items-center gap-2 text-sm text-ink-muted">

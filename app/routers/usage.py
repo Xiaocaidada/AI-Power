@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.clients import RedisLike, get_redis
 from app.db import get_session
 from app.deps import AuthContext, get_jwt_context
-from app.models import ApiKey, UsageEvent
+from app.models import ApiKey, Message, Trace, UsageEvent
 from app.schemas import (
     QuotaSummaryOut,
     QuotaWindowOut,
@@ -18,6 +18,7 @@ from app.schemas import (
     UsageByKeyOut,
     UsageCostBucketOut,
     UsageCostOut,
+    UsageRecentItemOut,
     UsageSummaryOut,
 )
 from app.services.quotas import quota_snapshot
@@ -174,6 +175,40 @@ async def usage_cost(
         unpriced_requests=sum(bucket.unpriced_requests for bucket in buckets),
         buckets=buckets,
     )
+
+
+@router.get("/recent", response_model=list[UsageRecentItemOut])
+async def usage_recent(
+    context: JwtContext,
+    session: SessionDep,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> list[UsageRecentItemOut]:
+    rows = (
+        await session.execute(
+            select(UsageEvent, Trace.status)
+            .outerjoin(Message, Message.id == UsageEvent.message_id)
+            .outerjoin(Trace, Trace.request_id == Message.request_id)
+            .where(UsageEvent.workspace_id == context.workspace.id)
+            .order_by(UsageEvent.created_at.desc())
+            .limit(limit)
+        )
+    ).all()
+    return [
+        UsageRecentItemOut(
+            id=event.id,
+            source=event.source,
+            provider_id=event.provider_id,
+            model=event.model,
+            prompt_tokens=event.prompt_tokens,
+            completion_tokens=event.completion_tokens,
+            total_tokens=(event.prompt_tokens or 0) + (event.completion_tokens or 0),
+            cost=event.cost,
+            status=status_value,
+            conversation_id=event.conversation_id,
+            created_at=event.created_at,
+        )
+        for event, status_value in rows
+    ]
 
 
 @router.get("/by-key", response_model=UsageByKeyOut)

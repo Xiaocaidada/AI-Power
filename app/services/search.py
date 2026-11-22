@@ -9,7 +9,9 @@ from app.models import (
     CustomAgent,
     Document,
     KnowledgeBase,
+    MarketModel,
     Message,
+    PluginDefinition,
     Project,
     PromptTemplate,
     PromptVersion,
@@ -208,6 +210,63 @@ async def global_search(
                 "title": document.filename,
                 "subtitle": f"{kb_name} · {document.status}",
                 "href": f"/knowledge/{document.kb_id}",
+            }
+        )
+
+    models = list(
+        (
+            await session.execute(
+                select(MarketModel)
+                .where(
+                    MarketModel.enabled.is_(True),
+                    or_(
+                        MarketModel.name.ilike(term, escape="\\"),
+                        MarketModel.model_id.ilike(term, escape="\\"),
+                        MarketModel.provider_name.ilike(term, escape="\\"),
+                        MarketModel.description.ilike(term, escape="\\"),
+                    ),
+                )
+                .order_by(MarketModel.featured.desc(), MarketModel.sort_order)
+                .limit(RESULT_LIMIT)
+            )
+        ).scalars()
+    )
+    for model in models:
+        results.append(
+            {
+                "type": "model",
+                "id": str(model.id),
+                "title": model.name,
+                "subtitle": f"{model.provider_name} · {model.model_id}",
+                "href": f"/models/{model.slug}",
+            }
+        )
+
+    plugins = list(
+        (
+            await session.execute(
+                select(PluginDefinition)
+                .where(
+                    PluginDefinition.enabled.is_(True),
+                    or_(
+                        PluginDefinition.name.ilike(term, escape="\\"),
+                        PluginDefinition.description.ilike(term, escape="\\"),
+                        PluginDefinition.category.ilike(term, escape="\\"),
+                    ),
+                )
+                .order_by(PluginDefinition.name)
+                .limit(RESULT_LIMIT)
+            )
+        ).scalars()
+    )
+    for plugin in plugins:
+        results.append(
+            {
+                "type": "plugin",
+                "id": str(plugin.id),
+                "title": plugin.name,
+                "subtitle": plugin.description or plugin.category,
+                "href": "/plugins",
             }
         )
 
