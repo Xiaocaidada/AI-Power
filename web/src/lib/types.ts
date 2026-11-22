@@ -600,8 +600,56 @@ export interface PromptTemplate {
   id: string
   name: string
   description: string
+  category: string
+  favorite: boolean
   versions: PromptVersion[]
   created_at: string
+}
+
+export interface DashboardCounts {
+  providers: number
+  models: number
+  conversations: number
+  projects: number
+  knowledge_bases: number
+  agents: number
+  plugins: number
+  unread_notifications: number
+  requests_30d: number
+  tokens_30d: number
+  cost_30d: number
+}
+
+export interface Dashboard {
+  counts: DashboardCounts
+  recent_conversations: Conversation[]
+  recent_projects: { id: string; name: string; updated_at: string }[]
+}
+
+export interface FileItem {
+  id: string
+  filename: string
+  mime: string
+  size_bytes: number
+  status: string
+  error_code: string | null
+  page_count: number | null
+  kb_id: string
+  kb_name: string
+  created_at: string
+}
+
+export interface SearchResult {
+  type: string
+  id: string
+  title: string
+  subtitle: string
+  href: string
+}
+
+export interface SearchResponse {
+  query: string
+  results: SearchResult[]
 }
 
 export interface AgentActivity {

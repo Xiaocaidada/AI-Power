@@ -8,10 +8,12 @@ from app.db import get_session
 from app.deps import AuthContext, get_jwt_context
 from app.models import PromptTemplate, PromptVersion
 from app.schemas import (
+    PromptFavoriteOut,
     PromptRenderIn,
     PromptRenderOut,
     PromptTemplateCreate,
     PromptTemplateOut,
+    PromptTemplateUpdate,
     PromptVersionCreate,
     PromptVersionOut,
 )
@@ -19,12 +21,15 @@ from app.services.prompts import (
     MissingPromptVariables,
     create_template,
     create_version,
+    favorite_ids,
     get_owned_template,
     list_templates,
     list_versions,
     pick_version,
     render_prompt,
+    set_favorite,
     soft_delete_template,
+    update_template,
 )
 
 router = APIRouter(prefix="/prompt-templates", tags=["prompt-templates"])
@@ -33,11 +38,17 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 JwtContext = Annotated[AuthContext, Depends(get_jwt_context)]
 
 
-def _template_out(template: PromptTemplate, versions: list[PromptVersion]) -> PromptTemplateOut:
+def _template_out(
+    template: PromptTemplate,
+    versions: list[PromptVersion],
+    favorite: bool = False,
+) -> PromptTemplateOut:
     return PromptTemplateOut(
         id=template.id,
         name=template.name,
         description=template.description,
+        category=template.category,
+        favorite=favorite,
         created_at=template.created_at,
         versions=[PromptVersionOut.model_validate(version) for version in versions],
     )
@@ -45,13 +56,27 @@ def _template_out(template: PromptTemplate, versions: list[PromptVersion]) -> Pr
 
 @router.get("", response_model=list[PromptTemplateOut])
 async def list_prompt_templates(
-    context: JwtContext, session: SessionDep
+    context: JwtContext,
+    session: SessionDep,
+    q: str | None = None,
+    category: str | None = None,
+    favorite: bool = False,
 ) -> list[PromptTemplateOut]:
-    templates = await list_templates(session, context.workspace.id)
+    templates = await list_templates(
+        session,
+        context.workspace.id,
+        q=q,
+        category=category,
+        favorite_user_id=context.user.id,
+        favorite_only=favorite,
+    )
+    favorites = await favorite_ids(
+        session, context.user.id, [template.id for template in templates]
+    )
     result: list[PromptTemplateOut] = []
     for template in templates:
         versions = await list_versions(session, template.id)
-        result.append(_template_out(template, versions))
+        result.append(_template_out(template, versions, template.id in favorites))
     return result
 
 
@@ -66,6 +91,7 @@ async def create_prompt_template(
         name=payload.name,
         description=payload.description,
         system_prompt=payload.system_prompt,
+        category=payload.category,
     )
     return _template_out(template, [version])
 
@@ -75,7 +101,47 @@ async def get_prompt_template(
     template_id: UUID, context: JwtContext, session: SessionDep
 ) -> PromptTemplateOut:
     template = await get_owned_template(template_id, context.workspace.id, session)
-    return _template_out(template, await list_versions(session, template.id))
+    favorites = await favorite_ids(session, context.user.id, [template.id])
+    return _template_out(
+        template, await list_versions(session, template.id), template.id in favorites
+    )
+
+
+@router.patch("/{template_id}", response_model=PromptTemplateOut)
+async def update_prompt_template(
+    template_id: UUID,
+    payload: PromptTemplateUpdate,
+    context: JwtContext,
+    session: SessionDep,
+) -> PromptTemplateOut:
+    template = await get_owned_template(template_id, context.workspace.id, session)
+    template = await update_template(
+        session, template, payload.model_dump(exclude_unset=True)
+    )
+    favorites = await favorite_ids(session, context.user.id, [template.id])
+    return _template_out(
+        template, await list_versions(session, template.id), template.id in favorites
+    )
+
+
+@router.post("/{template_id}/favorite", response_model=PromptFavoriteOut)
+async def favorite_prompt_template(
+    template_id: UUID, context: JwtContext, session: SessionDep
+) -> PromptFavoriteOut:
+    template = await get_owned_template(template_id, context.workspace.id, session)
+    favorite = await set_favorite(session, template.id, context.user.id, True)
+    await session.commit()
+    return PromptFavoriteOut(favorite=favorite)
+
+
+@router.delete("/{template_id}/favorite", response_model=PromptFavoriteOut)
+async def unfavorite_prompt_template(
+    template_id: UUID, context: JwtContext, session: SessionDep
+) -> PromptFavoriteOut:
+    template = await get_owned_template(template_id, context.workspace.id, session)
+    favorite = await set_favorite(session, template.id, context.user.id, False)
+    await session.commit()
+    return PromptFavoriteOut(favorite=favorite)
 
 
 @router.post(

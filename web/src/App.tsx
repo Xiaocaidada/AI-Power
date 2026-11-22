@@ -12,6 +12,9 @@ import { AdminPluginsPage } from './pages/admin/AdminPluginsPage'
 import { AgentDetailPage } from './pages/agents/AgentDetailPage'
 import { AgentsPage } from './pages/agents/AgentsPage'
 import { ArchivedConversationsPage } from './pages/chat/ArchivedConversationsPage'
+import { DashboardPage } from './pages/dashboard/DashboardPage'
+import { FilesPage } from './pages/files/FilesPage'
+import { SearchPage } from './pages/search/SearchPage'
 import { ChatPage } from './pages/chat/ChatPage'
 import { NewChatPage } from './pages/chat/NewChatPage'
 import { EvaluationPage } from './pages/evaluation/EvaluationPage'
@@ -93,6 +96,9 @@ export function App() {
           <Route path="agents" element={<AgentsPage />} />
           <Route path="agents/:id" element={<AgentDetailPage />} />
           <Route path="plugins" element={<PluginsPage />} />
+          <Route path="dashboard" element={<DashboardPage />} />
+          <Route path="files" element={<FilesPage />} />
+          <Route path="search" element={<SearchPage />} />
           <Route path="workflows" element={<WorkflowsPage />} />
           <Route path="collaborations" element={<CollaborationsPage />} />
           <Route path="admin" element={<AdminPage />} />
