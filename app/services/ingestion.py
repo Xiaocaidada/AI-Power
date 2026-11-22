@@ -9,10 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db import SessionLocal
-from app.models import Chunk, ChunkEmbedding, Document, IngestionJob
+from app.models import Chunk, ChunkEmbedding, Document, IngestionJob, KnowledgeBase
 from app.providers.base import ProviderError
 from app.services.chunking import chunk_pages
 from app.services.embedding_factory import build_embedder
+from app.services.knowledge_settings import resolve_kb_settings
 from app.services.parsing import DocumentParser, UnsupportedDocumentType, parser_for_mime
 
 logger = logging.getLogger(__name__)
@@ -42,8 +43,9 @@ async def ingest_document(document_id: UUID) -> IngestionOutcome:
         document = await session.get(Document, document_id)
         if document is None or document.deleted_at is not None:
             return IngestionOutcome(status="skipped")
+        document_pk = document.id
 
-        job = await _get_or_create_job(session, document.id)
+        job = await _get_or_create_job(session, document_pk)
         now = datetime.now(UTC)
         document.status = "parsing"
         document.error_code = None
@@ -57,6 +59,10 @@ async def ingest_document(document_id: UUID) -> IngestionOutcome:
         attempts = job.attempts
 
         try:
+            kb = await session.get(KnowledgeBase, document.kb_id)
+            if kb is None or kb.deleted_at is not None:
+                raise IngestionError("kb_not_found", "Knowledge base no longer exists")
+            kb_settings = resolve_kb_settings(kb)
             parsed = _parse(document, settings)
             if len(parsed.pages) > settings.max_document_pages:
                 raise IngestionError(
@@ -66,8 +72,8 @@ async def ingest_document(document_id: UUID) -> IngestionOutcome:
             document.page_count = len(parsed.pages)
             chunks = chunk_pages(
                 parsed.pages,
-                settings.chunk_max_chars,
-                settings.chunk_overlap_chars,
+                kb_settings.chunking.chunk_size,
+                kb_settings.chunking.chunk_overlap,
             )
             if not chunks:
                 raise IngestionError("empty_document", "Document produced no text chunks")
@@ -104,7 +110,7 @@ async def ingest_document(document_id: UUID) -> IngestionOutcome:
                     )
                     embeddings.append(vector)
 
-            await _delete_chunks(session, document.id)
+            await _delete_chunks(session, document_pk)
             session.add_all(chunk_rows)
             await session.flush()
             session.add_all(
@@ -124,18 +130,18 @@ async def ingest_document(document_id: UUID) -> IngestionOutcome:
             return IngestionOutcome(status="ready", attempts=attempts)
         except IngestionError as exc:
             await session.rollback()
-            await _mark_failed(session, document.id, exc.code)
+            await _mark_failed(session, document_pk, exc.code)
             return IngestionOutcome(status="failed", error_code=exc.code, attempts=attempts)
         except ProviderError:
             await session.rollback()
-            await _mark_failed(session, document.id, "embedding_failed")
+            await _mark_failed(session, document_pk, "embedding_failed")
             return IngestionOutcome(
                 status="failed", error_code="embedding_failed", attempts=attempts
             )
         except Exception:
-            logger.exception("ingestion failed for document %s", document.id)
+            logger.exception("ingestion failed for document %s", document_pk)
             await session.rollback()
-            await _mark_failed(session, document.id, "ingestion_failed")
+            await _mark_failed(session, document_pk, "ingestion_failed")
             return IngestionOutcome(
                 status="failed", error_code="ingestion_failed", attempts=attempts
             )

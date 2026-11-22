@@ -82,3 +82,7 @@
 2. 增加 chunk 级 Recall 与 MRR。
 3. 用 bge-reranker 对 Top-5 重排，比较 Recall@1 / MRR 变化（C6 要求行为变更必须有数据）。
 4. 在 10k chunk 规模上测检索 P95 与 HNSW 参数。
+
+## 7. P5-S1 说明（2026-11-22）
+
+本文件 §3 的结果仍来自**纯向量检索**。P5-S1 已接入 `pg_trgm` 词法召回 + RRF 融合与可选 bge-reranker 重排（见 [`ADR-0019`](../adr/0019-hybrid-retrieval.md)），但尚未在评测集上重跑；vector vs hybrid vs hybrid+rerank 的对比与 ≥100 题数据集属于 P5-S2。

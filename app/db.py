@@ -25,6 +25,9 @@ CHUNK_EMBEDDING_HNSW_INDEX_SQL = (
     "CREATE INDEX IF NOT EXISTS ix_chunk_embeddings_embedding_hnsw "
     "ON chunk_embeddings USING hnsw (embedding vector_l2_ops)"
 )
+CHUNK_TEXT_TRGM_INDEX_SQL = (
+    "CREATE INDEX IF NOT EXISTS ix_chunks_text_trgm ON chunks USING gin (text gin_trgm_ops)"
+)
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:
@@ -36,6 +39,8 @@ async def init_db() -> None:
     async with engine.begin() as conn:
         if engine.dialect.name == "postgresql":
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
         await conn.run_sync(Base.metadata.create_all)
         if engine.dialect.name == "postgresql":
             await conn.execute(text(CHUNK_EMBEDDING_HNSW_INDEX_SQL))
+            await conn.execute(text(CHUNK_TEXT_TRGM_INDEX_SQL))

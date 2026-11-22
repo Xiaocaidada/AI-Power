@@ -149,6 +149,9 @@ metrics.describe("ai_power_tokens_total", "LLM tokens by kind, provider, and mod
 metrics.describe("ai_power_cost_usd_total", "Estimated model cost in USD")
 metrics.describe("ai_power_ingestion_jobs", "Ingestion jobs by status")
 metrics.describe("ai_power_circuit_open", "Provider circuit breaker state (1=open)")
+metrics.describe("ai_power_retrieval_requests_total", "Knowledge retrieval requests by mode")
+metrics.describe("ai_power_retrieval_duration_seconds", "Knowledge retrieval duration by mode")
+metrics.describe("ai_power_rerank_failures_total", "Reranker failures by error code")
 
 
 class MetricsMiddleware(BaseHTTPMiddleware):

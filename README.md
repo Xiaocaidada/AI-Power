@@ -13,7 +13,8 @@
 | 认证 | 注册/登录、30 分钟 access + 7 天 refresh（一次性轮换、可吊销）、登录限流 |
 | 对话 | SSE 流式输出、停止生成、历史回放、模型/token 元信息 |
 | 知识库 | PDF/MD/TXT 上传、持久化入库队列、失败重试、状态轮询、删除清理 |
-| RAG | bge-m3 + pgvector HNSW 检索；回答只引用真正进入 prompt 的 chunk |
+| 知识库管理 | 每库分块/检索参数、分块浏览与统计、重新分块、检索调试页 |
+| RAG | bge-m3 + pgvector + pg_trgm 混合检索（RRF），可选 bge-reranker 重排；回答只引用真正进入 prompt 的 chunk |
 | 用量 | 按日/Provider/模型聚合 token、请求数与成本（价格快照） |
 | API Key | `X-API-Key`，`chat:write` / `kb:read` scope，一次性展示、可吊销、过期与限流 |
 | 多租户 | Workspace/成员、`X-Workspace-Id`、跨租户 404 |
@@ -69,6 +70,7 @@ docker compose up -d --build
 - `web` 使用 nginx，SSE 已关闭代理缓冲。
 - `backup` 服务每天 `pg_dump -Fc` 到 `backups` 卷，保留 7 天。
 - 默认局域网 HTTP；可选 HTTPS：设置 `CADDY_DOMAIN` 后 `docker compose --profile https up -d caddy`。
+- 检索默认启用混合检索与重排，`RERANK_BASE_URL` 默认指向 `http://192.168.29.100:8001/v1`；没有 reranker 时在 `.env` 设 `RERANK_ENABLED=false`。
 - CORS 白名单由 `CORS_ORIGINS` 控制。
 - 首次部署后运行 `scripts/seed_models.py` 填充模型目录（见 CLAUDE.md 命令）。
 
@@ -130,6 +132,9 @@ docs/           产品契约、ADR、TDD 证据与规划
 - [docs/product/CAPABILITY.md](./docs/product/CAPABILITY.md)
 - [docs/plan/p3-plan.md](./docs/plan/p3-plan.md)
 - [docs/plan/p4-plan.md](./docs/plan/p4-plan.md)
+- [docs/plan/p5-plan.md](./docs/plan/p5-plan.md)
+- [docs/tdd/p5-s1-retrieval.md](./docs/tdd/p5-s1-retrieval.md)
+- [docs/adr/0019-hybrid-retrieval.md](./docs/adr/0019-hybrid-retrieval.md)
 - [docs/api/quickstart.md](./docs/api/quickstart.md)
 - [docs/api/errors.md](./docs/api/errors.md)
 - [docs/api/workflows.md](./docs/api/workflows.md)

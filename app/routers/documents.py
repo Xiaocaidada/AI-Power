@@ -200,6 +200,54 @@ async def retry_document(
     return DocumentUploadOut(id=document.id, status="uploaded", duplicate=False)
 
 
+@router.post(
+    "/documents/{document_id}/reprocess",
+    response_model=DocumentUploadOut,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def reprocess_document(
+    document_id: UUID,
+    context: JwtContext,
+    session: SessionDep,
+    queue: QueueDep,
+) -> DocumentUploadOut:
+    document = await get_owned_document(document_id, context.workspace.id, session)
+    if document.status in {"parsing", "embedding"}:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"code": "document_busy", "message": "Document is currently being processed"},
+        )
+
+    chunk_ids = select(Chunk.id).where(Chunk.document_id == document.id)
+    await session.execute(delete(ChunkEmbedding).where(ChunkEmbedding.chunk_id.in_(chunk_ids)))
+    await session.execute(delete(Chunk).where(Chunk.document_id == document.id))
+
+    document.status = "uploaded"
+    document.error_code = None
+    document.page_count = None
+    job = (
+        await session.execute(select(IngestionJob).where(IngestionJob.document_id == document.id))
+    ).scalar_one_or_none()
+    if job is None:
+        job = IngestionJob(
+            workspace_id=document.workspace_id,
+            document_id=document.id,
+            status="queued",
+        )
+        session.add(job)
+    else:
+        job.status = "queued"
+        job.attempts = 0
+        job.error = None
+        job.started_at = None
+        job.finished_at = None
+        job.lease_expires_at = None
+    await session.commit()
+
+    await _enqueue_or_fail(session, document, job, queue, unique=True)
+    return DocumentUploadOut(id=document.id, status=document.status, duplicate=False)
+
+
 @router.get("/documents/{document_id}", response_model=DocumentOut)
 async def get_document(document_id: UUID, context: ReadContext, session: SessionDep) -> Document:
     return await get_owned_document(document_id, context.workspace.id, session)

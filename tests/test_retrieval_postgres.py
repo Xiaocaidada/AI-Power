@@ -19,28 +19,35 @@ def _vector(position: int) -> list[float]:
     return vector
 
 
-async def test_hnsw_index_is_created_idempotently():
-    from app.db import CHUNK_EMBEDDING_HNSW_INDEX_SQL
+async def test_hnsw_and_trigram_indexes_are_created_idempotently():
+    from app.db import CHUNK_EMBEDDING_HNSW_INDEX_SQL, CHUNK_TEXT_TRGM_INDEX_SQL
     from app.models import Base
 
     engine = create_async_engine(TEST_POSTGRES_URL)
     try:
         async with engine.begin() as conn:
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
             await conn.run_sync(Base.metadata.drop_all)
             await conn.run_sync(Base.metadata.create_all)
             await conn.execute(text(CHUNK_EMBEDDING_HNSW_INDEX_SQL))
             await conn.execute(text(CHUNK_EMBEDDING_HNSW_INDEX_SQL))
-            indexdef = (
+            await conn.execute(text(CHUNK_TEXT_TRGM_INDEX_SQL))
+            await conn.execute(text(CHUNK_TEXT_TRGM_INDEX_SQL))
+            rows = (
                 await conn.execute(
                     text(
-                        "SELECT indexdef FROM pg_indexes "
-                        "WHERE indexname = 'ix_chunk_embeddings_embedding_hnsw'"
+                        "SELECT indexname, indexdef FROM pg_indexes "
+                        "WHERE indexname IN "
+                        "('ix_chunk_embeddings_embedding_hnsw', 'ix_chunks_text_trgm')"
                     )
                 )
-            ).scalar_one()
-        assert "hnsw" in indexdef.lower()
-        assert "vector_l2_ops" in indexdef
+            ).all()
+        indexes = {name: definition for name, definition in rows}
+        assert "hnsw" in indexes["ix_chunk_embeddings_embedding_hnsw"].lower()
+        assert "vector_l2_ops" in indexes["ix_chunk_embeddings_embedding_hnsw"]
+        assert "gin" in indexes["ix_chunks_text_trgm"].lower()
+        assert "gin_trgm_ops" in indexes["ix_chunks_text_trgm"]
     finally:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.drop_all)
@@ -59,6 +66,7 @@ async def test_retrieval_uses_pgvector_ordering_and_filters():
     try:
         async with engine.begin() as conn:
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
             await conn.run_sync(Base.metadata.drop_all)
             await conn.run_sync(Base.metadata.create_all)
             await conn.execute(text(_HNSW_SQL))
@@ -110,6 +118,65 @@ async def test_retrieval_uses_pgvector_ordering_and_filters():
                 text("TRUNCATE chunk_embeddings, chunks, documents, knowledge_bases, users CASCADE")
             )
             await session.commit()
+    finally:
+        await engine.dispose()
+
+
+async def test_hybrid_search_uses_pg_trgm_lexical_candidates():
+    from app.models import Base, ChunkEmbedding, KnowledgeBase, User, Workspace
+    from app.services.retrieval import retrieve_chunks
+
+    class ZeroEmbedder:
+        async def embed(self, texts):
+            return [_vector(0) for _ in texts]
+
+    engine = create_async_engine(TEST_POSTGRES_URL)
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+            await conn.run_sync(Base.metadata.drop_all)
+            await conn.run_sync(Base.metadata.create_all)
+            await conn.execute(text(_HNSW_SQL))
+
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with session_factory() as session:
+            user = User(email=f"{uuid4()}@hybrid.test", password_hash="x")
+            session.add(user)
+            await session.flush()
+            workspace = Workspace(name="kb", plan="free", is_personal=False)
+            session.add(workspace)
+            await session.flush()
+            kb = KnowledgeBase(workspace_id=workspace.id, user_id=user.id, name="kb")
+            session.add(kb)
+            await session.flush()
+            alpha_document = _document(kb, user, "alpha.txt")
+            refund_document = _document(kb, user, "refund.txt")
+            session.add_all([alpha_document, refund_document])
+            await session.flush()
+            alpha = _chunk(alpha_document, user, kb, "alpha only", 0)
+            refund = _chunk(refund_document, user, kb, "退款 3 个工作日到账", 1)
+            session.add_all([alpha, refund])
+            await session.flush()
+            session.add_all(
+                [
+                    ChunkEmbedding(chunk_id=alpha.id, embedding=_vector(0)),
+                    ChunkEmbedding(chunk_id=refund.id, embedding=_vector(0)),
+                ]
+            )
+            await session.commit()
+
+            results = await retrieve_chunks(
+                session,
+                workspace_id=kb.workspace_id,
+                kb_id=kb.id,
+                query="退款多久到账",
+                embedder=ZeroEmbedder(),
+            )
+
+            assert results[0].text == "退款 3 个工作日到账"
+            assert results[0].lexical_rank == 1
+            assert results[0].vector_rank == 2
     finally:
         await engine.dispose()
 

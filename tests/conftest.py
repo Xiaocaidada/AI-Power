@@ -12,6 +12,7 @@ os.environ["MAX_UPLOAD_BYTES"] = str(20 * 1024 * 1024)
 os.environ["MAX_DOCUMENT_PAGES"] = "200"
 os.environ["CHUNK_MAX_CHARS"] = "100"
 os.environ["CHUNK_OVERLAP_CHARS"] = "20"
+os.environ["RERANK_ENABLED"] = "false"
 os.environ["EMBEDDING_BATCH_SIZE"] = "2"
 os.environ["ACCESS_TOKEN_TTL_MINUTES"] = "30"
 os.environ["REFRESH_TOKEN_TTL_DAYS"] = "7"
