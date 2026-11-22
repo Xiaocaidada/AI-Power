@@ -1,6 +1,6 @@
 # P6 规划：用户 Provider Hub、模型广场与平台门户
 
-- **Status:** In progress（P6-S1–S4 已完成；S5/S6 待做，2026-11-23）
+- **Status:** In progress（P6-S1–S5 已完成；S6 待做，2026-11-23）
 - **Scope source:** `拓展增强.txt`（用户需求）+ P5 已完成能力
 - **前置:** P0–P5 已完成；P5 测试范围按用户要求缩小
 
@@ -81,11 +81,13 @@ P5 解决“质量、开放平台、成本、长任务”，P6 解决“**用户
 
 > **完成证据**：[`docs/tdd/p6-s4-projects.md`](../tdd/p6-s4-projects.md)、[`docs/api/projects.md`](../api/projects.md)。项目 CRUD/继承、会话搜索/置顶/归档/批量/移动、生成参数、重新生成与消息反馈已完成；附件仅占位。
 
-### P6-S5 Agent 与插件
+### P6-S5 Agent 与插件 — **已完成（2026-11-23）**
 
 - Agent 广场与自定义 Agent：角色指令、默认模型、KB、工具、范围、执行记录。
 - 插件 v1：注册表、配置、权限、敏感操作确认、外部 HTTP 工具（SSRF/超时/白名单）。
 - 复用现有 AgentRunner、工具协议、SSE、trace、usage。
+
+> **完成证据**：[`docs/tdd/p6-s5-agents-plugins.md`](../tdd/p6-s5-agents-plugins.md)、[`docs/api/agents-plugins.md`](../api/agents-plugins.md)。Agent 广场/自定义 Agent、Agent 会话、插件定义/配置、会话插件、敏感确认、调用记录已完成。
 
 ### P6-S6 辅助与收口
 

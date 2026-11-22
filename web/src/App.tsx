@@ -8,6 +8,9 @@ import { Spinner } from './components/ui/spinner'
 import { apiRequest } from './lib/http'
 import { clearTokens, hasSession, refreshAccessToken } from './lib/tokens'
 import type { User } from './lib/types'
+import { AdminPluginsPage } from './pages/admin/AdminPluginsPage'
+import { AgentDetailPage } from './pages/agents/AgentDetailPage'
+import { AgentsPage } from './pages/agents/AgentsPage'
 import { ArchivedConversationsPage } from './pages/chat/ArchivedConversationsPage'
 import { ChatPage } from './pages/chat/ChatPage'
 import { NewChatPage } from './pages/chat/NewChatPage'
@@ -22,6 +25,7 @@ import { AnnouncementDetailPage } from './pages/portal/AnnouncementDetailPage'
 import { AnnouncementsPage } from './pages/portal/AnnouncementsPage'
 import { HomePage } from './pages/portal/HomePage'
 import { ProjectDetailPage } from './pages/projects/ProjectDetailPage'
+import { PluginsPage } from './pages/plugins/PluginsPage'
 import { ProjectsPage } from './pages/projects/ProjectsPage'
 import { ApiKeysPage } from './pages/settings/ApiKeysPage'
 import { ProvidersPage } from './pages/settings/ProvidersPage'
@@ -86,10 +90,14 @@ export function App() {
           <Route path="archive" element={<ArchivedConversationsPage />} />
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="projects/:id" element={<ProjectDetailPage />} />
+          <Route path="agents" element={<AgentsPage />} />
+          <Route path="agents/:id" element={<AgentDetailPage />} />
+          <Route path="plugins" element={<PluginsPage />} />
           <Route path="workflows" element={<WorkflowsPage />} />
           <Route path="collaborations" element={<CollaborationsPage />} />
           <Route path="admin" element={<AdminPage />} />
           <Route path="admin/content" element={<AdminContentPage />} />
+          <Route path="admin/plugins" element={<AdminPluginsPage />} />
           <Route path="knowledge" element={<KnowledgePage />} />
           <Route path="knowledge/:id" element={<KnowledgeDetailPage />} />
           <Route path="evaluation" element={<EvaluationPage />} />

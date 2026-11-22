@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 
+import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Spinner } from '../../components/ui/spinner'
@@ -10,9 +11,11 @@ import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
 import type {
   Conversation,
+  CustomAgent,
   KnowledgeBase,
   ModelEntry,
   PersonalModel,
+  Plugin,
   Project,
   PromptTemplate,
 } from '../../lib/types'
@@ -39,11 +42,21 @@ export function NewChatPage() {
   const initialModel = searchParams.get('model')
   const appliedQueryRef = useRef(false)
   const [projectId, setProjectId] = useState(() => searchParams.get('project') ?? '')
-  const [modelId, setModelId] = useState(
-    () => (searchParams.get('project') !== null ? 'project' : 'auto'),
-  )
+  const [modelId, setModelId] = useState(() => {
+    if (searchParams.get('agent') !== null) return 'agent'
+    if (searchParams.get('project') !== null) return 'project'
+    return 'auto'
+  })
   const [kbId, setKbId] = useState('')
-  const [agent, setAgent] = useState(false)
+  const [agent, setAgent] = useState(
+    () =>
+      searchParams.get('agent') !== null || searchParams.get('agentMode') !== null,
+  )
+  const [customAgentId, setCustomAgentId] = useState(
+    () => searchParams.get('agent') ?? '',
+  )
+  const [pluginIds, setPluginIds] = useState<string[]>([])
+  const [confirmSensitive, setConfirmSensitive] = useState(false)
   const [templateId, setTemplateId] = useState('')
   const [variables, setVariables] = useState<Record<string, string>>({})
   const [value, setValue] = useState(() => searchParams.get('prompt') ?? '')
@@ -69,6 +82,16 @@ export function NewChatPage() {
     queryFn: () => apiRequest<Project[]>('/projects'),
     staleTime: 60_000,
   })
+  const agentsQuery = useQuery({
+    queryKey: ['agents'],
+    queryFn: () => apiRequest<CustomAgent[]>('/agents'),
+    staleTime: 60_000,
+  })
+  const pluginsQuery = useQuery({
+    queryKey: ['plugins'],
+    queryFn: () => apiRequest<Plugin[]>('/plugins'),
+    staleTime: 60_000,
+  })
   const templatesQuery = useQuery({
     queryKey: ['prompt-templates'],
     queryFn: () => apiRequest<PromptTemplate[]>('/prompt-templates'),
@@ -84,6 +107,14 @@ export function NewChatPage() {
   const selectedProject = (projectsQuery.data ?? []).find(
     (project) => project.id === projectId,
   )
+  const customAgents = (agentsQuery.data ?? []).filter((item) => !item.builtin)
+  const selectedAgent = customAgents.find((item) => item.id === customAgentId)
+  const configuredPlugins = (pluginsQuery.data ?? []).filter(
+    (plugin) => plugin.configured && plugin.config_enabled && plugin.enabled,
+  )
+  const selectedSensitive = configuredPlugins.filter(
+    (plugin) => plugin.sensitive && pluginIds.includes(plugin.id),
+  )
   const selected = availableModels.find((model) => model.id === modelId)
   const personalSelected = modelId.startsWith('p:')
     ? personalModels.find((model) => `p:${model.provider_id}:${model.model_id}` === modelId)
@@ -95,6 +126,7 @@ export function NewChatPage() {
     personalSelected === undefined || personalSelected.capabilities.includes('chat')
   const canChat =
     modelId === 'project' ||
+    modelId === 'agent' ||
     isAuto ||
     selected !== undefined ||
     (personalSelected !== undefined && personalSupportsChat)
@@ -137,7 +169,15 @@ export function NewChatPage() {
       prompt_variables: selectedVersion !== undefined ? variables : {},
     }
     if (projectId !== '') body.project_id = projectId
-    if (modelId !== 'project') {
+    if (customAgentId !== '') body.custom_agent_id = customAgentId
+    if (pluginIds.length > 0) {
+      body.plugin_ids = pluginIds
+      body.agent = true
+      if (confirmSensitive && selectedSensitive.length > 0) {
+        body.confirmed_plugin_ids = selectedSensitive.map((plugin) => plugin.id)
+      }
+    }
+    if (modelId !== 'project' && modelId !== 'agent') {
       const providerId = isAuto
         ? 'auto'
         : (personalSelected?.provider_id ?? selected?.provider_id)
@@ -212,6 +252,37 @@ export function NewChatPage() {
                 )}
               </Field>
             </div>
+            <div className="sm:col-span-2">
+              <Field label={t('chat.agent')}>
+                <select
+                  className={selectClass}
+                  value={customAgentId}
+                  onChange={(event) => {
+                    const next = event.target.value
+                    setCustomAgentId(next)
+                    if (next !== '') {
+                      setModelId('agent')
+                      setAgent(true)
+                    } else if (modelId === 'agent') {
+                      setModelId('auto')
+                      setAgent(pluginIds.length > 0)
+                    }
+                  }}
+                >
+                  <option value="">{t('chat.noAgent')}</option>
+                  {customAgents.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+                {selectedAgent !== undefined && (
+                  <p className="mt-1 text-xs text-ink-muted">
+                    {selectedAgent.description || selectedAgent.instructions.slice(0, 120)}
+                  </p>
+                )}
+              </Field>
+            </div>
             <Field label={t('chat.model')}>
               <select
                 className={selectClass}
@@ -220,6 +291,9 @@ export function NewChatPage() {
               >
                 {selectedProject !== undefined && (
                   <option value="project">{t('chat.projectDefaultModel')}</option>
+                )}
+                {selectedAgent !== undefined && (
+                  <option value="agent">{t('chat.agentDefaultModel')}</option>
                 )}
                 <option value="auto">
                   {t('models.auto')} — {t('models.autoHint')}
@@ -265,6 +339,45 @@ export function NewChatPage() {
           </div>
         )}
 
+        {configuredPlugins.length > 0 && (
+          <div className="mt-3 rounded-lg border border-border bg-surface px-3 py-2.5">
+            <p className="text-sm text-ink">{t('chat.plugins')}</p>
+            <p className="mt-0.5 text-xs text-ink-muted">{t('chat.pluginsHint')}</p>
+            <div className="mt-2 flex flex-wrap gap-3">
+              {configuredPlugins.map((plugin) => (
+                <label key={plugin.id} className="flex items-center gap-1.5 text-xs text-ink">
+                  <input
+                    type="checkbox"
+                    checked={pluginIds.includes(plugin.id)}
+                    onChange={() => {
+                      const next = pluginIds.includes(plugin.id)
+                        ? pluginIds.filter((item) => item !== plugin.id)
+                        : [...pluginIds, plugin.id]
+                      setPluginIds(next)
+                      if (next.length > 0) setAgent(true)
+                    }}
+                  />
+                  {plugin.name}
+                  {plugin.sensitive && (
+                    <Badge tone="warning">{t('plugins.sensitive')}</Badge>
+                  )}
+                </label>
+              ))}
+            </div>
+            {selectedSensitive.length > 0 && (
+              <label className="mt-2 flex items-start gap-2 text-xs text-warning">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={confirmSensitive}
+                  onChange={(event) => setConfirmSensitive(event.target.checked)}
+                />
+                {t('chat.confirmSensitive')}
+              </label>
+            )}
+          </div>
+        )}
+
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <Field label={t('prompts.select')}>
             <select
@@ -301,9 +414,18 @@ export function NewChatPage() {
             type="checkbox"
             className="mt-0.5 h-4 w-4 accent-accent"
             checked={
-              modelId === 'project' ? (selectedProject?.default_agent ?? false) : agent
+              customAgentId !== '' || pluginIds.length > 0
+                ? true
+                : modelId === 'project'
+                  ? (selectedProject?.default_agent ?? false)
+                  : agent
             }
-            disabled={!supportsTools || modelId === 'project'}
+            disabled={
+              !supportsTools ||
+              modelId === 'project' ||
+              customAgentId !== '' ||
+              pluginIds.length > 0
+            }
             onChange={(event) => setAgent(event.target.checked)}
           />
           <span>

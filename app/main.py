@@ -11,6 +11,7 @@ from app.metrics import MetricsMiddleware
 from app.observability import RequestContextMiddleware, configure_logging
 from app.routers import (
     admin,
+    agents,
     api_keys,
     auth,
     collaborations,
@@ -22,6 +23,7 @@ from app.routers import (
     knowledge_bases,
     market,
     models,
+    plugins,
     projects,
     prompts,
     provider_configs,
@@ -67,6 +69,8 @@ OPENAPI_TAGS = [
     },
     {"name": "notifications", "description": "Authenticated announcement read receipts."},
     {"name": "projects", "description": "Workspace projects and conversation defaults."},
+    {"name": "agents", "description": "Agent marketplace and custom agents."},
+    {"name": "plugins", "description": "Plugin marketplace, configuration, and calls."},
     {"name": "prompt-templates", "description": "Versioned workspace prompt templates."},
     {"name": "usage", "description": "Quota, token usage, and cost summaries."},
     {"name": "traces", "description": "Per-request timing and routing metadata."},
@@ -118,6 +122,9 @@ app.include_router(content.router)
 app.include_router(content.notifications_router)
 app.include_router(content.admin_router)
 app.include_router(projects.router)
+app.include_router(agents.router)
+app.include_router(plugins.router)
+app.include_router(plugins.admin_router)
 app.include_router(conversations.router)
 app.include_router(conversations.messages_router)
 app.include_router(documents.router)

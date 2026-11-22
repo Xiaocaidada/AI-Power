@@ -37,6 +37,11 @@ def test_alembic_upgrade_head_creates_schema(tmp_path):
         "announcements",
         "announcement_reads",
         "projects",
+        "custom_agents",
+        "plugin_definitions",
+        "plugin_configs",
+        "conversation_plugins",
+        "plugin_calls",
         "message_feedback",
         "provider_configs",
         "provider_models",
@@ -174,6 +179,7 @@ def test_alembic_upgrade_head_creates_schema(tmp_path):
     }
     assert {
         "project_id",
+        "custom_agent_id",
         "pinned",
         "generation_settings",
         "updated_at",
@@ -185,6 +191,46 @@ def test_alembic_upgrade_head_creates_schema(tmp_path):
         column["name"] for column in inspector.get_columns("message_feedback")
     }
     assert {"message_id", "user_id", "rating", "reason"} <= feedback_columns
+    agent_columns = {column["name"] for column in inspector.get_columns("custom_agents")}
+    assert {
+        "workspace_id",
+        "owner_user_id",
+        "name",
+        "instructions",
+        "default_provider_id",
+        "default_model",
+        "default_kb_id",
+        "tools",
+        "plugin_ids",
+        "visibility",
+    } <= agent_columns
+    plugin_columns = {
+        column["name"] for column in inspector.get_columns("plugin_definitions")
+    }
+    assert {
+        "slug",
+        "name",
+        "endpoint_url",
+        "method",
+        "auth_type",
+        "parameters",
+        "sensitive",
+        "timeout_seconds",
+    } <= plugin_columns
+    plugin_config_columns = {
+        column["name"] for column in inspector.get_columns("plugin_configs")
+    }
+    assert {"workspace_id", "plugin_id", "enabled", "credential_encrypted"} <= (
+        plugin_config_columns
+    )
+    conversation_plugin_columns = {
+        column["name"] for column in inspector.get_columns("conversation_plugins")
+    }
+    assert {"conversation_id", "plugin_id", "confirmed_at"} <= conversation_plugin_columns
+    call_columns = {column["name"] for column in inspector.get_columns("plugin_calls")}
+    assert {"workspace_id", "conversation_id", "plugin_id", "status", "latency_ms"} <= (
+        call_columns
+    )
 
     provider_config_columns = {
         column["name"] for column in inspector.get_columns("provider_configs")

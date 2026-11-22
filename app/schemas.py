@@ -659,11 +659,190 @@ class GenerationSettings(BaseModel):
     top_p: float | None = None
 
 
+class CustomAgentCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=500)
+    instructions: str = Field(min_length=1, max_length=20000)
+    category: str = Field(default="general", max_length=40)
+    default_provider_id: str | None = Field(default=None, max_length=50)
+    default_model: str | None = Field(default=None, max_length=200)
+    default_kb_id: UUID | None = None
+    tools: list[str] = Field(default_factory=list, max_length=20)
+    plugin_ids: list[UUID] = Field(default_factory=list, max_length=20)
+    visibility: Literal["private", "shared"] = "private"
+
+    @field_validator(
+        "name", "description", "instructions", "category", "default_provider_id",
+        "default_model", mode="before",
+    )
+    @classmethod
+    def strip_custom_agent_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class CustomAgentUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+    instructions: str | None = Field(default=None, min_length=1, max_length=20000)
+    category: str | None = Field(default=None, max_length=40)
+    default_provider_id: str | None = Field(default=None, max_length=50)
+    default_model: str | None = Field(default=None, max_length=200)
+    default_kb_id: UUID | None = None
+    tools: list[str] | None = Field(default=None, max_length=20)
+    plugin_ids: list[UUID] | None = Field(default=None, max_length=20)
+    visibility: Literal["private", "shared"] | None = None
+    enabled: bool | None = None
+
+    @field_validator(
+        "name", "description", "instructions", "category", "default_provider_id",
+        "default_model", mode="before",
+    )
+    @classmethod
+    def strip_custom_agent_optional(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class CustomAgentOut(BaseModel):
+    id: str
+    name: str
+    description: str
+    instructions: str
+    category: str
+    default_provider_id: str | None
+    default_model: str | None
+    default_kb_id: UUID | None
+    tools: list[str]
+    plugin_ids: list[UUID]
+    visibility: str
+    enabled: bool
+    archived: bool
+    owned: bool
+    builtin: bool
+    conversation_count: int
+    created_at: datetime | None
+    updated_at: datetime | None
+
+
+class PluginCreate(BaseModel):
+    slug: str = Field(min_length=2, max_length=80, pattern=r"^[a-z0-9][a-z0-9-]*$")
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=500)
+    category: str = Field(default="general", max_length=40)
+    docs_url: str = Field(default="", max_length=500)
+    endpoint_url: str = Field(min_length=1, max_length=1000)
+    method: Literal["GET", "POST"] = "POST"
+    auth_type: Literal["none", "bearer"] = "none"
+    parameters: dict = Field(default_factory=dict)
+    sensitive: bool = False
+    enabled: bool = True
+    timeout_seconds: int = Field(default=10, ge=1, le=30)
+
+    @field_validator("slug", "name", "description", "category", "docs_url", "endpoint_url",
+                     mode="before")
+    @classmethod
+    def strip_plugin_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("docs_url", "endpoint_url")
+    @classmethod
+    def validate_plugin_urls(cls, value: str) -> str:
+        if value == "":
+            return value
+        if not value.lower().startswith(("http://", "https://")):
+            raise ValueError("plugin URL must be absolute http(s)")
+        return value
+
+
+class PluginUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+    category: str | None = Field(default=None, max_length=40)
+    docs_url: str | None = Field(default=None, max_length=500)
+    endpoint_url: str | None = Field(default=None, min_length=1, max_length=1000)
+    method: Literal["GET", "POST"] | None = None
+    auth_type: Literal["none", "bearer"] | None = None
+    parameters: dict | None = None
+    sensitive: bool | None = None
+    enabled: bool | None = None
+    timeout_seconds: int | None = Field(default=None, ge=1, le=30)
+
+    @field_validator("name", "description", "category", "docs_url", "endpoint_url",
+                     mode="before")
+    @classmethod
+    def strip_plugin_optional(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("docs_url", "endpoint_url")
+    @classmethod
+    def validate_plugin_optional_urls(cls, value: str | None) -> str | None:
+        if value is None or value == "":
+            return value
+        if not value.lower().startswith(("http://", "https://")):
+            raise ValueError("plugin URL must be absolute http(s)")
+        return value
+
+
+class PluginOut(BaseModel):
+    id: UUID
+    slug: str
+    name: str
+    description: str
+    category: str
+    docs_url: str
+    endpoint_url: str
+    method: str
+    auth_type: str
+    parameters: dict
+    sensitive: bool
+    enabled: bool
+    timeout_seconds: int
+    configured: bool
+    config_enabled: bool
+    credential_hint: str
+    status: str
+    last_error: str | None
+    last_checked_at: datetime | None
+
+
+class PluginConfigIn(BaseModel):
+    enabled: bool = True
+    credential: str | None = Field(default=None, max_length=500)
+
+
+class ConversationPluginOut(BaseModel):
+    plugin_id: UUID
+    slug: str
+    name: str
+    sensitive: bool
+    confirmed_at: datetime | None
+
+
+class ConversationPluginsIn(BaseModel):
+    plugin_ids: list[UUID] = Field(default_factory=list, max_length=20)
+
+
+class PluginCallOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    plugin_id: UUID
+    conversation_id: UUID | None
+    status: str
+    request_summary: str
+    response_summary: str
+    latency_ms: int
+    error_code: str | None
+    created_at: datetime
+
+
 class ConversationCreate(BaseModel):
     provider_id: str | None = Field(default=None, max_length=50)
     model: str | None = Field(default=None, max_length=200)
     kb_id: UUID | None = None
     agent: bool = False
+    custom_agent_id: UUID | None = None
+    plugin_ids: list[UUID] = Field(default_factory=list, max_length=20)
+    confirmed_plugin_ids: list[UUID] = Field(default_factory=list, max_length=20)
     project_id: UUID | None = None
     prompt_version_id: UUID | None = None
     prompt_variables: dict[str, str] = Field(default_factory=dict)
@@ -683,6 +862,7 @@ class ConversationOut(BaseModel):
     model: str
     kb_id: UUID | None
     project_id: UUID | None = None
+    custom_agent_id: UUID | None = None
     agent: bool = False
     pinned: bool = False
     generation_settings: dict = Field(default_factory=dict)
@@ -752,6 +932,7 @@ class MessageOut(BaseModel):
 
 class ConversationDetailOut(ConversationOut):
     messages: list[MessageOut] = Field(default_factory=list)
+    plugins: list[ConversationPluginOut] = Field(default_factory=list)
 
 
 class MessageFeedbackIn(BaseModel):
