@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 
 import { AppShell } from './components/AppShell'
+import { ChatLayout } from './components/ChatLayout'
 import { PortalLayout } from './components/PortalLayout'
 import { RequireAuth } from './components/RequireAuth'
 import { Spinner } from './components/ui/spinner'
@@ -87,9 +88,11 @@ export function App() {
         </Route>
       </Route>
       <Route element={<RequireAuth />}>
-        <Route element={<AppShell />}>
+        <Route element={<ChatLayout />}>
           <Route path="chat" element={<NewChatPage />} />
           <Route path="chat/:id" element={<ChatPage />} />
+        </Route>
+        <Route element={<AppShell />}>
           <Route path="archive" element={<ArchivedConversationsPage />} />
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="projects/:id" element={<ProjectDetailPage />} />

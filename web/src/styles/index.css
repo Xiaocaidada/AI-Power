@@ -11,28 +11,36 @@
   --ink-muted: 107 114 128;
   --accent: 79 70 229;
   --accent-soft: 238 242 255;
+  --accent-ink: 255 255 255;
   --citation: 180 83 9;
   --citation-soft: 254 243 199;
   --success: 22 163 74;
   --warning: 217 119 6;
   --danger: 220 38 38;
+  --chart-1: 99 102 241;
+  --chart-2: 56 189 248;
+  --chart-3: 129 140 248;
   color-scheme: light;
 }
 
 html.dark {
-  --canvas: 13 16 23;
-  --surface: 23 27 36;
-  --surface-muted: 33 38 50;
-  --border: 52 59 74;
-  --ink: 230 233 239;
-  --ink-muted: 152 160 175;
-  --accent: 99 102 241;
-  --accent-soft: 43 45 92;
-  --citation: 251 191 36;
-  --citation-soft: 69 52 18;
-  --success: 74 222 128;
-  --warning: 251 191 36;
-  --danger: 248 113 113;
+  --canvas: 26 25 23;
+  --surface: 34 33 30;
+  --surface-muted: 45 43 39;
+  --border: 62 59 53;
+  --ink: 238 235 228;
+  --ink-muted: 163 158 149;
+  --accent: 217 119 87;
+  --accent-soft: 61 42 36;
+  --accent-ink: 26 24 21;
+  --citation: 230 178 110;
+  --citation-soft: 62 48 30;
+  --success: 125 190 130;
+  --warning: 230 178 110;
+  --danger: 226 124 116;
+  --chart-1: 217 119 87;
+  --chart-2: 230 178 110;
+  --chart-3: 125 190 130;
   color-scheme: dark;
 }
 
@@ -55,6 +63,14 @@ html.dark {
     outline: 2px solid rgb(var(--accent));
     outline-offset: 2px;
   }
+}
+
+.chat-hero-glow {
+  background: radial-gradient(
+    ellipse at 50% 32%,
+    rgb(var(--accent-soft) / 0.6),
+    transparent 62%
+  );
 }
 
 .markdown {

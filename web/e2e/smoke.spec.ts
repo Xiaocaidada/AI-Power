@@ -59,5 +59,7 @@ test('login opens the new chat screen', async ({ page }) => {
   await page.getByLabel('密码').press('Enter')
 
   await expect(page).toHaveURL(/\/chat$/)
-  await expect(page.getByRole('heading', { name: '开始新对话' })).toBeVisible()
+  await expect(
+    page.getByRole('heading', { name: '让想法，从一句话开始。' }),
+  ).toBeVisible()
 })

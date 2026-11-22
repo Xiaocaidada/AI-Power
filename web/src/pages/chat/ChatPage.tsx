@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Archive, Download, Paperclip, Quote, SlidersHorizontal } from 'lucide-react'
+import { Archive, Download, MoreHorizontal, Quote, SlidersHorizontal } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
@@ -56,11 +56,17 @@ export function ChatPage() {
   const [exportError, setExportError] = useState<string | null>(null)
   const [traceRequestId, setTraceRequestId] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState('')
   const [cooldown, setCooldown] = useState(0)
   const abortRef = useRef<AbortController | null>(null)
   const activityIdRef = useRef(0)
   const startedRef = useRef(false)
-  const bottomRef = useRef<HTMLDivElement | null>(null)
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const stickRef = useRef(true)
+  const titleSavingRef = useRef(false)
+  const titleCancelledRef = useRef(false)
 
   const conversation = useQuery({
     queryKey: ['conversation', conversationId],
@@ -185,6 +191,7 @@ export function ChatPage() {
   const start = useCallback(
     async (content: string) => {
       if (conversationId === '') return
+      stickRef.current = true
       setInput('')
       await runStream(
         (signal, onEvent) =>
@@ -198,6 +205,7 @@ export function ChatPage() {
   const regenerate = useCallback(
     async (messageId: string) => {
       if (conversationId === '' || pending?.status === 'streaming') return
+      stickRef.current = true
       await runStream(
         (signal, onEvent) =>
           streamRegenerate({ conversationId, messageId, signal, onEvent }),
@@ -206,6 +214,16 @@ export function ChatPage() {
     },
     [conversationId, pending?.status, runStream],
   )
+
+  useEffect(() => {
+    abortRef.current?.abort()
+    abortRef.current = null
+    setPending(null)
+    setInput('')
+    setMenuOpen(false)
+    setEditingTitle(false)
+    stickRef.current = true
+  }, [conversationId])
 
   useEffect(() => {
     if (cooldown <= 0) return
@@ -246,8 +264,17 @@ export function ChatPage() {
   }
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: 'end' })
+    if (!stickRef.current) return
+    const element = scrollRef.current
+    if (element !== null) element.scrollTop = element.scrollHeight
   }, [messageCount, streamLength, pending?.status])
+
+  const handleScroll = () => {
+    const element = scrollRef.current
+    if (element === null) return
+    stickRef.current =
+      element.scrollHeight - element.scrollTop - element.clientHeight < 96
+  }
 
   const lastAssistant = [...serverMessages]
     .reverse()
@@ -287,6 +314,35 @@ export function ChatPage() {
     }
   }
 
+  const startEditingTitle = () => {
+    titleCancelledRef.current = false
+    setTitleDraft(conversation.data?.title ?? '')
+    setEditingTitle(true)
+  }
+
+  const saveTitle = async () => {
+    if (titleCancelledRef.current) {
+      titleCancelledRef.current = false
+      setEditingTitle(false)
+      return
+    }
+    if (titleSavingRef.current) return
+    const next = titleDraft.trim()
+    setEditingTitle(false)
+    if (next === '' || next === (conversation.data?.title ?? '')) return
+    titleSavingRef.current = true
+    try {
+      await apiRequest(`/conversations/${conversationId}`, {
+        method: 'PATCH',
+        body: { title: next },
+      })
+      await queryClient.invalidateQueries({ queryKey: ['conversation', conversationId] })
+      await queryClient.invalidateQueries({ queryKey: ['conversations'] })
+    } finally {
+      titleSavingRef.current = false
+    }
+  }
+
   if (conversation.isLoading) {
     return (
       <div className="flex flex-1 items-center justify-center">
@@ -318,6 +374,7 @@ export function ChatPage() {
                   content: pending.user,
                   status: 'completed',
                   citations: [],
+                  created_at: new Date().toISOString(),
                 },
               ]),
           {
@@ -341,29 +398,65 @@ export function ChatPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-surface px-4">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium text-ink">
-            {conversation.data?.title || t('chat.newConversation')}
-          </p>
-          <p className="truncate text-xs text-ink-muted">
-            {conversation.data?.provider_id} · {conversation.data?.model}
-            {kbName !== undefined ? ` · ${kbName}` : ''}
+      <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-surface px-3 sm:px-4">
+        <div className="min-w-0 flex-1">
+          {editingTitle ? (
+            <input
+              autoFocus
+              value={titleDraft}
+              maxLength={120}
+              aria-label={t('chat.rename')}
+              className="h-8 w-full max-w-md rounded-lg border border-border bg-surface px-2 text-sm text-ink focus:border-accent focus:outline-none"
+              onChange={(event) => setTitleDraft(event.target.value)}
+              onBlur={() => void saveTitle()}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  void saveTitle()
+                } else if (event.key === 'Escape') {
+                  titleCancelledRef.current = true
+                  setEditingTitle(false)
+                }
+              }}
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={startEditingTitle}
+              title={t('chat.rename')}
+              className="block max-w-full truncate rounded px-1 text-left text-sm font-medium text-ink hover:bg-surface-muted"
+            >
+              {conversation.data?.title || t('chat.newConversation')}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            title={`${conversation.data?.provider_id} · ${conversation.data?.model}`}
+            className="ml-1 mt-0.5 inline-flex max-w-full items-center gap-1 truncate rounded-full bg-surface-muted px-2 py-0.5 text-[11px] text-ink-muted hover:text-ink"
+          >
+            <span className="truncate">
+              {conversation.data?.provider_id === 'auto'
+                ? t('models.auto')
+                : conversation.data?.model}
+            </span>
+            {kbName !== undefined && <span className="truncate">· {kbName}</span>}
             {conversation.data?.prompt_version_id !== null &&
-            conversation.data?.prompt_version_id !== undefined
-              ? ` · ${t('prompts.active')}`
-              : ''}
-          </p>
+            conversation.data?.prompt_version_id !== undefined ? (
+              <span className="truncate">· {t('prompts.active')}</span>
+            ) : null}
+          </button>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1">
           {latestCitations.length > 0 && (
             <Button
-              variant="secondary"
+              variant="ghost"
               size="sm"
               onClick={() => openCitations(latestCitations)}
+              title={t('chat.citations')}
             >
               <Quote className="h-3.5 w-3.5" />
-              {t('chat.citations')} {latestCitations.length}
+              {latestCitations.length}
             </Button>
           )}
           <Button
@@ -375,30 +468,62 @@ export function ChatPage() {
           >
             <SlidersHorizontal className="h-4 w-4" />
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label={t('chat.export')}
-            onClick={() => {
-              setExportError(null)
-              setExportOpen(true)
-            }}
-          >
-            <Download className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label={t('chat.archive')}
-            onClick={() => setConfirmArchive(true)}
-          >
-            <Archive className="h-4 w-4" />
-          </Button>
+          <div className="relative">
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={t('chat.conversationMenu')}
+              title={t('chat.conversationMenu')}
+              onClick={() => setMenuOpen((open) => !open)}
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+            {menuOpen && (
+              <>
+                <button
+                  type="button"
+                  aria-hidden
+                  tabIndex={-1}
+                  className="fixed inset-0 z-10 cursor-default"
+                  onClick={() => setMenuOpen(false)}
+                />
+                <div className="absolute right-0 top-9 z-20 w-44 rounded-lg border border-border bg-surface py-1 text-xs shadow-xl">
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-ink-muted hover:bg-surface-muted hover:text-ink"
+                    onClick={() => {
+                      setMenuOpen(false)
+                      setExportError(null)
+                      setExportOpen(true)
+                    }}
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    {t('chat.export')}
+                  </button>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-ink-muted hover:bg-surface-muted hover:text-ink"
+                    onClick={() => {
+                      setMenuOpen(false)
+                      setConfirmArchive(true)
+                    }}
+                  >
+                    <Archive className="h-3.5 w-3.5" />
+                    {t('chat.archive')}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-3xl space-y-6 px-4 py-6">
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="min-h-0 flex-1 overflow-y-auto"
+      >
+        <div className="mx-auto w-full max-w-3xl space-y-6 px-4 py-6 pb-10">
           {messageCount === 0 && pending === null && (
             <p className="py-10 text-center text-sm text-ink-muted">{t('chat.emptyHint')}</p>
           )}
@@ -434,8 +559,7 @@ export function ChatPage() {
               <MessageItem key={message.id} message={message} onOpenCitations={openCitations} />
             ),
           )}
-          <div ref={bottomRef} />
-        </div>
+          </div>
       </div>
 
       <div className="shrink-0 border-t border-border bg-canvas px-4 py-3">
@@ -445,17 +569,6 @@ export function ChatPage() {
               {t('errors.rateLimitedWait', { seconds: cooldown })}
             </p>
           )}
-          <div className="mb-2 flex items-center">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled
-              title={t('chat.attachmentSoon')}
-            >
-              <Paperclip className="h-3.5 w-3.5" />
-              {t('chat.attachmentSoon')}
-            </Button>
-          </div>
           <Composer
             value={input}
             onValueChange={setInput}

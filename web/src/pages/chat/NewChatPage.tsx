@@ -1,10 +1,21 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  BookOpen,
+  Bot,
+  FolderOpen,
+  SlidersHorizontal,
+} from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
+import { Dialog } from '../../components/ui/dialog'
 import { Input } from '../../components/ui/input'
+import {
+  PopoverSelect,
+  type PopoverSelectOption,
+} from '../../components/ui/popover-select'
 import { Spinner } from '../../components/ui/spinner'
 import { errorTextKey } from '../../lib/errorText'
 import { apiRequest } from '../../lib/http'
@@ -23,10 +34,10 @@ import { Composer } from './Composer'
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label className="block text-sm">
-      <span className="mb-1.5 block text-ink-muted">{label}</span>
+    <div className="text-xs text-ink-muted">
+      <p className="mb-1.5">{label}</p>
       {children}
-    </label>
+    </div>
   )
 }
 
@@ -61,6 +72,7 @@ export function NewChatPage() {
   const [templateId, setTemplateId] = useState('')
   const [variables, setVariables] = useState<Record<string, string>>({})
   const [value, setValue] = useState(() => searchParams.get('prompt') ?? '')
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const modelsQuery = useQuery({
@@ -218,179 +230,249 @@ export function NewChatPage() {
     }
   }
 
-  return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-3xl px-6 py-10">
-        <h1 className="font-serif text-3xl text-ink">{t('chat.newTitle')}</h1>
-        <p className="mt-2 text-sm text-ink-muted">{t('chat.newLead')}</p>
+  const agentModeChecked =
+    customAgentId !== '' || pluginIds.length > 0
+      ? true
+      : modelId === 'project'
+        ? (selectedProject?.default_agent ?? false)
+        : agent
 
-        {modelsQuery.isLoading || personalModelsQuery.isLoading ? (
-          <div className="mt-8 flex items-center gap-2 text-sm text-ink-muted">
-            <Spinner />
+  const projectKbName = kbsQuery.data?.find(
+    (kb) => kb.id === selectedProject?.default_kb_id,
+  )?.name
+  const kbValue =
+    modelId === 'project' ? (selectedProject?.default_kb_id ?? '') : kbId
+
+  const projectOptions: PopoverSelectOption[] = [
+    { value: '', label: t('chat.noProject') },
+    ...(projectsQuery.data ?? []).map((project) => ({
+      value: project.id,
+      label: project.name,
+      trailing: String(project.conversation_count),
+    })),
+  ]
+
+  const agentOptions: PopoverSelectOption[] = [
+    { value: '', label: t('chat.noAgent') },
+    ...customAgents.map((item) => ({
+      value: item.id,
+      label: item.name,
+      description: item.description || item.instructions.slice(0, 60),
+    })),
+  ]
+
+  const kbOptions: PopoverSelectOption[] = [
+    { value: '', label: t('chat.noKnowledgeBase') },
+    ...(kbsQuery.data ?? []).map((kb) => ({ value: kb.id, label: kb.name })),
+  ]
+
+  const modelOptions: PopoverSelectOption[] = [
+    ...(selectedProject !== undefined
+      ? [
+          {
+            value: 'project',
+            label: t('chat.projectDefaultModel'),
+            description: selectedProject.name,
+          },
+        ]
+      : []),
+    ...(selectedAgent !== undefined
+      ? [
+          {
+            value: 'agent',
+            label: t('chat.agentDefaultModel'),
+            description: selectedAgent.name,
+          },
+        ]
+      : []),
+    { value: 'auto', label: t('models.auto'), description: t('models.autoHint') },
+    ...availableModels.map((model) => ({
+      value: model.id,
+      label: model.display_name,
+      description: model.provider_id,
+      group: t('chat.platformModels'),
+    })),
+    ...personalModels.map((model) => ({
+      value: `p:${model.provider_id}:${model.model_id}`,
+      label: model.display_name,
+      description: model.provider_name,
+      group: t('chat.personalModels'),
+    })),
+  ]
+
+  const modelSelect = modelsQuery.isLoading ? (
+    <span className="px-2 text-[11px] text-ink-muted">{t('common.loading')}</span>
+  ) : (
+    <PopoverSelect
+      label={t('chat.model')}
+      variant="ghost"
+      placement="top"
+      value={modelId}
+      options={modelOptions}
+      onChange={setModelId}
+    />
+  )
+
+  return (
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <div
+        aria-hidden
+        className="chat-hero-glow pointer-events-none absolute inset-0"
+      />
+      <div className="relative mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center px-5 py-10">
+        <div className="text-center">
+          <h1
+            aria-label={`${t('chat.headingLead')}${t('chat.headingAccent')}${t('chat.headingTail')}`}
+            className="font-serif text-3xl leading-tight text-ink sm:text-4xl"
+          >
+            {t('chat.headingLead')}<span className="relative inline-block text-accent">{t('chat.headingAccent')}<svg
+                viewBox="0 0 100 8"
+                preserveAspectRatio="none"
+                aria-hidden
+                className="absolute -bottom-1 left-0 h-2 w-full text-accent/50"
+              >
+                <path
+                  d="M2 5.5C22 1.5 62 1.5 98 4.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+              </svg></span>{t('chat.headingTail')}
+          </h1>
+          <p className="mt-3 text-sm text-ink-muted">{t('chat.newLead')}</p>
+        </div>
+
+        <div className="mt-8">
+          <Composer
+            value={value}
+            onValueChange={setValue}
+            onSend={send}
+            disabled={!canChat}
+            size="hero"
+            autoFocus
+            footerStart={modelSelect}
+            placeholder={t('chat.inputPlaceholder')}
+          />
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <PopoverSelect
+            icon={<FolderOpen className="h-3.5 w-3.5" />}
+            label={t('chat.project')}
+            value={projectId}
+            options={projectOptions}
+            onChange={(next) => {
+              setProjectId(next)
+              if (next !== '') setModelId('project')
+              else if (modelId === 'project') setModelId('auto')
+            }}
+          />
+
+          <PopoverSelect
+            icon={<Bot className="h-3.5 w-3.5" />}
+            label={t('chat.agent')}
+            value={customAgentId}
+            options={agentOptions}
+            onChange={(next) => {
+              setCustomAgentId(next)
+              if (next !== '') {
+                setModelId('agent')
+                setAgent(true)
+              } else if (modelId === 'agent') {
+                setModelId('auto')
+                setAgent(pluginIds.length > 0)
+              }
+            }}
+          />
+
+          <PopoverSelect
+            icon={<BookOpen className="h-3.5 w-3.5" />}
+            label={t('chat.knowledgeBase')}
+            value={kbValue}
+            options={kbOptions}
+            placeholder={modelId === 'project' ? (projectKbName ?? t('chat.noKnowledgeBase')) : undefined}
+            disabled={modelId === 'project'}
+            onChange={setKbId}
+          />
+
+          <Button
+            variant="secondary"
+            size="sm"
+            className="rounded-full font-normal"
+            onClick={() => setAdvancedOpen(true)}
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            {t('chat.advanced')}
+          </Button>
+        </div>
+
+        {selectedProject !== undefined && (
+          <p className="mt-2 text-xs text-ink-muted">
+            {t('chat.projectDefaults', {
+              provider: selectedProject.default_provider_id ?? t('models.auto'),
+              model: selectedProject.default_model ?? t('models.auto'),
+              kb:
+                kbsQuery.data?.find((kb) => kb.id === selectedProject.default_kb_id)?.name ??
+                t('chat.noKnowledgeBase'),
+            })}
+          </p>
+        )}
+        {selectedAgent !== undefined && (
+          <p className="mt-2 truncate text-xs text-ink-muted">
+            {selectedAgent.description || selectedAgent.instructions.slice(0, 120)}
+          </p>
+        )}
+
+        {modelsQuery.data !== undefined &&
+          personalModelsQuery.data !== undefined &&
+          availableModels.length === 0 &&
+          personalModels.length === 0 && (
+            <p className="mt-3 rounded-lg bg-warning/10 px-3 py-2 text-sm text-warning">
+              {t('chat.noProviders')}
+            </p>
+          )}
+
+        {error !== null && (
+          <p role="alert" className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">
+            {error}
+          </p>
+        )}
+
+        <div className="mt-8 grid gap-2 sm:grid-cols-2">
+          {(['suggestion1', 'suggestion2', 'suggestion3', 'suggestion4'] as const).map(
+            (key) => (
+              <button
+                key={key}
+                type="button"
+                className="rounded-xl border border-border bg-surface px-4 py-3 text-left text-sm text-ink-muted transition-colors hover:border-accent/40 hover:text-ink"
+                onClick={() => setValue(t(`chat.${key}`))}
+              >
+                {t(`chat.${key}`)}
+              </button>
+            ),
+          )}
+        </div>
+
+        {modelsQuery.isLoading && (
+          <div className="mt-4 flex items-center gap-2 text-xs text-ink-muted">
+            <Spinner className="h-3.5 w-3.5" />
             {t('common.loading')}
           </div>
-        ) : (
-          <div className="mt-8 grid gap-3 sm:grid-cols-2">
-            <div className="sm:col-span-2">
-              <Field label={t('chat.project')}>
-                <select
-                  className={selectClass}
-                  value={projectId}
-                  onChange={(event) => {
-                    const next = event.target.value
-                    setProjectId(next)
-                    if (next !== '') setModelId('project')
-                    else if (modelId === 'project') setModelId('auto')
-                  }}
-                >
-                  <option value="">{t('chat.noProject')}</option>
-                  {(projectsQuery.data ?? []).map((project) => (
-                    <option key={project.id} value={project.id}>
-                      {project.name}
-                    </option>
-                  ))}
-                </select>
-                {selectedProject !== undefined && (
-                  <p className="mt-1 text-xs text-ink-muted">
-                    {t('chat.projectDefaults', {
-                      provider: selectedProject.default_provider_id ?? t('models.auto'),
-                      model: selectedProject.default_model ?? t('models.auto'),
-                      kb:
-                        kbsQuery.data?.find(
-                          (kb) => kb.id === selectedProject.default_kb_id,
-                        )?.name ?? t('chat.noKnowledgeBase'),
-                    })}
-                  </p>
-                )}
-              </Field>
-            </div>
-            <div className="sm:col-span-2">
-              <Field label={t('chat.agent')}>
-                <select
-                  className={selectClass}
-                  value={customAgentId}
-                  onChange={(event) => {
-                    const next = event.target.value
-                    setCustomAgentId(next)
-                    if (next !== '') {
-                      setModelId('agent')
-                      setAgent(true)
-                    } else if (modelId === 'agent') {
-                      setModelId('auto')
-                      setAgent(pluginIds.length > 0)
-                    }
-                  }}
-                >
-                  <option value="">{t('chat.noAgent')}</option>
-                  {customAgents.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
-                {selectedAgent !== undefined && (
-                  <p className="mt-1 text-xs text-ink-muted">
-                    {selectedAgent.description || selectedAgent.instructions.slice(0, 120)}
-                  </p>
-                )}
-              </Field>
-            </div>
-            <Field label={t('chat.model')}>
-              <select
-                className={selectClass}
-                value={modelId}
-                onChange={(event) => setModelId(event.target.value)}
-              >
-                {selectedProject !== undefined && (
-                  <option value="project">{t('chat.projectDefaultModel')}</option>
-                )}
-                {selectedAgent !== undefined && (
-                  <option value="agent">{t('chat.agentDefaultModel')}</option>
-                )}
-                <option value="auto">
-                  {t('models.auto')} — {t('models.autoHint')}
-                </option>
-                {availableModels.map((model) => (
-                  <option key={model.id} value={model.id}>
-                    {model.display_name} · {model.provider_id}
-                  </option>
-                ))}
-                {personalModels.length > 0 && (
-                  <optgroup label={t('chat.personalModels')}>
-                    {personalModels.map((model) => (
-                      <option
-                        key={`p:${model.provider_id}:${model.model_id}`}
-                        value={`p:${model.provider_id}:${model.model_id}`}
-                      >
-                        {model.display_name} · {model.provider_name}
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-              </select>
-            </Field>
-            <Field label={t('chat.knowledgeBase')}>
-              <select
-                className={selectClass}
-                value={
-                  modelId === 'project'
-                    ? (selectedProject?.default_kb_id ?? '')
-                    : kbId
-                }
-                disabled={modelId === 'project'}
-                onChange={(event) => setKbId(event.target.value)}
-              >
-                <option value="">{t('chat.noKnowledgeBase')}</option>
-                {(kbsQuery.data ?? []).map((kb) => (
-                  <option key={kb.id} value={kb.id}>
-                    {kb.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </div>
         )}
+      </div>
 
-        {configuredPlugins.length > 0 && (
-          <div className="mt-3 rounded-lg border border-border bg-surface px-3 py-2.5">
-            <p className="text-sm text-ink">{t('chat.plugins')}</p>
-            <p className="mt-0.5 text-xs text-ink-muted">{t('chat.pluginsHint')}</p>
-            <div className="mt-2 flex flex-wrap gap-3">
-              {configuredPlugins.map((plugin) => (
-                <label key={plugin.id} className="flex items-center gap-1.5 text-xs text-ink">
-                  <input
-                    type="checkbox"
-                    checked={pluginIds.includes(plugin.id)}
-                    onChange={() => {
-                      const next = pluginIds.includes(plugin.id)
-                        ? pluginIds.filter((item) => item !== plugin.id)
-                        : [...pluginIds, plugin.id]
-                      setPluginIds(next)
-                      if (next.length > 0) setAgent(true)
-                    }}
-                  />
-                  {plugin.name}
-                  {plugin.sensitive && (
-                    <Badge tone="warning">{t('plugins.sensitive')}</Badge>
-                  )}
-                </label>
-              ))}
-            </div>
-            {selectedSensitive.length > 0 && (
-              <label className="mt-2 flex items-start gap-2 text-xs text-warning">
-                <input
-                  type="checkbox"
-                  className="mt-0.5"
-                  checked={confirmSensitive}
-                  onChange={(event) => setConfirmSensitive(event.target.checked)}
-                />
-                {t('chat.confirmSensitive')}
-              </label>
-            )}
-          </div>
-        )}
-
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+      <Dialog
+        open={advancedOpen}
+        onClose={() => setAdvancedOpen(false)}
+        title={t('chat.advanced')}
+        footer={
+          <Button size="sm" onClick={() => setAdvancedOpen(false)}>
+            {t('common.close')}
+          </Button>
+        }
+      >
+        <div className="space-y-4">
           <Field label={t('prompts.select')}>
             <select
               className={selectClass}
@@ -406,7 +488,7 @@ export function NewChatPage() {
             </select>
           </Field>
           {(selectedVersion?.variables ?? []).length > 0 && (
-            <div className="space-y-2 sm:col-span-2">
+            <div className="space-y-2">
               {selectedVersion?.variables.map((variable) => (
                 <Input
                   key={variable}
@@ -419,74 +501,66 @@ export function NewChatPage() {
               ))}
             </div>
           )}
-        </div>
 
-        <label className="mt-4 flex items-start gap-2 rounded-lg border border-border bg-surface px-3 py-2.5 text-sm">
-          <input
-            type="checkbox"
-            className="mt-0.5 h-4 w-4 accent-accent"
-            checked={
-              customAgentId !== '' || pluginIds.length > 0
-                ? true
-                : modelId === 'project'
-                  ? (selectedProject?.default_agent ?? false)
-                  : agent
-            }
-            disabled={
-              !supportsTools ||
-              modelId === 'project' ||
-              customAgentId !== '' ||
-              pluginIds.length > 0
-            }
-            onChange={(event) => setAgent(event.target.checked)}
-          />
-          <span>
-            <span className="block text-ink">{t('chat.agentMode')}</span>
-            <span className="mt-0.5 block text-xs text-ink-muted">
-              {supportsTools ? t('chat.agentModeHint') : t('chat.agentUnsupported')}
+          <label className="flex items-start gap-2 rounded-lg border border-border bg-surface px-3 py-2.5 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 accent-accent"
+              checked={agentModeChecked}
+              disabled={
+                !supportsTools ||
+                modelId === 'project' ||
+                customAgentId !== '' ||
+                pluginIds.length > 0
+              }
+              onChange={(event) => setAgent(event.target.checked)}
+            />
+            <span>
+              <span className="block text-ink">{t('chat.agentMode')}</span>
+              <span className="mt-0.5 block text-xs text-ink-muted">
+                {supportsTools ? t('chat.agentModeHint') : t('chat.agentUnsupported')}
+              </span>
             </span>
-          </span>
-        </label>
+          </label>
 
-        {modelsQuery.data !== undefined &&
-          personalModelsQuery.data !== undefined &&
-          availableModels.length === 0 &&
-          personalModels.length === 0 && (
-          <p className="mt-4 rounded-lg bg-warning/10 px-3 py-2 text-sm text-warning">
-            {t('chat.noProviders')}
-          </p>
-        )}
-
-        {error !== null && (
-          <p role="alert" className="mt-4 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">
-            {error}
-          </p>
-        )}
-
-        <div className="mt-6">
-          <Composer
-            value={value}
-            onValueChange={setValue}
-            onSend={send}
-            disabled={!canChat}
-            placeholder={t('chat.inputPlaceholder')}
-          />
+          {configuredPlugins.length > 0 && (
+            <div className="rounded-lg border border-border bg-surface px-3 py-2.5">
+              <p className="text-sm text-ink">{t('chat.plugins')}</p>
+              <p className="mt-0.5 text-xs text-ink-muted">{t('chat.pluginsHint')}</p>
+              <div className="mt-2 flex flex-wrap gap-3">
+                {configuredPlugins.map((plugin) => (
+                  <label key={plugin.id} className="flex items-center gap-1.5 text-xs text-ink">
+                    <input
+                      type="checkbox"
+                      checked={pluginIds.includes(plugin.id)}
+                      onChange={() => {
+                        const next = pluginIds.includes(plugin.id)
+                          ? pluginIds.filter((item) => item !== plugin.id)
+                          : [...pluginIds, plugin.id]
+                        setPluginIds(next)
+                        if (next.length > 0) setAgent(true)
+                      }}
+                    />
+                    {plugin.name}
+                    {plugin.sensitive && <Badge tone="warning">{t('plugins.sensitive')}</Badge>}
+                  </label>
+                ))}
+              </div>
+              {selectedSensitive.length > 0 && (
+                <label className="mt-2 flex items-start gap-2 text-xs text-warning">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={confirmSensitive}
+                    onChange={(event) => setConfirmSensitive(event.target.checked)}
+                  />
+                  {t('chat.confirmSensitive')}
+                </label>
+              )}
+            </div>
+          )}
         </div>
-
-        <div className="mt-4 flex flex-wrap gap-2">
-          {(['suggestion1', 'suggestion2', 'suggestion3', 'suggestion4'] as const).map((key) => (
-            <Button
-              key={key}
-              variant="secondary"
-              size="sm"
-              className="rounded-full font-normal text-ink-muted"
-              onClick={() => setValue(t(`chat.${key}`))}
-            >
-              {t(`chat.${key}`)}
-            </Button>
-          ))}
-        </div>
-      </div>
+      </Dialog>
     </div>
   )
 }

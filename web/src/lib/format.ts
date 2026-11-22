@@ -17,3 +17,11 @@ export function formatDate(value: string, language: 'zh' | 'en'): string {
     dateStyle: 'medium',
   }).format(new Date(value))
 }
+
+export function formatTime(value: string, language: 'zh' | 'en'): string {
+  return new Intl.DateTimeFormat(language === 'zh' ? 'zh-CN' : 'en', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date(value))
+}
