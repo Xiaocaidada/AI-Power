@@ -160,7 +160,7 @@ test('workflow run shows node timeline and output', async ({ page }) => {
   await page.getByLabel('密码').press('Enter')
   await expect(page).toHaveURL(/\/chat$/)
 
-  await page.getByRole('link', { name: '工作流' }).click()
+  await page.goto('/workflows')
   await page.getByRole('button', { name: /Demo/ }).click()
   await page.getByRole('button', { name: '运行工作流' }).click()
 

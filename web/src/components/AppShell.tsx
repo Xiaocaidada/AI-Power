@@ -1,21 +1,16 @@
-import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Archive,
   BarChart3,
   BookOpen,
   Bot,
   FileText,
   FlaskConical,
-  FolderInput,
   FolderOpen,
   LayoutDashboard,
   Megaphone,
   Menu,
   MessageSquare,
   Moon,
-  MoreHorizontal,
-  Pencil,
-  Pin,
   Plug,
   Puzzle,
   Search,
@@ -26,15 +21,14 @@ import {
   Workflow,
   X,
 } from 'lucide-react'
-import { useDeferredValue, useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 
 import { apiRequest } from '../lib/http'
 import { useI18n } from '../lib/i18n'
-import { PAGE_SIZE, mergePages, pageFromItems } from '../lib/pagination'
 import { applyTheme, storedTheme, type Theme } from '../lib/theme'
 import { useLogout } from '../lib/useLogout'
-import type { Conversation, Project, WorkspaceItem } from '../lib/types'
+import type { WorkspaceItem } from '../lib/types'
 import { cn } from '../lib/utils'
 import { getActiveWorkspaceId, setActiveWorkspaceId } from '../lib/workspace'
 import { useAuthStore } from '../store/auth'
@@ -97,41 +91,15 @@ function NavGroup({
   )
 }
 
-function MenuAction({
-  icon,
-  label,
-  onClick,
-}: {
-  icon: ReactNode
-  label: string
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-ink-muted hover:bg-surface-muted hover:text-ink"
-      onClick={onClick}
-    >
-      {icon}
-      <span className="truncate">{label}</span>
-    </button>
-  )
-}
 
 function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t, language, setLanguage } = useI18n()
-  const location = useLocation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const logout = useLogout()
   const user = useAuthStore((state) => state.user)
-  const isChat = location.pathname.startsWith('/chat')
   const [activeWorkspaceId, setActiveId] = useState<string | null>(getActiveWorkspaceId())
   const [theme, setTheme] = useState<Theme>(() => storedTheme())
-  const [search, setSearch] = useState('')
-  const deferredSearch = useDeferredValue(search)
-  const [projectFilter, setProjectFilter] = useState('')
-  const [menuId, setMenuId] = useState<string | null>(null)
 
   const toggleTheme = () => {
     const next: Theme = theme === 'dark' ? 'light' : 'dark'
@@ -142,11 +110,6 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const workspaces = useQuery({
     queryKey: ['workspaces'],
     queryFn: () => apiRequest<WorkspaceItem[]>('/workspaces'),
-  })
-  const projects = useQuery({
-    queryKey: ['projects'],
-    queryFn: () => apiRequest<Project[]>('/projects'),
-    enabled: isChat,
   })
 
   useEffect(() => {
@@ -175,127 +138,6 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
           { to: '/admin/plugins', labelKey: 'nav.pluginAdmin', icon: Puzzle },
         ]
       : []
-
-  const conversations = useInfiniteQuery({
-    queryKey: ['conversations', deferredSearch, projectFilter],
-    queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: String(PAGE_SIZE) })
-      if (pageParam) params.set('before', pageParam)
-      if (deferredSearch.trim() !== '') params.set('q', deferredSearch.trim())
-      if (projectFilter !== '') params.set('project_id', projectFilter)
-      return pageFromItems(
-        await apiRequest<Conversation[]>(`/conversations?${params.toString()}`),
-        PAGE_SIZE,
-      )
-    },
-    initialPageParam: null as string | null,
-    getNextPageParam: (lastPage) => lastPage.next,
-    enabled: isChat,
-    staleTime: 30_000,
-  })
-  const conversationRows = mergePages(conversations.data?.pages)
-  const pinnedRows = conversationRows.filter((item) => item.pinned === true)
-  const recentRows = conversationRows.filter((item) => item.pinned !== true)
-
-  const renderConversation = (conversation: Conversation) => {
-    const active = location.pathname === `/chat/${conversation.id}`
-    return (
-      <div key={conversation.id} className="group relative">
-        <NavLink
-          to={`/chat/${conversation.id}`}
-          onClick={() => setMenuId(null)}
-          className={cn(
-            'block truncate rounded-lg px-3 py-2 pr-8 text-[13px]',
-            active
-              ? 'bg-surface-muted font-medium text-ink'
-              : 'text-ink-muted hover:bg-surface-muted hover:text-ink',
-          )}
-        >
-          <span className="flex items-center gap-1">
-            {conversation.pinned === true && (
-              <Pin className="h-3 w-3 shrink-0 text-accent" />
-            )}
-            <span className="truncate">
-              {conversation.title || t('chat.newConversation')}
-            </span>
-          </span>
-        </NavLink>
-        <button
-          type="button"
-          aria-label={t('chat.conversationMenu')}
-          className="absolute right-1 top-1.5 rounded p-1 text-ink-muted opacity-0 hover:bg-surface hover:text-ink group-hover:opacity-100"
-          onClick={() => setMenuId(menuId === conversation.id ? null : conversation.id)}
-        >
-          <MoreHorizontal className="h-3.5 w-3.5" />
-        </button>
-        {menuId === conversation.id && (
-          <div className="absolute right-1 top-8 z-20 w-48 rounded-lg border border-border bg-surface py-1 text-xs shadow-xl">
-            <MenuAction
-              icon={<Pencil className="h-3 w-3" />}
-              label={t('chat.rename')}
-              onClick={() => void renameConversation(conversation)}
-            />
-            <MenuAction
-              icon={<Pin className="h-3 w-3" />}
-              label={conversation.pinned === true ? t('chat.unpin') : t('chat.pin')}
-              onClick={() =>
-                void mutateConversation(conversation, {
-                  pinned: conversation.pinned !== true,
-                })
-              }
-            />
-            <MenuAction
-              icon={<Archive className="h-3 w-3" />}
-              label={t('chat.archive')}
-              onClick={() => void archiveConversation(conversation)}
-            />
-            <div className="mt-1 border-t border-border pt-1">
-              <p className="px-3 py-1 text-[10px] uppercase tracking-wide text-ink-muted">
-                {t('chat.moveToProject')}
-              </p>
-              {(projects.data ?? []).map((project) => (
-                <MenuAction
-                  key={project.id}
-                  icon={<FolderInput className="h-3 w-3" />}
-                  label={project.name}
-                  onClick={() =>
-                    void mutateConversation(conversation, { project_id: project.id })
-                  }
-                />
-              ))}
-              <MenuAction
-                icon={<FolderInput className="h-3 w-3" />}
-                label={t('chat.noProject')}
-                onClick={() =>
-                  void mutateConversation(conversation, { project_id: null })
-                }
-              />
-            </div>
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  const mutateConversation = async (
-    conversation: Conversation,
-    body: Record<string, unknown>,
-  ) => {
-    await apiRequest(`/conversations/${conversation.id}`, { method: 'PATCH', body })
-    setMenuId(null)
-    await queryClient.invalidateQueries({ queryKey: ['conversations'] })
-  }
-
-  const renameConversation = async (conversation: Conversation) => {
-    const title = window.prompt(t('chat.renamePrompt'), conversation.title)
-    if (title === null) return
-    await mutateConversation(conversation, { title })
-  }
-
-  const archiveConversation = async (conversation: Conversation) => {
-    await mutateConversation(conversation, { archived: true })
-    if (location.pathname === `/chat/${conversation.id}`) navigate('/chat')
-  }
 
   return (
     <aside
@@ -356,69 +198,6 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
         <NavGroup label={t('nav.groupBuild')} items={buildNav} />
         <NavGroup label={t('nav.groupAccount')} items={[...bottomNav, ...adminNav]} />
       </nav>
-
-      {isChat && (
-        <div className="mt-4 flex min-h-0 flex-1 flex-col">
-          <div className="space-y-1.5 px-3 pb-2">
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder={t('chat.searchConversations')}
-              className="h-8 w-full rounded-lg border border-border bg-surface px-2 text-xs text-ink placeholder:text-ink-muted/70 focus:border-accent focus:outline-none"
-            />
-            <select
-              value={projectFilter}
-              onChange={(event) => setProjectFilter(event.target.value)}
-              className="h-8 w-full rounded-lg border border-border bg-surface px-2 text-xs text-ink focus:border-accent focus:outline-none"
-            >
-              <option value="">{t('chat.allProjects')}</option>
-              {(projects.data ?? []).map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </select>
-            <div className="flex items-center justify-between px-1">
-              <p className="text-[10px] font-medium uppercase tracking-wider text-ink-muted/70">
-                {t('nav.conversations')}
-              </p>
-              <NavLink
-                to="/projects"
-                className="text-[10px] text-ink-muted hover:text-ink"
-              >
-                {t('projects.title')}
-              </NavLink>
-            </div>
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-            {conversationRows.length === 0 && (
-              <p className="px-3 py-2 text-xs text-ink-muted">{t('nav.noConversations')}</p>
-            )}
-            {pinnedRows.length > 0 && (
-              <>
-                <p className="px-3 pb-1 pt-1 text-[10px] uppercase tracking-wide text-ink-muted/70">
-                  {t('chat.pinned')}
-                </p>
-                {pinnedRows.map(renderConversation)}
-                <div className="my-1 border-t border-border" />
-              </>
-            )}
-            {recentRows.map(renderConversation)}
-            {conversations.hasNextPage && (
-              <button
-                type="button"
-                className="mt-1 w-full rounded-lg px-3 py-2 text-left text-xs text-accent hover:bg-surface-muted disabled:opacity-60"
-                disabled={conversations.isFetchingNextPage}
-                onClick={() => void conversations.fetchNextPage()}
-              >
-                {conversations.isFetchingNextPage
-                  ? t('common.loading')
-                  : t('common.loadMore')}
-              </button>
-            )}
-          </div>
-        </div>
-      )}
 
       <div className="mt-auto space-y-2 border-t border-border p-3">
         <div className="flex items-center gap-1 rounded-lg bg-surface-muted p-1 text-xs">
