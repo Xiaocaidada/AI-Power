@@ -2,23 +2,19 @@ import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-quer
 import {
   BarChart3,
   BookOpen,
-  Boxes,
-  FileText,
   FlaskConical,
   Menu,
   MessageSquare,
   Moon,
-  Server,
   Settings,
   Shield,
   Sun,
   Users,
-  Webhook,
   Workflow,
   X,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 
 import { apiRequest } from '../lib/http'
 import { useI18n } from '../lib/i18n'
@@ -30,19 +26,58 @@ import { cn } from '../lib/utils'
 import { getActiveWorkspaceId, setActiveWorkspaceId } from '../lib/workspace'
 import { useAuthStore } from '../store/auth'
 
-const navItems = [
+const workNav = [
   { to: '/chat', labelKey: 'nav.chat', icon: MessageSquare },
-  { to: '/models', labelKey: 'nav.models', icon: Boxes },
   { to: '/knowledge', labelKey: 'nav.knowledge', icon: BookOpen },
+]
+
+const buildNav = [
   { to: '/workflows', labelKey: 'nav.workflows', icon: Workflow },
   { to: '/collaborations', labelKey: 'nav.collaborations', icon: Users },
   { to: '/evaluation', labelKey: 'nav.evaluation', icon: FlaskConical },
-  { to: '/settings/prompts', labelKey: 'nav.prompts', icon: FileText },
-  { to: '/usage', labelKey: 'nav.usage', icon: BarChart3 },
-  { to: '/settings/providers', labelKey: 'nav.providers', icon: Server },
-  { to: '/settings/api-keys', labelKey: 'nav.settings', icon: Settings },
-  { to: '/settings/webhooks', labelKey: 'nav.webhooks', icon: Webhook },
 ]
+
+const bottomNav = [
+  { to: '/usage', labelKey: 'nav.usage', icon: BarChart3 },
+  { to: '/settings', labelKey: 'nav.settings', icon: Settings },
+]
+
+function NavGroup({
+  label,
+  items,
+}: {
+  label: string
+  items: { to: string; labelKey: string; icon: typeof MessageSquare }[]
+}) {
+  const { t } = useI18n()
+  return (
+    <div>
+      <p className="px-3 pb-1 text-[10px] font-medium uppercase tracking-wider text-ink-muted/70">
+        {label}
+      </p>
+      <div className="space-y-1">
+        {items.map(({ to, labelKey, icon: Icon }) => (
+          <NavLink
+            key={to}
+            to={to}
+            end={to === '/settings'}
+            className={({ isActive }) =>
+              cn(
+                'flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm',
+                isActive
+                  ? 'bg-accent-soft font-medium text-accent'
+                  : 'text-ink-muted hover:bg-surface-muted hover:text-ink',
+              )
+            }
+          >
+            <Icon className="h-4 w-4" />
+            {t(labelKey)}
+          </NavLink>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t, language, setLanguage } = useI18n()
@@ -84,10 +119,10 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
     navigate('/chat')
   }
 
-  const items =
+  const adminNav =
     user?.role === 'admin'
-      ? [...navItems, { to: '/admin', labelKey: 'nav.admin', icon: Shield }]
-      : navItems
+      ? [{ to: '/admin', labelKey: 'nav.admin', icon: Shield }]
+      : []
 
   const conversations = useInfiniteQuery({
     queryKey: ['conversations'],
@@ -114,7 +149,9 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
       )}
     >
       <div className="flex h-14 items-center justify-between px-4">
-        <span className="font-serif text-lg text-ink">{t('common.appName')}</span>
+        <Link to="/" className="font-serif text-lg text-ink">
+          {t('common.appName')}
+        </Link>
         <button
           type="button"
           aria-label={t('common.close')}
@@ -148,24 +185,10 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
         </NavLink>
       </div>
 
-      <nav className="space-y-1 px-2">
-        {items.map(({ to, labelKey, icon: Icon }) => (
-          <NavLink
-            key={to}
-            to={to}
-            className={({ isActive }) =>
-              cn(
-                'flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm',
-                isActive
-                  ? 'bg-accent-soft font-medium text-accent'
-                  : 'text-ink-muted hover:bg-surface-muted hover:text-ink',
-              )
-            }
-          >
-            <Icon className="h-4 w-4" />
-            {t(labelKey)}
-          </NavLink>
-        ))}
+      <nav className="space-y-4 px-2">
+        <NavGroup label={t('nav.groupWork')} items={workNav} />
+        <NavGroup label={t('nav.groupBuild')} items={buildNav} />
+        <NavGroup label={t('nav.groupAccount')} items={[...bottomNav, ...adminNav]} />
       </nav>
 
       {isChat && (
