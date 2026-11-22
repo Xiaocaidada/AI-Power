@@ -1,6 +1,7 @@
 import { API_BASE } from './config'
 import { toApiError } from './errors'
 import { getAccessToken } from './tokens'
+import { getActiveWorkspaceId } from './workspace'
 
 export interface SseEvent {
   event: string
@@ -87,11 +88,13 @@ async function streamResponse(
   onEvent: SseHandler,
 ): Promise<void> {
   const token = getAccessToken()
+  const workspaceId = getActiveWorkspaceId()
   const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...(token !== null ? { Authorization: `Bearer ${token}` } : {}),
+      ...(workspaceId !== null ? { 'X-Workspace-Id': workspaceId } : {}),
     },
     body: JSON.stringify(body),
     signal,
@@ -162,6 +165,27 @@ export async function streamChat({
   return streamResponse(
     `${API_BASE}/conversations/${conversationId}/messages`,
     { content },
+    signal,
+    onEvent,
+  )
+}
+
+export interface StreamRegenerateOptions {
+  conversationId: string
+  messageId: string
+  signal?: AbortSignal
+  onEvent: SseHandler
+}
+
+export async function streamRegenerate({
+  conversationId,
+  messageId,
+  signal,
+  onEvent,
+}: StreamRegenerateOptions): Promise<void> {
+  return streamResponse(
+    `${API_BASE}/conversations/${conversationId}/messages/${messageId}/regenerate`,
+    {},
     signal,
     onEvent,
   )

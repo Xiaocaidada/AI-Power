@@ -22,6 +22,7 @@ from app.routers import (
     knowledge_bases,
     market,
     models,
+    projects,
     prompts,
     provider_configs,
     providers,
@@ -65,6 +66,7 @@ OPENAPI_TAGS = [
         "description": "Public home feed and announcements (unauthenticated).",
     },
     {"name": "notifications", "description": "Authenticated announcement read receipts."},
+    {"name": "projects", "description": "Workspace projects and conversation defaults."},
     {"name": "prompt-templates", "description": "Versioned workspace prompt templates."},
     {"name": "usage", "description": "Quota, token usage, and cost summaries."},
     {"name": "traces", "description": "Per-request timing and routing metadata."},
@@ -115,7 +117,9 @@ app.include_router(market.admin_router)
 app.include_router(content.router)
 app.include_router(content.notifications_router)
 app.include_router(content.admin_router)
+app.include_router(projects.router)
 app.include_router(conversations.router)
+app.include_router(conversations.messages_router)
 app.include_router(documents.router)
 app.include_router(knowledge_bases.router)
 app.include_router(evaluations.router)

@@ -58,6 +58,7 @@ class AgentRunner:
         context: ToolContext,
         quota_guard: Callable[[], Awaitable[None]] | None = None,
         system_prompt: str | None = None,
+        generation_opts: dict[str, object] | None = None,
         root_agent: str = SUPERVISOR_AGENT,
         step_guard: Callable[[], None] | None = None,
     ) -> None:
@@ -69,6 +70,7 @@ class AgentRunner:
         self._context = context
         self._quota_guard = quota_guard
         self._system_prompt_override = system_prompt
+        self._generation_opts = generation_opts or {}
         self._root_agent = root_agent
         self._step_guard = step_guard
         self._max_steps = settings.agent_max_steps
@@ -201,7 +203,9 @@ class AgentRunner:
         parts: list[str] = []
         prompt_tokens: int | None = None
         completion_tokens: int | None = None
-        async for chunk in self._provider.stream_chat(list(messages), self._model):
+        async for chunk in self._provider.stream_chat(
+            list(messages), self._model, **self._generation_opts
+        ):
             if chunk.delta:
                 parts.append(chunk.delta)
             if chunk.usage is not None:

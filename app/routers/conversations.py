@@ -10,7 +10,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import delete, exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.registry import AgentRegistry
@@ -26,22 +26,35 @@ from app.deps import (
     require_scope,
 )
 from app.metrics import record_usage_metrics, track_sse_stream
-from app.models import Conversation, Document, Message, MessageCitation, Trace
+from app.models import (
+    Conversation,
+    Document,
+    Message,
+    MessageCitation,
+    MessageFeedback,
+    Trace,
+)
 from app.observability import request_id_var
 from app.providers.base import ChatChunk, ChatMessage, LLMProvider, ProviderError, Usage
 from app.providers.registry import ProviderRegistry
 from app.schemas import (
     CitationOut,
+    ConversationBatchIn,
+    ConversationBatchOut,
     ConversationCreate,
     ConversationDetailOut,
     ConversationOut,
+    ConversationUpdate,
     ErrorOut,
+    MessageFeedbackIn,
+    MessageFeedbackOut,
     MessageOut,
     SendMessageIn,
 )
 from app.services.access import get_owned_knowledge_base
 from app.services.agent import AgentFailure, AgentRunner
 from app.services.budget import check_workspace_budget
+from app.services.projects import ProjectError, get_project
 from app.services.prompts import resolve_conversation_prompt
 from app.services.provider_configs import ProviderConfigError, ensure_model_capability
 from app.services.quotas import add_token_usage, enforce_quota
@@ -53,6 +66,7 @@ from app.services.webhooks import enqueue_event
 from app.tools.base import ToolContext, ToolRegistry
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
+messages_router = APIRouter(prefix="/messages", tags=["conversations"])
 logger = logging.getLogger(__name__)
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -71,20 +85,100 @@ def _sse(event: str, data: dict[str, object]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-async def _get_owned_conversation(
-    conversation_id: UUID, workspace_id: UUID, session: AsyncSession
+async def _get_workspace_conversation(
+    conversation_id: UUID,
+    workspace_id: UUID,
+    session: AsyncSession,
+    *,
+    include_archived: bool = False,
 ) -> Conversation:
-    result = await session.execute(
-        select(Conversation).where(
-            Conversation.id == conversation_id,
-            Conversation.workspace_id == workspace_id,
-            Conversation.archived_at.is_(None),
-        )
-    )
-    conversation = result.scalar_one_or_none()
+    conditions = [
+        Conversation.id == conversation_id,
+        Conversation.workspace_id == workspace_id,
+    ]
+    if not include_archived:
+        conditions.append(Conversation.archived_at.is_(None))
+    conversation = (
+        await session.execute(select(Conversation).where(*conditions))
+    ).scalar_one_or_none()
     if conversation is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
     return conversation
+
+
+async def _get_owned_conversation(
+    conversation_id: UUID, workspace_id: UUID, session: AsyncSession
+) -> Conversation:
+    return await _get_workspace_conversation(conversation_id, workspace_id, session)
+
+
+GENERATION_LIMITS = {
+    "temperature": (0.0, 2.0),
+    "max_tokens": (1, 32768),
+    "top_p": (0.0, 1.0),
+}
+
+
+def _normalize_generation_settings(values: dict[str, object] | None) -> dict[str, object]:
+    raw = values or {}
+    settings: dict[str, object] = {}
+    temperature = raw.get("temperature")
+    if temperature is not None:
+        settings["temperature"] = max(0.0, min(2.0, float(temperature)))
+    max_tokens = raw.get("max_tokens")
+    if max_tokens is not None:
+        settings["max_tokens"] = max(1, min(32768, int(max_tokens)))
+    top_p = raw.get("top_p")
+    if top_p is not None:
+        settings["top_p"] = max(0.0, min(1.0, float(top_p)))
+    return settings
+
+
+def _generation_opts(conversation: Conversation) -> dict[str, object]:
+    return _normalize_generation_settings(conversation.generation_settings)
+
+
+def _escape_like(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+async def _validate_model_choice(
+    session: AsyncSession,
+    registry: ProviderRegistry,
+    context: AuthContext,
+    *,
+    provider_id: str,
+    model: str,
+    agent: bool,
+) -> None:
+    if provider_id == "auto":
+        return
+    try:
+        registry.get(provider_id)
+        await ensure_model_capability(
+            session,
+            workspace_id=context.workspace.id,
+            user_id=context.user.id,
+            provider_id=provider_id,
+            model_id=model,
+            capability="tools" if agent else "chat",
+        )
+    except ProviderError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, exc.message) from None
+    except ProviderConfigError as exc:
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if exc.code in {"not_found", "model_not_found"}
+            else status.HTTP_422_UNPROCESSABLE_CONTENT
+        )
+        raise HTTPException(status_code, {"code": exc.code, "message": exc.message}) from None
+
+
+async def _require_project(session: AsyncSession, workspace_id: UUID, project_id: UUID):
+    try:
+        return await get_project(session, workspace_id, project_id)
+    except ProjectError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found") from None
 
 
 async def _update_trace(
@@ -182,6 +276,9 @@ async def _finalize(
                                 for citation in citations
                             ]
                         )
+            conversation = await session.get(Conversation, message.conversation_id)
+            if conversation is not None:
+                conversation.updated_at = datetime.now(UTC)
             await session.commit()
             if message.role == "assistant":
                 await enqueue_event(
@@ -214,6 +311,7 @@ async def _stream_reply(
     citations: Sequence[Citation] = (),
     stream: AsyncIterator[ChatChunk] | None = None,
     first_chunk: ChatChunk | None = None,
+    opts: dict[str, object] | None = None,
     redis: RedisLike | None = None,
     trace_id: UUID | None = None,
     started: float | None = None,
@@ -253,7 +351,11 @@ async def _stream_reply(
                     "snippet": citation.snippet,
                 },
             )
-        chunk_stream = stream if stream is not None else provider.stream_chat(history, model)
+        chunk_stream = (
+            stream
+            if stream is not None
+            else provider.stream_chat(history, model, **(opts or {}))
+        )
 
         async def chunks() -> AsyncIterator[ChatChunk]:
             if first_chunk is not None:
@@ -384,6 +486,7 @@ async def _stream_agent_reply(
     citations: Sequence[Citation] = (),
     trace_id: UUID | None = None,
     started: float | None = None,
+    generation_opts: dict[str, object] | None = None,
 ) -> AsyncIterator[str]:
     tool_citations: list[Citation] = []
     runner = AgentRunner(
@@ -391,6 +494,7 @@ async def _stream_agent_reply(
         model=model,
         tool_registry=tool_registry,
         agent_registry=agent_registry,
+        generation_opts=generation_opts or {},
         context=ToolContext(
             workspace_id=workspace_id,
             user_id=user_id,
@@ -578,16 +682,69 @@ async def create_conversation(
     session: SessionDep,
     registry: Annotated[ProviderRegistry, Depends(get_scoped_registry)],
 ) -> Conversation:
-    if payload.provider_id != "auto":
+    project = None
+    if payload.project_id is not None:
         try:
-            registry.get(payload.provider_id)
+            project = await get_project(session, context.workspace.id, payload.project_id)
+        except ProjectError:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found") from None
+
+    if payload.provider_id == "":
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {"code": "invalid_model", "message": "provider_id is required"},
+        )
+    provider_id = payload.provider_id
+    if provider_id is None and project is not None:
+        provider_id = project.default_provider_id
+    if provider_id is None:
+        provider_id = "auto"
+
+    if provider_id == "":
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {"code": "invalid_model", "message": "provider_id is required"},
+        )
+    if provider_id == "auto":
+        model = "auto"
+    elif payload.model is not None:
+        if payload.model == "":
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                {"code": "invalid_model", "message": "model is required"},
+            )
+        model = payload.model
+    elif (
+        project is not None
+        and project.default_provider_id == provider_id
+        and project.default_model
+    ):
+        model = project.default_model
+    else:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {"code": "invalid_model", "message": "model is required"},
+        )
+
+    if "kb_id" in payload.model_fields_set:
+        kb_id = payload.kb_id
+    else:
+        kb_id = project.default_kb_id if project is not None else None
+    if "agent" in payload.model_fields_set:
+        agent = payload.agent
+    else:
+        agent = project.default_agent if project is not None else False
+
+    if provider_id != "auto":
+        try:
+            registry.get(provider_id)
             await ensure_model_capability(
                 session,
                 workspace_id=context.workspace.id,
                 user_id=context.user.id,
-                provider_id=payload.provider_id,
-                model_id=payload.model,
-                capability="tools" if payload.agent else "chat",
+                provider_id=provider_id,
+                model_id=model,
+                capability="tools" if agent else "chat",
             )
         except ProviderError as exc:
             raise HTTPException(status.HTTP_404_NOT_FOUND, exc.message) from None
@@ -599,8 +756,8 @@ async def create_conversation(
             )
             raise HTTPException(status_code, {"code": exc.code, "message": exc.message}) from None
 
-    if payload.kb_id is not None:
-        await get_owned_knowledge_base(payload.kb_id, context.workspace.id, session)
+    if kb_id is not None:
+        await get_owned_knowledge_base(kb_id, context.workspace.id, session)
 
     prompt_version_id = None
     system_prompt = None
@@ -620,15 +777,22 @@ async def create_conversation(
                 "message": "prompt_variables require a prompt_version_id",
             },
         )
+    if project is not None and project.instructions:
+        system_prompt = (
+            f"{project.instructions}\n\n{system_prompt}"
+            if system_prompt
+            else project.instructions
+        )
 
     conversation = Conversation(
         workspace_id=context.workspace.id,
         user_id=context.user.id,
+        project_id=project.id if project is not None else None,
         title="",
-        provider_id=payload.provider_id,
-        model="auto" if payload.provider_id == "auto" else payload.model,
-        kb_id=payload.kb_id,
-        agent=payload.agent,
+        provider_id=provider_id,
+        model=model,
+        kb_id=kb_id,
+        agent=agent,
         prompt_version_id=prompt_version_id,
         system_prompt=system_prompt,
     )
@@ -644,21 +808,59 @@ async def list_conversations(
     session: SessionDep,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     before: UUID | None = None,
+    q: str | None = None,
+    project_id: str | None = None,
+    archived: Literal["false", "true", "all"] = "false",
+    pinned: bool | None = None,
 ) -> list[Conversation]:
-    conditions = [
-        Conversation.workspace_id == context.workspace.id,
-        Conversation.archived_at.is_(None),
-    ]
+    conditions = [Conversation.workspace_id == context.workspace.id]
+    if archived != "all":
+        conditions.append(
+            Conversation.archived_at.is_(None)
+            if archived == "false"
+            else Conversation.archived_at.is_not(None)
+        )
     if before is not None:
         conditions.append(Conversation.id < before)
+    if pinned is not None:
+        conditions.append(Conversation.pinned.is_(pinned))
+    if project_id is not None:
+        if project_id == "none":
+            conditions.append(Conversation.project_id.is_(None))
+        else:
+            try:
+                conditions.append(Conversation.project_id == UUID(project_id))
+            except ValueError:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    {"code": "invalid_project", "message": "Invalid project_id"},
+                ) from None
+    if q is not None and q.strip() != "":
+        term = f"%{_escape_like(q.strip())}%"
+        conditions.append(
+            or_(
+                Conversation.title.ilike(term, escape="\\"),
+                exists(
+                    select(Message.id).where(
+                        Message.conversation_id == Conversation.id,
+                        Message.content.ilike(term, escape="\\"),
+                    )
+                ),
+            )
+        )
     result = await session.execute(
-        select(Conversation).where(*conditions).order_by(Conversation.id.desc()).limit(limit)
+        select(Conversation)
+        .where(*conditions)
+        .order_by(Conversation.pinned.desc(), Conversation.id.desc())
+        .limit(limit)
     )
     return list(result.scalars())
 
 
 async def _conversation_detail(
-    conversation: Conversation, session: AsyncSession
+    conversation: Conversation,
+    session: AsyncSession,
+    user_id: UUID | None = None,
 ) -> ConversationDetailOut:
     result = await session.execute(
         select(Message)
@@ -668,16 +870,34 @@ async def _conversation_detail(
     messages = list(result.scalars())
 
     citations_by_message: dict[UUID, list[MessageCitation]] = defaultdict(list)
+    feedback_by_message: dict[UUID, MessageFeedbackOut] = {}
     if messages:
+        message_ids = [message.id for message in messages]
         citation_rows = (
             await session.execute(
                 select(MessageCitation)
-                .where(MessageCitation.message_id.in_([message.id for message in messages]))
+                .where(MessageCitation.message_id.in_(message_ids))
                 .order_by(MessageCitation.message_id, MessageCitation.citation_index)
             )
         ).scalars()
         for citation in citation_rows:
             citations_by_message[citation.message_id].append(citation)
+        if user_id is not None:
+            feedback_rows = (
+                await session.execute(
+                    select(MessageFeedback).where(
+                        MessageFeedback.message_id.in_(message_ids),
+                        MessageFeedback.user_id == user_id,
+                    )
+                )
+            ).scalars()
+            for feedback in feedback_rows:
+                feedback_by_message[feedback.message_id] = MessageFeedbackOut(
+                    message_id=feedback.message_id,
+                    rating=feedback.rating,
+                    reason=feedback.reason,
+                    updated_at=feedback.updated_at,
+                )
 
     return ConversationDetailOut(
         **ConversationOut.model_validate(conversation).model_dump(),
@@ -693,7 +913,8 @@ async def _conversation_detail(
                             snippet=citation.snippet,
                         )
                         for citation in citations_by_message.get(message.id, [])
-                    ]
+                    ],
+                    "feedback": feedback_by_message.get(message.id),
                 }
             )
             for message in messages
@@ -706,7 +927,100 @@ async def get_conversation(
     conversation_id: UUID, context: ReadContext, session: SessionDep
 ) -> ConversationDetailOut:
     conversation = await _get_owned_conversation(conversation_id, context.workspace.id, session)
-    return await _conversation_detail(conversation, session)
+    return await _conversation_detail(conversation, session, context.user.id)
+
+
+@router.patch("/{conversation_id}", response_model=ConversationOut)
+async def update_conversation(
+    conversation_id: UUID,
+    payload: ConversationUpdate,
+    context: JwtContext,
+    session: SessionDep,
+    registry: Annotated[ProviderRegistry, Depends(get_scoped_registry)],
+) -> Conversation:
+    conversation = await _get_workspace_conversation(
+        conversation_id, context.workspace.id, session, include_archived=True
+    )
+    data = payload.model_dump(exclude_unset=True)
+
+    if "archived" in data:
+        archived = data.pop("archived")
+        conversation.archived_at = datetime.now(UTC) if archived else None
+    if "project_id" in data:
+        project_id = data.pop("project_id")
+        if project_id is not None:
+            await _require_project(session, context.workspace.id, project_id)
+        conversation.project_id = project_id
+    if "generation_settings" in data:
+        conversation.generation_settings = _normalize_generation_settings(
+            data.pop("generation_settings")
+        )
+    if "title" in data:
+        conversation.title = data.pop("title") or ""
+    if "pinned" in data:
+        conversation.pinned = bool(data.pop("pinned"))
+    if "provider_id" in data or "model" in data:
+        provider_id = data.pop("provider_id", conversation.provider_id)
+        model = data.pop("model", conversation.model)
+        if provider_id is None:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                {"code": "invalid_model", "message": "provider_id is required"},
+            )
+        if provider_id == "auto":
+            model = "auto"
+        elif not model:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                {"code": "invalid_model", "message": "model is required"},
+            )
+        await _validate_model_choice(
+            session,
+            registry,
+            context,
+            provider_id=provider_id,
+            model=model,
+            agent=conversation.agent,
+        )
+        conversation.provider_id = provider_id
+        conversation.model = model
+
+    await session.commit()
+    await session.refresh(conversation)
+    return conversation
+
+
+@router.post("/batch", response_model=ConversationBatchOut)
+async def batch_conversations(
+    payload: ConversationBatchIn,
+    context: JwtContext,
+    session: SessionDep,
+) -> ConversationBatchOut:
+    conversation_ids = list(dict.fromkeys(payload.conversation_ids))
+    result = await session.execute(
+        select(Conversation).where(
+            Conversation.id.in_(conversation_ids),
+            Conversation.workspace_id == context.workspace.id,
+        )
+    )
+    conversations = list(result.scalars())
+    if len(conversations) != len(conversation_ids):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
+
+    project_id = payload.project_id
+    if payload.action == "move" and project_id is not None:
+        await _require_project(session, context.workspace.id, project_id)
+
+    now = datetime.now(UTC)
+    for conversation in conversations:
+        if payload.action == "archive":
+            conversation.archived_at = conversation.archived_at or now
+        elif payload.action == "unarchive":
+            conversation.archived_at = None
+        else:
+            conversation.project_id = project_id
+    await session.commit()
+    return ConversationBatchOut(updated=len(conversations))
 
 
 def _markdown_export(detail: ConversationDetailOut, filenames: dict[UUID, str]) -> str:
@@ -741,7 +1055,7 @@ async def export_conversation(
     export_format: Annotated[Literal["markdown", "json"], Query(alias="format")] = "markdown",
 ) -> Response:
     conversation = await _get_owned_conversation(conversation_id, context.workspace.id, session)
-    detail = await _conversation_detail(conversation, session)
+    detail = await _conversation_detail(conversation, session, context.user.id)
     document_ids = {
         citation.document_id for message in detail.messages for citation in message.citations
     }
@@ -785,6 +1099,7 @@ async def _open_auto_stream(
     candidates: Sequence[tuple[str, str]],
     history: Sequence[ChatMessage],
     redis: RedisLike,
+    opts: dict[str, object] | None = None,
 ) -> tuple[LLMProvider, str, AsyncIterator[ChatChunk], ChatChunk, int]:
     attempts = 0
     for provider_id, model in candidates:
@@ -793,7 +1108,7 @@ async def _open_auto_stream(
         except ProviderError:
             continue
         attempts += 1
-        stream = provider.stream_chat(list(history), model)
+        stream = provider.stream_chat(list(history), model, **(opts or {}))
         try:
             first = await asyncio.wait_for(
                 anext(stream), timeout=get_settings().provider_timeout_seconds
@@ -811,33 +1126,26 @@ async def _open_auto_stream(
     )
 
 
-@router.post(
-    "/{conversation_id}/messages",
-    responses={
-        401: {"model": ErrorOut, "description": "Missing or invalid credentials"},
-        404: {"model": ErrorOut, "description": "Conversation not found"},
-        429: {
-            "model": ErrorOut,
-            "description": "Quota exceeded; includes Retry-After and X-Quota-* headers",
-        },
-        503: {"model": ErrorOut, "description": "No provider available"},
-    },
-)
-async def send_message(
-    conversation_id: UUID,
-    payload: SendMessageIn,
-    context: ChatContext,
-    session: SessionDep,
-    registry: Annotated[ProviderRegistry, Depends(get_scoped_registry)],
-    redis: RedisDep,
-    tool_registry: ToolRegistryDep,
-    agent_registry: AgentRegistryDep,
+async def _start_chat_turn(
+    *,
+    conversation: Conversation,
+    content: str,
+    context: AuthContext,
+    session: AsyncSession,
+    registry: ProviderRegistry,
+    redis: RedisLike,
+    tool_registry: ToolRegistry,
+    agent_registry: AgentRegistry,
+    reply_to_message_id: UUID | None = None,
+    exclude_message_id: UUID | None = None,
+    history_before: datetime | None = None,
+    persist_user_message: bool = True,
 ) -> StreamingResponse:
-    conversation = await _get_owned_conversation(conversation_id, context.workspace.id, session)
     await enforce_quota(redis, context)
     started = time.perf_counter()
     request_id = request_id_var.get()
     retrieval_ms: float | None = None
+    opts = _generation_opts(conversation)
     provider: LLMProvider | None = None
     if conversation.provider_id != "auto":
         try:
@@ -845,13 +1153,16 @@ async def send_message(
         except ProviderError as exc:
             raise HTTPException(status.HTTP_409_CONFLICT, exc.message) from None
 
+    history_conditions = [
+        Message.conversation_id == conversation.id,
+        Message.status.in_(("completed", "cancelled")),
+    ]
+    if exclude_message_id is not None:
+        history_conditions.append(Message.id != exclude_message_id)
+    if history_before is not None:
+        history_conditions.append(Message.created_at < history_before)
     history_result = await session.execute(
-        select(Message)
-        .where(
-            Message.conversation_id == conversation.id,
-            Message.status.in_(("completed", "cancelled")),
-        )
-        .order_by(Message.created_at)
+        select(Message).where(*history_conditions).order_by(Message.created_at)
     )
     prior_messages = list(history_result.scalars())
 
@@ -860,7 +1171,7 @@ async def send_message(
         for message in prior_messages
         if message.content
     ]
-    chat_history.append(ChatMessage(role="user", content=payload.content))
+    chat_history.append(ChatMessage(role="user", content=content))
     chat_history = chat_history[-HISTORY_MESSAGE_LIMIT:]
 
     citations: list[Citation] = []
@@ -871,7 +1182,7 @@ async def send_message(
                 session,
                 workspace_id=context.workspace.id,
                 kb_id=conversation.kb_id,
-                query=payload.content,
+                query=content,
             )
         except ProviderError:
             logger.warning("retrieval failed for conversation %s", conversation.id)
@@ -916,22 +1227,26 @@ async def send_message(
     elif provider is None:
         candidates = await route_candidates(session, registry, redis)
         provider, routed_model, stream, first_chunk, attempts = await _open_auto_stream(
-            registry, candidates, chat_history, redis
+            registry, candidates, chat_history, redis, opts
         )
 
-    if not conversation.title:
-        conversation.title = payload.content[:TITLE_MAX_LENGTH]
+    if persist_user_message and not conversation.title:
+        conversation.title = content[:TITLE_MAX_LENGTH]
 
-    user_message = Message(
-        conversation_id=conversation.id,
-        user_id=context.user.id,
-        role="user",
-        content=payload.content,
-        status="completed",
-        provider_id=provider.id,
-        model=routed_model,
-        request_id=request_id,
-    )
+    messages_to_add: list[object] = []
+    if persist_user_message:
+        messages_to_add.append(
+            Message(
+                conversation_id=conversation.id,
+                user_id=context.user.id,
+                role="user",
+                content=content,
+                status="completed",
+                provider_id=provider.id,
+                model=routed_model,
+                request_id=request_id,
+            )
+        )
     assistant_message = Message(
         conversation_id=conversation.id,
         user_id=context.user.id,
@@ -941,6 +1256,7 @@ async def send_message(
         provider_id=provider.id,
         model=routed_model,
         request_id=request_id,
+        reply_to_message_id=reply_to_message_id,
     )
     trace = Trace(
         request_id=request_id,
@@ -953,7 +1269,8 @@ async def send_message(
         attempts=attempts,
         status="streaming",
     )
-    session.add_all([user_message, assistant_message, trace])
+    messages_to_add.extend([assistant_message, trace])
+    session.add_all(messages_to_add)
     await session.flush()
     trace.message_id = assistant_message.id
     await session.commit()
@@ -981,6 +1298,7 @@ async def send_message(
             citations=citations,
             trace_id=trace.id,
             started=started,
+            generation_opts=opts,
         )
     else:
         response_stream = _stream_reply(
@@ -993,6 +1311,7 @@ async def send_message(
             citations=citations,
             stream=stream,
             first_chunk=first_chunk,
+            opts=opts,
             redis=redis,
             trace_id=trace.id,
             started=started,
@@ -1007,3 +1326,170 @@ async def send_message(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.post(
+    "/{conversation_id}/messages",
+    responses={
+        401: {"model": ErrorOut, "description": "Missing or invalid credentials"},
+        404: {"model": ErrorOut, "description": "Conversation not found"},
+        429: {
+            "model": ErrorOut,
+            "description": "Quota exceeded; includes Retry-After and X-Quota-* headers",
+        },
+        503: {"model": ErrorOut, "description": "No provider available"},
+    },
+)
+async def send_message(
+    conversation_id: UUID,
+    payload: SendMessageIn,
+    context: ChatContext,
+    session: SessionDep,
+    registry: Annotated[ProviderRegistry, Depends(get_scoped_registry)],
+    redis: RedisDep,
+    tool_registry: ToolRegistryDep,
+    agent_registry: AgentRegistryDep,
+) -> StreamingResponse:
+    conversation = await _get_owned_conversation(conversation_id, context.workspace.id, session)
+    return await _start_chat_turn(
+        conversation=conversation,
+        content=payload.content,
+        context=context,
+        session=session,
+        registry=registry,
+        redis=redis,
+        tool_registry=tool_registry,
+        agent_registry=agent_registry,
+    )
+
+
+@router.post(
+    "/{conversation_id}/messages/{message_id}/regenerate",
+    responses={
+        401: {"model": ErrorOut, "description": "Missing or invalid credentials"},
+        404: {"model": ErrorOut, "description": "Conversation or message not found"},
+        409: {"model": ErrorOut, "description": "Message cannot be regenerated"},
+        429: {
+            "model": ErrorOut,
+            "description": "Quota exceeded; includes Retry-After and X-Quota-* headers",
+        },
+        503: {"model": ErrorOut, "description": "No provider available"},
+    },
+)
+async def regenerate_message(
+    conversation_id: UUID,
+    message_id: UUID,
+    context: ChatContext,
+    session: SessionDep,
+    registry: Annotated[ProviderRegistry, Depends(get_scoped_registry)],
+    redis: RedisDep,
+    tool_registry: ToolRegistryDep,
+    agent_registry: AgentRegistryDep,
+) -> StreamingResponse:
+    conversation = await _get_owned_conversation(conversation_id, context.workspace.id, session)
+    target = await session.get(Message, message_id)
+    if (
+        target is None
+        or target.conversation_id != conversation.id
+        or target.role != "assistant"
+    ):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Message not found")
+    if target.status not in ("completed", "cancelled"):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Message cannot be regenerated")
+    user_message = (
+        await session.execute(
+            select(Message)
+            .where(
+                Message.conversation_id == conversation.id,
+                Message.role == "user",
+                Message.created_at <= target.created_at,
+            )
+            .order_by(Message.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if user_message is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "No user message to regenerate")
+    return await _start_chat_turn(
+        conversation=conversation,
+        content=user_message.content,
+        context=context,
+        session=session,
+        registry=registry,
+        redis=redis,
+        tool_registry=tool_registry,
+        agent_registry=agent_registry,
+        reply_to_message_id=target.id,
+        exclude_message_id=target.id,
+        history_before=user_message.created_at,
+        persist_user_message=False,
+    )
+
+
+async def _feedback_message(
+    message_id: UUID, context: AuthContext, session: AsyncSession
+) -> Message:
+    message = await session.get(Message, message_id)
+    if message is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Message not found")
+    conversation = await session.get(Conversation, message.conversation_id)
+    if conversation is None or conversation.workspace_id != context.workspace.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Message not found")
+    if message.role != "assistant" or message.status not in ("completed", "cancelled"):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {"code": "invalid_message", "message": "Feedback is only for assistant messages"},
+        )
+    return message
+
+
+@messages_router.put("/{message_id}/feedback", response_model=MessageFeedbackOut)
+async def put_message_feedback(
+    message_id: UUID,
+    payload: MessageFeedbackIn,
+    context: JwtContext,
+    session: SessionDep,
+) -> MessageFeedbackOut:
+    message = await _feedback_message(message_id, context, session)
+    feedback = (
+        await session.execute(
+            select(MessageFeedback).where(
+                MessageFeedback.message_id == message.id,
+                MessageFeedback.user_id == context.user.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if feedback is None:
+        feedback = MessageFeedback(
+            message_id=message.id,
+            user_id=context.user.id,
+            rating=payload.rating,
+            reason=payload.reason,
+        )
+        session.add(feedback)
+    else:
+        feedback.rating = payload.rating
+        feedback.reason = payload.reason
+    await session.commit()
+    await session.refresh(feedback)
+    return MessageFeedbackOut(
+        message_id=feedback.message_id,
+        rating=feedback.rating,
+        reason=feedback.reason,
+        updated_at=feedback.updated_at,
+    )
+
+
+@messages_router.delete("/{message_id}/feedback", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_message_feedback(
+    message_id: UUID, context: JwtContext, session: SessionDep
+) -> Response:
+    await _feedback_message(message_id, context, session)
+    await session.execute(
+        delete(MessageFeedback).where(
+            MessageFeedback.message_id == message_id,
+            MessageFeedback.user_id == context.user.id,
+        )
+    )
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

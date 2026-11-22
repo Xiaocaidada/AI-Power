@@ -229,14 +229,16 @@ def fake_provider():
             self.error: Exception | None = None
             self.list_models_error: Exception | None = None
             self.calls: list[tuple[list[object], str]] = []
+            self.opts_calls: list[dict[str, object]] = []
 
         async def list_models(self):
             if self.list_models_error is not None:
                 raise self.list_models_error
             return list(self.models)
 
-        async def stream_chat(self, messages, model, **_opts):
+        async def stream_chat(self, messages, model, **opts):
             self.calls.append((list(messages), model))
+            self.opts_calls.append(dict(opts))
             if self.error is not None:
                 raise self.error
             for chunk in self.chunks:

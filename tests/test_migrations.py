@@ -36,6 +36,8 @@ def test_alembic_upgrade_head_creates_schema(tmp_path):
         "home_placements",
         "announcements",
         "announcement_reads",
+        "projects",
+        "message_feedback",
         "provider_configs",
         "provider_models",
         "prompt_templates",
@@ -154,6 +156,35 @@ def test_alembic_upgrade_head_creates_schema(tmp_path):
         column["name"] for column in inspector.get_columns("announcement_reads")
     }
     assert {"announcement_id", "user_id", "read_at"} <= read_columns
+
+    project_columns = {column["name"] for column in inspector.get_columns("projects")}
+    assert {
+        "workspace_id",
+        "owner_user_id",
+        "name",
+        "instructions",
+        "default_provider_id",
+        "default_model",
+        "default_kb_id",
+        "default_agent",
+        "archived_at",
+    } <= project_columns
+    conversation_columns = {
+        column["name"] for column in inspector.get_columns("conversations")
+    }
+    assert {
+        "project_id",
+        "pinned",
+        "generation_settings",
+        "updated_at",
+        "archived_at",
+    } <= conversation_columns
+    message_columns = {column["name"] for column in inspector.get_columns("messages")}
+    assert "reply_to_message_id" in message_columns
+    feedback_columns = {
+        column["name"] for column in inspector.get_columns("message_feedback")
+    }
+    assert {"message_id", "user_id", "rating", "reason"} <= feedback_columns
 
     provider_config_columns = {
         column["name"] for column in inspector.get_columns("provider_configs")

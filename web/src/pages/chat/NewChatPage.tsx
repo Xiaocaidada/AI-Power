@@ -13,6 +13,7 @@ import type {
   KnowledgeBase,
   ModelEntry,
   PersonalModel,
+  Project,
   PromptTemplate,
 } from '../../lib/types'
 import { Composer } from './Composer'
@@ -37,7 +38,10 @@ export function NewChatPage() {
   const initialProvider = searchParams.get('provider')
   const initialModel = searchParams.get('model')
   const appliedQueryRef = useRef(false)
-  const [modelId, setModelId] = useState('auto')
+  const [projectId, setProjectId] = useState(() => searchParams.get('project') ?? '')
+  const [modelId, setModelId] = useState(
+    () => (searchParams.get('project') !== null ? 'project' : 'auto'),
+  )
   const [kbId, setKbId] = useState('')
   const [agent, setAgent] = useState(false)
   const [templateId, setTemplateId] = useState('')
@@ -60,6 +64,11 @@ export function NewChatPage() {
     queryFn: () => apiRequest<KnowledgeBase[]>('/knowledge-bases'),
     staleTime: 60_000,
   })
+  const projectsQuery = useQuery({
+    queryKey: ['projects'],
+    queryFn: () => apiRequest<Project[]>('/projects'),
+    staleTime: 60_000,
+  })
   const templatesQuery = useQuery({
     queryKey: ['prompt-templates'],
     queryFn: () => apiRequest<PromptTemplate[]>('/prompt-templates'),
@@ -72,6 +81,9 @@ export function NewChatPage() {
     (template) => template.id === templateId,
   )
   const selectedVersion = selectedTemplate?.versions[0]
+  const selectedProject = (projectsQuery.data ?? []).find(
+    (project) => project.id === projectId,
+  )
   const selected = availableModels.find((model) => model.id === modelId)
   const personalSelected = modelId.startsWith('p:')
     ? personalModels.find((model) => `p:${model.provider_id}:${model.model_id}` === modelId)
@@ -82,6 +94,7 @@ export function NewChatPage() {
   const personalSupportsChat =
     personalSelected === undefined || personalSelected.capabilities.includes('chat')
   const canChat =
+    modelId === 'project' ||
     isAuto ||
     selected !== undefined ||
     (personalSelected !== undefined && personalSupportsChat)
@@ -119,27 +132,31 @@ export function NewChatPage() {
 
   const send = async (content: string) => {
     setError(null)
-    const providerId = isAuto
-      ? 'auto'
-      : (personalSelected?.provider_id ?? selected?.provider_id)
-    const modelName = isAuto
-      ? 'auto'
-      : (personalSelected?.model_id ?? selected?.model_id)
-    if (providerId === undefined || modelName === undefined) {
-      setError(t('chat.noProviders'))
-      throw new Error('no model')
+    const body: Record<string, unknown> = {
+      prompt_version_id: selectedVersion?.id ?? null,
+      prompt_variables: selectedVersion !== undefined ? variables : {},
+    }
+    if (projectId !== '') body.project_id = projectId
+    if (modelId !== 'project') {
+      const providerId = isAuto
+        ? 'auto'
+        : (personalSelected?.provider_id ?? selected?.provider_id)
+      const modelName = isAuto
+        ? 'auto'
+        : (personalSelected?.model_id ?? selected?.model_id)
+      if (providerId === undefined || modelName === undefined) {
+        setError(t('chat.noProviders'))
+        throw new Error('no model')
+      }
+      body.provider_id = providerId
+      body.model = modelName
+      body.kb_id = kbId === '' ? null : kbId
+      body.agent = agent
     }
     try {
       const conversation = await apiRequest<Conversation>('/conversations', {
         method: 'POST',
-        body: {
-          provider_id: providerId,
-          model: modelName,
-          kb_id: kbId === '' ? null : kbId,
-          agent,
-          prompt_version_id: selectedVersion?.id ?? null,
-          prompt_variables: selectedVersion !== undefined ? variables : {},
-        },
+        body,
       })
       await queryClient.invalidateQueries({ queryKey: ['conversations'] })
       navigate(`/chat/${conversation.id}`, { state: { pendingMessage: content } })
@@ -162,12 +179,48 @@ export function NewChatPage() {
           </div>
         ) : (
           <div className="mt-8 grid gap-3 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <Field label={t('chat.project')}>
+                <select
+                  className={selectClass}
+                  value={projectId}
+                  onChange={(event) => {
+                    const next = event.target.value
+                    setProjectId(next)
+                    if (next !== '') setModelId('project')
+                    else if (modelId === 'project') setModelId('auto')
+                  }}
+                >
+                  <option value="">{t('chat.noProject')}</option>
+                  {(projectsQuery.data ?? []).map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
+                    </option>
+                  ))}
+                </select>
+                {selectedProject !== undefined && (
+                  <p className="mt-1 text-xs text-ink-muted">
+                    {t('chat.projectDefaults', {
+                      provider: selectedProject.default_provider_id ?? t('models.auto'),
+                      model: selectedProject.default_model ?? t('models.auto'),
+                      kb:
+                        kbsQuery.data?.find(
+                          (kb) => kb.id === selectedProject.default_kb_id,
+                        )?.name ?? t('chat.noKnowledgeBase'),
+                    })}
+                  </p>
+                )}
+              </Field>
+            </div>
             <Field label={t('chat.model')}>
               <select
                 className={selectClass}
                 value={modelId}
                 onChange={(event) => setModelId(event.target.value)}
               >
+                {selectedProject !== undefined && (
+                  <option value="project">{t('chat.projectDefaultModel')}</option>
+                )}
                 <option value="auto">
                   {t('models.auto')} — {t('models.autoHint')}
                 </option>
@@ -193,7 +246,12 @@ export function NewChatPage() {
             <Field label={t('chat.knowledgeBase')}>
               <select
                 className={selectClass}
-                value={kbId}
+                value={
+                  modelId === 'project'
+                    ? (selectedProject?.default_kb_id ?? '')
+                    : kbId
+                }
+                disabled={modelId === 'project'}
                 onChange={(event) => setKbId(event.target.value)}
               >
                 <option value="">{t('chat.noKnowledgeBase')}</option>
@@ -242,8 +300,10 @@ export function NewChatPage() {
           <input
             type="checkbox"
             className="mt-0.5 h-4 w-4 accent-accent"
-            checked={agent}
-            disabled={!supportsTools}
+            checked={
+              modelId === 'project' ? (selectedProject?.default_agent ?? false) : agent
+            }
+            disabled={!supportsTools || modelId === 'project'}
             onChange={(event) => setAgent(event.target.checked)}
           />
           <span>

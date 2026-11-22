@@ -15,7 +15,9 @@ import type {
   AdminRunSummary,
   AdminUsage,
   AdminWorkspace,
+  Announcement,
   AuditLog,
+  HomePlacement,
   User,
 } from '../../lib/types'
 import { cn } from '../../lib/utils'
@@ -68,6 +70,16 @@ export function AdminPage() {
     queryKey: ['admin-audit'],
     queryFn: () => apiRequest<AuditLog[]>('/admin/audit-logs'),
     enabled: isAdmin && tab === 'audit',
+  })
+  const placements = useQuery({
+    queryKey: ['admin-placements'],
+    queryFn: () => apiRequest<HomePlacement[]>('/admin/content/placements'),
+    enabled: isAdmin,
+  })
+  const announcements = useQuery({
+    queryKey: ['admin-announcements'],
+    queryFn: () => apiRequest<Announcement[]>('/admin/content/announcements'),
+    enabled: isAdmin,
   })
 
   if (!isAdmin) {
@@ -146,6 +158,18 @@ export function AdminPage() {
                   {
                     label: t('admin.unpriced'),
                     value: numberFormat.format(usage.data.unpriced_requests),
+                  },
+                  {
+                    label: t('admin.placements'),
+                    value: numberFormat.format(placements.data?.length ?? 0),
+                  },
+                  {
+                    label: t('admin.announcements'),
+                    value: numberFormat.format(
+                      (announcements.data ?? []).filter(
+                        (item) => item.status === 'published',
+                      ).length,
+                    ),
                   },
                 ].map((item) => (
                   <div key={item.label} className="rounded-card border border-border bg-surface p-4">

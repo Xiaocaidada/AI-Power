@@ -600,11 +600,71 @@ class PromptRenderOut(BaseModel):
     variables: list[str]
 
 
+class ProjectCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=500)
+    instructions: str = Field(default="", max_length=20000)
+    default_provider_id: str | None = Field(default=None, max_length=50)
+    default_model: str | None = Field(default=None, max_length=200)
+    default_kb_id: UUID | None = None
+    default_agent: bool = False
+
+    @field_validator(
+        "name", "description", "instructions", "default_provider_id", "default_model",
+        mode="before",
+    )
+    @classmethod
+    def strip_project_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class ProjectUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+    instructions: str | None = Field(default=None, max_length=20000)
+    default_provider_id: str | None = Field(default=None, max_length=50)
+    default_model: str | None = Field(default=None, max_length=200)
+    default_kb_id: UUID | None = None
+    default_agent: bool | None = None
+    archived: bool | None = None
+
+    @field_validator(
+        "name", "description", "instructions", "default_provider_id", "default_model",
+        mode="before",
+    )
+    @classmethod
+    def strip_project_optional(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class ProjectOut(BaseModel):
+    id: UUID
+    name: str
+    description: str
+    instructions: str
+    default_provider_id: str | None
+    default_model: str | None
+    default_kb_id: UUID | None
+    default_agent: bool
+    archived: bool
+    conversation_count: int
+    owned: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class GenerationSettings(BaseModel):
+    temperature: float | None = None
+    max_tokens: int | None = None
+    top_p: float | None = None
+
+
 class ConversationCreate(BaseModel):
-    provider_id: str = Field(min_length=1, max_length=50)
-    model: str = Field(min_length=1, max_length=200)
+    provider_id: str | None = Field(default=None, max_length=50)
+    model: str | None = Field(default=None, max_length=200)
     kb_id: UUID | None = None
     agent: bool = False
+    project_id: UUID | None = None
     prompt_version_id: UUID | None = None
     prompt_variables: dict[str, str] = Field(default_factory=dict)
 
@@ -622,9 +682,39 @@ class ConversationOut(BaseModel):
     provider_id: str
     model: str
     kb_id: UUID | None
+    project_id: UUID | None = None
     agent: bool = False
+    pinned: bool = False
+    generation_settings: dict = Field(default_factory=dict)
     prompt_version_id: UUID | None = None
     created_at: datetime
+    updated_at: datetime | None = None
+    archived_at: datetime | None = None
+
+
+class ConversationUpdate(BaseModel):
+    title: str | None = Field(default=None, max_length=120)
+    pinned: bool | None = None
+    project_id: UUID | None = None
+    archived: bool | None = None
+    provider_id: str | None = Field(default=None, max_length=50)
+    model: str | None = Field(default=None, max_length=200)
+    generation_settings: GenerationSettings | None = None
+
+    @field_validator("title", "provider_id", "model", mode="before")
+    @classmethod
+    def strip_optional_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class ConversationBatchIn(BaseModel):
+    action: Literal["archive", "unarchive", "move"]
+    conversation_ids: list[UUID] = Field(min_length=1, max_length=100)
+    project_id: UUID | None = None
+
+
+class ConversationBatchOut(BaseModel):
+    updated: int
 
 
 class CitationOut(BaseModel):
@@ -633,6 +723,13 @@ class CitationOut(BaseModel):
     chunk_id: UUID
     page_no: int | None
     snippet: str
+
+
+class MessageFeedbackOut(BaseModel):
+    message_id: UUID
+    rating: str
+    reason: str
+    updated_at: datetime
 
 
 class MessageOut(BaseModel):
@@ -647,12 +744,24 @@ class MessageOut(BaseModel):
     prompt_tokens: int | None
     completion_tokens: int | None
     request_id: str | None = None
+    reply_to_message_id: UUID | None = None
     created_at: datetime
     citations: list[CitationOut] = Field(default_factory=list)
+    feedback: MessageFeedbackOut | None = None
 
 
 class ConversationDetailOut(ConversationOut):
     messages: list[MessageOut] = Field(default_factory=list)
+
+
+class MessageFeedbackIn(BaseModel):
+    rating: Literal["up", "down"]
+    reason: str = Field(default="", max_length=500)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def strip_reason(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
 
 
 class SendMessageIn(BaseModel):
