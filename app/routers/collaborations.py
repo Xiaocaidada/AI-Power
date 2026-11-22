@@ -95,6 +95,7 @@ async def create_collaboration_run(
         tool_registry=tool_registry,
         agent_registry=agent_registry,
         quota_guard=lambda: enforce_quota(redis, context),
+        api_key_id=context.api_key_id,
     )
 
     async def stream():

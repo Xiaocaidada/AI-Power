@@ -19,7 +19,13 @@ import { Spinner } from '../../components/ui/spinner'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
 import { mergePages, pageFromItems } from '../../lib/pagination'
-import type { QuotaSummary, TraceRecord, UsageCost, UsageSummary } from '../../lib/types'
+import type {
+  QuotaSummary,
+  TraceRecord,
+  UsageByKey,
+  UsageCost,
+  UsageSummary,
+} from '../../lib/types'
 import { cn } from '../../lib/utils'
 import {
   defaultRange,
@@ -80,6 +86,19 @@ export function UsagePage() {
     enabled: validRange,
   })
   const costByKey = new Map((cost.data?.buckets ?? []).map((bucket) => [bucket.key, bucket]))
+
+  const byKey = useQuery({
+    queryKey: ['usage-by-key', range.from, range.to],
+    queryFn: () => {
+      const bounds = rangeQuery(range)
+      return apiRequest<UsageByKey>(
+        `/usage/by-key?from=${encodeURIComponent(bounds.from)}&to=${encodeURIComponent(
+          bounds.to,
+        )}`,
+      )
+    },
+    enabled: validRange,
+  })
 
   const traces = useInfiniteQuery({
     queryKey: ['traces', 'recent'],
@@ -226,7 +245,7 @@ export function UsagePage() {
 
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs text-ink-muted">{t('usage.groupBy')}</span>
-          {(['day', 'provider', 'model'] as const).map((group) => (
+          {(['day', 'provider', 'model', 'source'] as const).map((group) => (
             <Button
               key={group}
               size="sm"
@@ -237,7 +256,9 @@ export function UsagePage() {
                 ? t('usage.byDay')
                 : group === 'provider'
                   ? t('usage.byProvider')
-                  : t('usage.byModel')}
+                  : group === 'model'
+                    ? t('usage.byModel')
+                    : t('usage.bySource')}
             </Button>
           ))}
         </div>
@@ -368,6 +389,64 @@ export function UsagePage() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
+            </section>
+
+            <section className="rounded-card border border-border bg-surface p-4">
+              <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+                <h2 className="text-sm font-medium">{t('usage.byKeyTitle')}</h2>
+                <p className="text-[11px] text-ink-muted">{t('usage.byKeyHint')}</p>
+              </div>
+              {byKey.isLoading ? (
+                <div className="flex items-center gap-2 text-sm text-ink-muted">
+                  <Spinner />
+                  {t('common.loading')}
+                </div>
+              ) : (byKey.data?.buckets.length ?? 0) === 0 ? (
+                <p className="text-sm text-ink-muted">{t('usage.noKeyUsage')}</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[620px] text-left text-sm">
+                    <thead className="border-b border-border text-xs uppercase tracking-wide text-ink-muted">
+                      <tr>
+                        <th className="px-3 py-2 font-medium">{t('usage.keyName')}</th>
+                        <th className="px-3 py-2 text-right font-medium">{t('usage.requests')}</th>
+                        <th className="px-3 py-2 text-right font-medium">
+                          {t('usage.totalTokens')}
+                        </th>
+                        <th className="px-3 py-2 text-right font-medium">{t('usage.cost')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {byKey.data?.buckets.map((bucket) => (
+                        <tr
+                          key={bucket.api_key_id ?? 'unattributed'}
+                          className="border-b border-border last:border-0"
+                        >
+                          <td className="px-3 py-2">
+                            {bucket.api_key_id === null ? (
+                              <span className="text-ink-muted">{t('usage.unattributed')}</span>
+                            ) : (
+                              <span className="flex flex-wrap items-baseline gap-2">
+                                <span className="text-ink">{bucket.name}</span>
+                                <span className="font-mono text-[11px] text-ink-muted">
+                                  {bucket.prefix}
+                                </span>
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right">{format(bucket.requests)}</td>
+                          <td className="px-3 py-2 text-right">
+                            {format(bucket.total_tokens)}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono text-xs">
+                            {formatCost(bucket.cost)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </section>
 
             <section className="rounded-card border border-border bg-surface p-4">

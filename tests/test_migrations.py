@@ -56,11 +56,16 @@ def test_alembic_upgrade_head_creates_schema(tmp_path):
     job_columns = {column["name"] for column in inspector.get_columns("ingestion_jobs")}
     assert {"started_at", "finished_at", "lease_expires_at"} <= job_columns
 
-    usage_columns = {column["name"] for column in inspector.get_columns("usage_events")}
+    usage_rows = inspector.get_columns("usage_events")
+    usage_columns = {column["name"] for column in usage_rows}
     assert {
         "user_id",
         "conversation_id",
         "message_id",
+        "source",
+        "api_key_id",
+        "workflow_node_run_id",
+        "collaboration_step_id",
         "provider_id",
         "model",
         "prompt_tokens",
@@ -71,6 +76,15 @@ def test_alembic_upgrade_head_creates_schema(tmp_path):
         "unpriced",
         "created_at",
     } <= usage_columns
+    message_column = next(column for column in usage_rows if column["name"] == "message_id")
+    assert message_column["nullable"] is True
+    usage_indexes = {index["name"] for index in inspector.get_indexes("usage_events")}
+    assert {
+        "ix_usage_events_workspace_source_created",
+        "ix_usage_events_workspace_api_key_created",
+        "ix_usage_events_workflow_node_run_id",
+        "ix_usage_events_collaboration_step_id",
+    } <= usage_indexes
 
     citation_columns = {column["name"] for column in inspector.get_columns("message_citations")}
     assert {"message_id", "citation_index", "document_id", "chunk_id", "page_no", "snippet"} <= (
@@ -141,10 +155,10 @@ def test_usage_backfill_from_existing_messages(tmp_path):
     with engine.connect() as conn:
         row = conn.execute(
             text(
-                "SELECT prompt_tokens, completion_tokens FROM usage_events "
+                "SELECT prompt_tokens, completion_tokens, source FROM usage_events "
                 "WHERE message_id = :message_id"
             ),
             {"message_id": message_id},
         ).one()
 
-    assert row == (10, 5)
+    assert row == (10, 5, "chat")

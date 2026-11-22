@@ -26,7 +26,7 @@ from app.deps import (
     require_scope,
 )
 from app.metrics import record_usage_metrics, track_sse_stream
-from app.models import Conversation, Message, MessageCitation, Trace, UsageEvent
+from app.models import Conversation, Message, MessageCitation, Trace
 from app.observability import request_id_var
 from app.providers.base import ChatChunk, ChatMessage, LLMProvider, ProviderError, Usage
 from app.providers.registry import ProviderRegistry
@@ -42,12 +42,12 @@ from app.schemas import (
 from app.services.access import get_owned_knowledge_base
 from app.services.agent import AgentFailure, AgentRunner
 from app.services.budget import check_workspace_budget
-from app.services.costs import compute_cost, price_snapshot
 from app.services.prompts import resolve_conversation_prompt
 from app.services.quotas import add_token_usage, enforce_quota
 from app.services.rag import build_rag_messages, fit_context
 from app.services.retrieval import Citation, build_citations, retrieve_chunks
 from app.services.routing import record_failure, reset_failures, route_candidates
+from app.services.usage_ledger import SOURCE_CHAT, write_usage_event
 from app.services.webhooks import enqueue_event
 from app.tools.base import ToolContext, ToolRegistry
 
@@ -123,6 +123,7 @@ async def _finalize(
     workspace_id: UUID,
     citations: Sequence[Citation] = (),
     redis: RedisLike | None = None,
+    api_key_id: UUID | None = None,
 ) -> None:
     try:
         async with SessionLocal() as session:
@@ -136,42 +137,28 @@ async def _finalize(
             cost_value = 0.0
 
             if message.role == "assistant":
-                existing_event = await session.execute(
-                    select(UsageEvent.id).where(UsageEvent.message_id == message_id)
+                written = await write_usage_event(
+                    session,
+                    workspace_id=workspace_id,
+                    user_id=message.user_id,
+                    source=SOURCE_CHAT,
+                    conversation_id=message.conversation_id,
+                    message_id=message.id,
+                    api_key_id=api_key_id,
+                    provider_id=message.provider_id,
+                    model=message.model,
+                    prompt_tokens=message.prompt_tokens,
+                    completion_tokens=message.completion_tokens,
                 )
-                if existing_event.scalar_one_or_none() is None:
-                    input_price, output_price = await price_snapshot(
-                        session, message.provider_id, message.model
-                    )
-                    cost = compute_cost(
-                        message.prompt_tokens,
-                        message.completion_tokens,
-                        input_price,
-                        output_price,
-                    )
-                    cost_value = cost
-                    session.add(
-                        UsageEvent(
-                            workspace_id=workspace_id,
-                            user_id=message.user_id,
-                            conversation_id=message.conversation_id,
-                            message_id=message.id,
-                            provider_id=message.provider_id,
-                            model=message.model,
-                            prompt_tokens=message.prompt_tokens,
-                            completion_tokens=message.completion_tokens,
-                            input_price=input_price,
-                            output_price=output_price,
-                            cost=cost,
-                            unpriced=input_price is None or output_price is None,
-                        )
-                    )
+                if written is not None:
+                    cost_value = written.cost
                     record_usage_metrics(
                         prompt_tokens=message.prompt_tokens,
                         completion_tokens=message.completion_tokens,
-                        cost=cost,
+                        cost=written.cost,
                         provider_id=message.provider_id,
                         model=message.model,
+                        source=SOURCE_CHAT,
                     )
                     await check_workspace_budget(session, redis, workspace_id)
                 if citations:
@@ -229,6 +216,7 @@ async def _stream_reply(
     redis: RedisLike | None = None,
     trace_id: UUID | None = None,
     started: float | None = None,
+    api_key_id: UUID | None = None,
 ) -> AsyncIterator[str]:
     parts: list[str] = []
     usage: Usage | None = None
@@ -302,7 +290,14 @@ async def _stream_reply(
                 total_ms=round((time.perf_counter() - started) * 1000, 1),
             )
         await _finalize(
-            assistant_id, "".join(parts), "completed", usage, workspace_id, citations, redis=redis
+            assistant_id,
+            "".join(parts),
+            "completed",
+            usage,
+            workspace_id,
+            citations,
+            redis=redis,
+            api_key_id=api_key_id,
         )
     except asyncio.CancelledError:
         await accrue_tokens()
@@ -313,7 +308,14 @@ async def _stream_reply(
                 total_ms=round((time.perf_counter() - started) * 1000, 1),
             )
         await _finalize(
-            assistant_id, "".join(parts), "cancelled", usage, workspace_id, citations, redis=redis
+            assistant_id,
+            "".join(parts),
+            "cancelled",
+            usage,
+            workspace_id,
+            citations,
+            redis=redis,
+            api_key_id=api_key_id,
         )
         raise
     except ProviderError as exc:
@@ -329,7 +331,14 @@ async def _stream_reply(
             )
         yield _sse("error", {"code": exc.code, "message": exc.message})
         await _finalize(
-            assistant_id, "".join(parts), "failed", usage, workspace_id, citations, redis=redis
+            assistant_id,
+            "".join(parts),
+            "failed",
+            usage,
+            workspace_id,
+            citations,
+            redis=redis,
+            api_key_id=api_key_id,
         )
     except Exception:
         await accrue_tokens()
@@ -345,7 +354,14 @@ async def _stream_reply(
         logger.exception("streaming failed for message %s", assistant_id)
         yield _sse("error", {"code": "internal_error", "message": "Streaming failed"})
         await _finalize(
-            assistant_id, "".join(parts), "failed", usage, workspace_id, citations, redis=redis
+            assistant_id,
+            "".join(parts),
+            "failed",
+            usage,
+            workspace_id,
+            citations,
+            redis=redis,
+            api_key_id=api_key_id,
         )
 
 
@@ -459,7 +475,13 @@ async def _stream_agent_reply(
                 agents=runner.tool_records or None,
             )
         await _finalize(
-            assistant_id, "".join(parts), "completed", usage, workspace_id, tool_citations
+            assistant_id,
+            "".join(parts),
+            "completed",
+            usage,
+            workspace_id,
+            tool_citations,
+            api_key_id=context.api_key_id,
         )
     except asyncio.CancelledError:
         usage = await finish()
@@ -471,7 +493,13 @@ async def _stream_agent_reply(
                 agents=runner.tool_records or None,
             )
         await _finalize(
-            assistant_id, "".join(parts), "cancelled", usage, workspace_id, tool_citations
+            assistant_id,
+            "".join(parts),
+            "cancelled",
+            usage,
+            workspace_id,
+            tool_citations,
+            api_key_id=context.api_key_id,
         )
         raise
     except AgentFailure as exc:
@@ -486,7 +514,14 @@ async def _stream_agent_reply(
             )
         yield _sse("error", {"code": exc.code, "message": exc.message})
         await _finalize(
-            assistant_id, "".join(parts), "failed", usage, workspace_id, tool_citations, redis=redis
+            assistant_id,
+            "".join(parts),
+            "failed",
+            usage,
+            workspace_id,
+            tool_citations,
+            redis=redis,
+            api_key_id=context.api_key_id,
         )
     except ProviderError as exc:
         usage = await finish()
@@ -501,7 +536,14 @@ async def _stream_agent_reply(
             )
         yield _sse("error", {"code": exc.code, "message": exc.message})
         await _finalize(
-            assistant_id, "".join(parts), "failed", usage, workspace_id, tool_citations, redis=redis
+            assistant_id,
+            "".join(parts),
+            "failed",
+            usage,
+            workspace_id,
+            tool_citations,
+            redis=redis,
+            api_key_id=context.api_key_id,
         )
     except Exception:
         usage = await finish()
@@ -517,7 +559,14 @@ async def _stream_agent_reply(
         logger.exception("agent streaming failed for message %s", assistant_id)
         yield _sse("error", {"code": "internal_error", "message": "Agent run failed"})
         await _finalize(
-            assistant_id, "".join(parts), "failed", usage, workspace_id, tool_citations, redis=redis
+            assistant_id,
+            "".join(parts),
+            "failed",
+            usage,
+            workspace_id,
+            tool_citations,
+            redis=redis,
+            api_key_id=context.api_key_id,
         )
 
 
@@ -864,6 +913,7 @@ async def send_message(
             redis=redis,
             trace_id=trace.id,
             started=started,
+            api_key_id=context.api_key_id,
         )
 
     return StreamingResponse(

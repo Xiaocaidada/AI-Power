@@ -204,10 +204,12 @@ def record_usage_metrics(
     cost: float,
     provider_id: str | None,
     model: str | None,
+    source: str = "chat",
 ) -> None:
     labels: dict[str, Any] = {
         "provider": provider_id or "unknown",
         "model": model or "unknown",
+        "source": source,
     }
     if prompt_tokens:
         metrics.inc_counter("ai_power_tokens_total", float(prompt_tokens), kind="prompt", **labels)

@@ -126,6 +126,8 @@ with httpx.stream(
 ```bash
 curl -s "$BASE/usage/summary?group_by=day" -H "Authorization: Bearer $TOKEN"
 curl -s "$BASE/usage/cost?group_by=model" -H "Authorization: Bearer $TOKEN"
+curl -s "$BASE/usage/cost?group_by=source" -H "Authorization: Bearer $TOKEN"
+curl -s "$BASE/usage/by-key" -H "Authorization: Bearer $TOKEN"
 curl -s "$BASE/usage/quota" -H "Authorization: Bearer $TOKEN"
 curl -s "$BASE/traces?limit=10" -H "Authorization: Bearer $TOKEN"
 ```
@@ -143,6 +145,8 @@ KEY=$(curl -s -X POST "$BASE/api-keys" \
 # 明文只返回一次；之后只存 SHA-256
 curl -s "$BASE/conversations" -H "X-API-Key: $KEY"
 ```
+
+`/usage/summary` 与 `/usage/cost` 支持 `group_by=source`（`chat|workflow|collaboration`）以及 `source` / `api_key_id` 过滤；`/usage/by-key` 按 API Key 对账，JWT 调用归入未归属桶。
 
 API Key 绑定创建时的 workspace；可用 `expires_at` 与 `rate_limit_per_minute` 限制。Key 管理、上传、删除、用量、Prompt 模板与管理端仅支持 JWT。
 
