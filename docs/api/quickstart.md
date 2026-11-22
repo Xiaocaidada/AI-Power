@@ -134,6 +134,17 @@ curl -s "$BASE/traces?limit=10" -H "Authorization: Bearer $TOKEN"
 
 成本按请求写入时的模型价格快照计算（USD，6 位小数）；未定价模型计 0 并计入 `unpriced_requests`。
 
+### 会话导出
+
+```bash
+curl -OJ "$BASE/conversations/<conversation_id>/export?format=markdown" \
+  -H "Authorization: Bearer $TOKEN"
+curl -OJ "$BASE/conversations/<conversation_id>/export?format=json" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+导出包含全部消息与已持久化引用；返回 `Content-Disposition: attachment`。也支持带 `kb:read` scope 的 API Key。
+
 ## 5. 用 API Key 调用
 
 ```bash

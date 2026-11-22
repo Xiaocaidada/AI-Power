@@ -5,7 +5,7 @@ import time
 from collections import defaultdict
 from collections.abc import AsyncIterator, Sequence
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -26,7 +26,7 @@ from app.deps import (
     require_scope,
 )
 from app.metrics import record_usage_metrics, track_sse_stream
-from app.models import Conversation, Message, MessageCitation, Trace
+from app.models import Conversation, Document, Message, MessageCitation, Trace
 from app.observability import request_id_var
 from app.providers.base import ChatChunk, ChatMessage, LLMProvider, ProviderError, Usage
 from app.providers.registry import ProviderRegistry
@@ -641,11 +641,9 @@ async def list_conversations(
     return list(result.scalars())
 
 
-@router.get("/{conversation_id}", response_model=ConversationDetailOut)
-async def get_conversation(
-    conversation_id: UUID, context: ReadContext, session: SessionDep
+async def _conversation_detail(
+    conversation: Conversation, session: AsyncSession
 ) -> ConversationDetailOut:
-    conversation = await _get_owned_conversation(conversation_id, context.workspace.id, session)
     result = await session.execute(
         select(Message)
         .where(Message.conversation_id == conversation.id)
@@ -684,6 +682,75 @@ async def get_conversation(
             )
             for message in messages
         ],
+    )
+
+
+@router.get("/{conversation_id}", response_model=ConversationDetailOut)
+async def get_conversation(
+    conversation_id: UUID, context: ReadContext, session: SessionDep
+) -> ConversationDetailOut:
+    conversation = await _get_owned_conversation(conversation_id, context.workspace.id, session)
+    return await _conversation_detail(conversation, session)
+
+
+def _markdown_export(detail: ConversationDetailOut, filenames: dict[UUID, str]) -> str:
+    lines = [f"# {detail.title or 'Conversation'}", ""]
+    lines.append(f"- Provider: {detail.provider_id}")
+    lines.append(f"- Model: {detail.model}")
+    lines.append(f"- Created: {detail.created_at.isoformat()}")
+    if detail.kb_id is not None:
+        lines.append(f"- Knowledge base: {detail.kb_id}")
+    lines.append("")
+    for message in detail.messages:
+        lines.append("## 用户" if message.role == "user" else "## 助手")
+        lines.append("")
+        lines.append(message.content or "")
+        lines.append("")
+        if message.citations:
+            lines.append("### 引用")
+            lines.append("")
+            for citation in message.citations:
+                source = filenames.get(citation.document_id, str(citation.document_id))
+                page = f" · 第 {citation.page_no} 页" if citation.page_no is not None else ""
+                lines.append(f"- [{citation.index}] {source}{page} — {citation.snippet}")
+            lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+@router.get("/{conversation_id}/export")
+async def export_conversation(
+    conversation_id: UUID,
+    context: ReadContext,
+    session: SessionDep,
+    export_format: Annotated[Literal["markdown", "json"], Query(alias="format")] = "markdown",
+) -> Response:
+    conversation = await _get_owned_conversation(conversation_id, context.workspace.id, session)
+    detail = await _conversation_detail(conversation, session)
+    document_ids = {
+        citation.document_id for message in detail.messages for citation in message.citations
+    }
+    filenames: dict[UUID, str] = {}
+    if document_ids:
+        rows = (
+            await session.execute(
+                select(Document.id, Document.filename).where(Document.id.in_(document_ids))
+            )
+        ).all()
+        filenames = {row.id: row.filename for row in rows}
+    if export_format == "json":
+        body = json.dumps(detail.model_dump(mode="json"), ensure_ascii=False, indent=2)
+        media_type = "application/json; charset=utf-8"
+        suffix = "json"
+    else:
+        body = _markdown_export(detail, filenames)
+        media_type = "text/markdown; charset=utf-8"
+        suffix = "md"
+    return Response(
+        content=body,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="conversation-{conversation.id}.{suffix}"'
+        },
     )
 
 

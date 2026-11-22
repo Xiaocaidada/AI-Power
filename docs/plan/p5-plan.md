@@ -1,6 +1,6 @@
 # P5 规划：检索质量、评测平台与开放平台
 
-- **Status:** In progress（D1–D10 已确认；S1–S5 已完成 2026-11-23）
+- **Status:** Feature complete（D1–D10 已确认；S1–S6 完成，S6 测试范围按用户要求缩小，2026-11-23）
 - **Date:** 2026-11-22
 - **Scope source:** [`PRODUCT-BRIEF.md`](../../PRODUCT-BRIEF.md) §2 Q2/Q7、§3、[`docs/eval/retrieval-baseline.md`](../eval/retrieval-baseline.md)、[`docs/plan/p4-plan.md`](./p4-plan.md)
 - **前置:** P4 已完成（2026-11-22），见 [`p4-plan.md`](./p4-plan.md)、[`p4-s6-final.md`](../tdd/p4-s6-final.md)
@@ -153,13 +153,15 @@ P5 仍**不做真实支付/计费、复杂 RBAC、移动端与拖拽画布**。�
 >
 > **完成证据**：[`docs/tdd/p5-s5-async-runs.md`](../tdd/p5-s5-async-runs.md)、[`ADR-0023`](../adr/0023-async-runs.md)。真实 API 验证 202/queued、事件 seq 回放、运行中取消终态 `cancelled`；Playwright 新增刷新重连用例。
 
-### P5-S6 收口 — 待开始（约 0.5–1 周）
+### P5-S6 收口 — **功能完成（2026-11-23，测试范围缩小）**（约 0.5–1 周）
 
 - 小体验项：批量上传（多选）、会话导出（Markdown/JSON）。
 - 文档：README/CLAUDE、quickstart、errors、workflows、SDK、Webhook；ADR 索引。
 - 测试：新增 ≥3 条 Playwright（评测页、Webhook 投递、异步 run 重连）；检索/评测压测脚本；覆盖率 ≥80%。
 - 演示脚本：一条命令跑完“混合检索对比 → 评测 → SDK → Webhook”。
 - 部署复核：compose 全栈、`/metrics`、预算告警、worker 新任务。
+
+> **范围调整（2026-11-23，用户确认）**：只实现新增功能——批量上传（多选队列）与会话导出（Markdown/JSON）；跳过新增 ≥3 条 Playwright、压测、覆盖率冲刺和完整演示脚本。完成证据见 [`docs/tdd/p5-s6-polish.md`](../tdd/p5-s6-polish.md)。
 
 ## 5. 排期（约 8–10 周）
 
