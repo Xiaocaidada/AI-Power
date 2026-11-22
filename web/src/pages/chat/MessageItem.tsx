@@ -1,10 +1,10 @@
-import { Check, Copy, Quote } from 'lucide-react'
+import { Check, Copy, Quote, RotateCcw, ThumbsDown, ThumbsUp } from 'lucide-react'
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 
 import { Badge } from '../../components/ui/badge'
 import { useI18n } from '../../lib/i18n'
-import type { AgentActivity, Citation } from '../../lib/types'
+import type { AgentActivity, Citation, MessageFeedback } from '../../lib/types'
 
 export interface DisplayMessage {
   id: string
@@ -19,6 +19,8 @@ export interface DisplayMessage {
   prompt_tokens?: number | null
   completion_tokens?: number | null
   request_id?: string | null
+  reply_to_message_id?: string | null
+  feedback?: MessageFeedback | null
   agentActivity?: AgentActivity[]
 }
 
@@ -27,6 +29,8 @@ interface MessageItemProps {
   onOpenCitations: (citations: Citation[]) => void
   onResend?: () => void
   onOpenTrace?: (requestId: string) => void
+  onRegenerate?: (messageId: string) => void
+  onFeedback?: (messageId: string, rating: 'up' | 'down') => void
 }
 
 export function MessageItem({
@@ -34,6 +38,8 @@ export function MessageItem({
   onOpenCitations,
   onResend,
   onOpenTrace,
+  onRegenerate,
+  onFeedback,
 }: MessageItemProps) {
   const { t } = useI18n()
   const [copied, setCopied] = useState(false)
@@ -192,6 +198,46 @@ export function MessageItem({
                 {t('trace.view')}
               </button>
             )}
+          {message.status === 'completed' && onRegenerate !== undefined && (
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 hover:text-ink"
+              onClick={() => onRegenerate(message.id)}
+            >
+              <RotateCcw className="h-3 w-3" />
+              {t('chat.regenerate')}
+            </button>
+          )}
+          {message.status === 'completed' && onFeedback !== undefined && (
+            <span className="inline-flex items-center gap-1">
+              <button
+                type="button"
+                aria-label={t('chat.feedbackUp')}
+                title={t('chat.feedbackUp')}
+                className={
+                  message.feedback?.rating === 'up'
+                    ? 'text-accent'
+                    : 'hover:text-ink'
+                }
+                onClick={() => onFeedback(message.id, 'up')}
+              >
+                <ThumbsUp className="h-3 w-3" />
+              </button>
+              <button
+                type="button"
+                aria-label={t('chat.feedbackDown')}
+                title={t('chat.feedbackDown')}
+                className={
+                  message.feedback?.rating === 'down'
+                    ? 'text-danger'
+                    : 'hover:text-ink'
+                }
+                onClick={() => onFeedback(message.id, 'down')}
+              >
+                <ThumbsDown className="h-3 w-3" />
+              </button>
+            </span>
+          )}
         </div>
       ) : null}
     </div>

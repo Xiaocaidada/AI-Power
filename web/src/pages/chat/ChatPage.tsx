@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Archive, Download, Quote } from 'lucide-react'
+import { Archive, Download, Paperclip, Quote, SlidersHorizontal } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
@@ -14,7 +14,7 @@ import {
 } from '../../lib/exportConversation'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
-import { streamChat } from '../../lib/sse'
+import { streamChat, streamRegenerate, type SseEvent } from '../../lib/sse'
 import type {
   AgentActivity,
   ChatUsage,
@@ -22,6 +22,7 @@ import type {
   ConversationDetail,
   KnowledgeBase,
 } from '../../lib/types'
+import { ChatSettingsDialog } from './ChatSettingsDialog'
 import { CitationDrawer } from './CitationDrawer'
 import { Composer } from './Composer'
 import { MessageItem, type DisplayMessage } from './MessageItem'
@@ -54,6 +55,7 @@ export function ChatPage() {
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
   const [traceRequestId, setTraceRequestId] = useState<string | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [cooldown, setCooldown] = useState(0)
   const abortRef = useRef<AbortController | null>(null)
   const activityIdRef = useRef(0)
@@ -71,12 +73,14 @@ export function ChatPage() {
     staleTime: 60_000,
   })
 
-  const start = useCallback(
-    async (content: string) => {
+  const runStream = useCallback(
+    async (
+      request: (signal: AbortSignal, onEvent: (event: SseEvent) => void) => Promise<void>,
+      userContent: string,
+    ) => {
       if (conversationId === '') return
-      setInput('')
       setPending({
-        user: content,
+        user: userContent,
         assistant: '',
         citations: [],
         activity: [],
@@ -95,66 +99,61 @@ export function ChatPage() {
       }
 
       try {
-        await streamChat({
-          conversationId,
-          content,
-          signal: controller.signal,
-          onEvent: (event) => {
-            const data = event.data as Record<string, unknown> | null
-            if (data === null) return
-            const agent = String(data.agent ?? 'agent')
-            const depth = typeof data.depth === 'number' ? data.depth : 0
-            if (event.event === 'agent_start') {
-              appendActivity({ type: 'agent_start', agent, depth })
-            } else if (event.event === 'agent_end') {
-              appendActivity({
-                type: 'agent_end',
-                agent,
-                depth,
-                status: String(data.status ?? 'completed'),
-                duration_ms:
-                  typeof data.duration_ms === 'number' ? data.duration_ms : undefined,
-              })
-            } else if (event.event === 'tool_call') {
-              appendActivity({
-                type: 'tool_call',
-                agent,
-                depth,
-                tool: String(data.tool ?? ''),
-                arguments: data.arguments as Record<string, unknown> | undefined,
-              })
-            } else if (event.event === 'tool_result') {
-              appendActivity({
-                type: 'tool_result',
-                agent,
-                depth,
-                tool: String(data.tool ?? ''),
-                ok: data.ok === true,
-                output: String(data.output ?? ''),
-                error_code:
-                  data.error_code === null || data.error_code === undefined
-                    ? null
-                    : String(data.error_code),
-                duration_ms:
-                  typeof data.duration_ms === 'number' ? data.duration_ms : undefined,
-              })
-            } else if (event.event === 'citation') {
-              setPending((prev) =>
-                prev ? { ...prev, citations: [...prev.citations, data as unknown as Citation] } : prev,
-              )
-            } else if (event.event === 'delta') {
-              setPending((prev) =>
-                prev ? { ...prev, assistant: prev.assistant + String(data.text ?? '') } : prev,
-              )
-            } else if (event.event === 'usage') {
-              setPending((prev) => (prev ? { ...prev, usage: data as unknown as ChatUsage } : prev))
-            } else if (event.event === 'error') {
-              failedCode = String(data.code ?? 'internal_error')
-              setPending((prev) =>
-                prev ? { ...prev, status: 'failed', errorCode: failedCode ?? undefined } : prev,
-              )
-            }
-          },
+        await request(controller.signal, (event) => {
+          const data = event.data as Record<string, unknown> | null
+          if (data === null) return
+          const agent = String(data.agent ?? 'agent')
+          const depth = typeof data.depth === 'number' ? data.depth : 0
+          if (event.event === 'agent_start') {
+            appendActivity({ type: 'agent_start', agent, depth })
+          } else if (event.event === 'agent_end') {
+            appendActivity({
+              type: 'agent_end',
+              agent,
+              depth,
+              status: String(data.status ?? 'completed'),
+              duration_ms:
+                typeof data.duration_ms === 'number' ? data.duration_ms : undefined,
+            })
+          } else if (event.event === 'tool_call') {
+            appendActivity({
+              type: 'tool_call',
+              agent,
+              depth,
+              tool: String(data.tool ?? ''),
+              arguments: data.arguments as Record<string, unknown> | undefined,
+            })
+          } else if (event.event === 'tool_result') {
+            appendActivity({
+              type: 'tool_result',
+              agent,
+              depth,
+              tool: String(data.tool ?? ''),
+              ok: data.ok === true,
+              output: String(data.output ?? ''),
+              error_code:
+                data.error_code === null || data.error_code === undefined
+                  ? null
+                  : String(data.error_code),
+              duration_ms:
+                typeof data.duration_ms === 'number' ? data.duration_ms : undefined,
+            })
+          } else if (event.event === 'citation') {
+            setPending((prev) =>
+              prev ? { ...prev, citations: [...prev.citations, data as unknown as Citation] } : prev,
+            )
+          } else if (event.event === 'delta') {
+            setPending((prev) =>
+              prev ? { ...prev, assistant: prev.assistant + String(data.text ?? '') } : prev,
+            )
+          } else if (event.event === 'usage') {
+            setPending((prev) => (prev ? { ...prev, usage: data as unknown as ChatUsage } : prev))
+          } else if (event.event === 'error') {
+            failedCode = String(data.code ?? 'internal_error')
+            setPending((prev) =>
+              prev ? { ...prev, status: 'failed', errorCode: failedCode ?? undefined } : prev,
+            )
+          }
         })
 
         if (failedCode === null) {
@@ -183,6 +182,31 @@ export function ChatPage() {
     [conversationId, queryClient],
   )
 
+  const start = useCallback(
+    async (content: string) => {
+      if (conversationId === '') return
+      setInput('')
+      await runStream(
+        (signal, onEvent) =>
+          streamChat({ conversationId, content, signal, onEvent }),
+        content,
+      )
+    },
+    [conversationId, runStream],
+  )
+
+  const regenerate = useCallback(
+    async (messageId: string) => {
+      if (conversationId === '' || pending?.status === 'streaming') return
+      await runStream(
+        (signal, onEvent) =>
+          streamRegenerate({ conversationId, messageId, signal, onEvent }),
+        '',
+      )
+    },
+    [conversationId, pending?.status, runStream],
+  )
+
   useEffect(() => {
     if (cooldown <= 0) return
     const timer = window.setInterval(() => {
@@ -202,6 +226,24 @@ export function ChatPage() {
   const serverMessages = conversation.data?.messages ?? []
   const messageCount = serverMessages.length
   const streamLength = pending?.assistant.length ?? 0
+
+  const setFeedback = async (messageId: string, rating: 'up' | 'down') => {
+    const message = serverMessages.find((item) => item.id === messageId)
+    const current = message?.feedback?.rating ?? null
+    try {
+      if (current === rating) {
+        await apiRequest(`/messages/${messageId}/feedback`, { method: 'DELETE' })
+      } else {
+        await apiRequest(`/messages/${messageId}/feedback`, {
+          method: 'PUT',
+          body: { rating },
+        })
+      }
+      await queryClient.invalidateQueries({ queryKey: ['conversation', conversationId] })
+    } catch {
+      // Feedback is best-effort; keep the conversation usable if it fails.
+    }
+  }
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: 'end' })
@@ -267,13 +309,17 @@ export function ChatPage() {
   const streamMessages: DisplayMessage[] =
     pending !== null
       ? [
-          {
-            id: 'pending-user',
-            role: 'user',
-            content: pending.user,
-            status: 'completed',
-            citations: [],
-          },
+          ...(pending.user === ''
+            ? []
+            : [
+                {
+                  id: 'pending-user',
+                  role: 'user' as const,
+                  content: pending.user,
+                  status: 'completed',
+                  citations: [],
+                },
+              ]),
           {
             id: 'pending-assistant',
             role: 'assistant',
@@ -323,6 +369,15 @@ export function ChatPage() {
           <Button
             variant="ghost"
             size="sm"
+            aria-label={t('chat.settingsTitle')}
+            title={t('chat.settingsTitle')}
+            onClick={() => setSettingsOpen(true)}
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
             aria-label={t('chat.export')}
             onClick={() => {
               setExportError(null)
@@ -353,6 +408,12 @@ export function ChatPage() {
               message={message}
               onOpenCitations={openCitations}
               onOpenTrace={setTraceRequestId}
+              onRegenerate={
+                message.status === 'completed'
+                  ? (messageId) => void regenerate(messageId)
+                  : undefined
+              }
+              onFeedback={(messageId, rating) => void setFeedback(messageId, rating)}
             />
           ))}
           {streamMessages.map((message) =>
@@ -384,6 +445,17 @@ export function ChatPage() {
               {t('errors.rateLimitedWait', { seconds: cooldown })}
             </p>
           )}
+          <div className="mb-2 flex items-center">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled
+              title={t('chat.attachmentSoon')}
+            >
+              <Paperclip className="h-3.5 w-3.5" />
+              {t('chat.attachmentSoon')}
+            </Button>
+          </div>
           <Composer
             value={input}
             onValueChange={setInput}
@@ -402,6 +474,18 @@ export function ChatPage() {
       />
 
       <TraceDialog requestId={traceRequestId} onClose={() => setTraceRequestId(null)} />
+
+      {settingsOpen && conversation.data !== undefined && (
+        <ChatSettingsDialog
+          conversation={conversation.data}
+          onClose={() => {
+            setSettingsOpen(false)
+            void queryClient.invalidateQueries({
+              queryKey: ['conversation', conversationId],
+            })
+          }}
+        />
+      )}
 
       <Dialog
         open={exportOpen}

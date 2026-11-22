@@ -314,15 +314,42 @@ export interface WebhookDelivery {
   delivered_at: string | null
 }
 
+export interface Project {
+  id: string
+  name: string
+  description: string
+  instructions: string
+  default_provider_id: string | null
+  default_model: string | null
+  default_kb_id: string | null
+  default_agent: boolean
+  archived: boolean
+  conversation_count: number
+  owned: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface GenerationSettings {
+  temperature?: number | null
+  max_tokens?: number | null
+  top_p?: number | null
+}
+
 export interface Conversation {
   id: string
   title: string
   provider_id: string
   model: string
   kb_id: string | null
+  project_id?: string | null
   agent: boolean
+  pinned?: boolean
+  generation_settings?: GenerationSettings
   prompt_version_id?: string | null
   created_at: string
+  updated_at?: string | null
+  archived_at?: string | null
 }
 
 export interface PromptVersion {
@@ -540,6 +567,13 @@ export interface Citation {
   snippet: string
 }
 
+export interface MessageFeedback {
+  message_id: string
+  rating: 'up' | 'down'
+  reason: string
+  updated_at: string
+}
+
 export interface Message {
   id: string
   role: 'user' | 'assistant'
@@ -550,8 +584,10 @@ export interface Message {
   prompt_tokens: number | null
   completion_tokens: number | null
   request_id?: string | null
+  reply_to_message_id?: string | null
   created_at: string
   citations: Citation[]
+  feedback?: MessageFeedback | null
 }
 
 export interface WorkspaceItem {

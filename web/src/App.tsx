@@ -8,6 +8,7 @@ import { Spinner } from './components/ui/spinner'
 import { apiRequest } from './lib/http'
 import { clearTokens, hasSession, refreshAccessToken } from './lib/tokens'
 import type { User } from './lib/types'
+import { ArchivedConversationsPage } from './pages/chat/ArchivedConversationsPage'
 import { ChatPage } from './pages/chat/ChatPage'
 import { NewChatPage } from './pages/chat/NewChatPage'
 import { EvaluationPage } from './pages/evaluation/EvaluationPage'
@@ -20,6 +21,8 @@ import { ModelPlaygroundPage } from './pages/models/ModelPlaygroundPage'
 import { AnnouncementDetailPage } from './pages/portal/AnnouncementDetailPage'
 import { AnnouncementsPage } from './pages/portal/AnnouncementsPage'
 import { HomePage } from './pages/portal/HomePage'
+import { ProjectDetailPage } from './pages/projects/ProjectDetailPage'
+import { ProjectsPage } from './pages/projects/ProjectsPage'
 import { ApiKeysPage } from './pages/settings/ApiKeysPage'
 import { ProvidersPage } from './pages/settings/ProvidersPage'
 import { SettingsHubPage } from './pages/settings/SettingsHubPage'
@@ -80,6 +83,9 @@ export function App() {
         <Route element={<AppShell />}>
           <Route path="chat" element={<NewChatPage />} />
           <Route path="chat/:id" element={<ChatPage />} />
+          <Route path="archive" element={<ArchivedConversationsPage />} />
+          <Route path="projects" element={<ProjectsPage />} />
+          <Route path="projects/:id" element={<ProjectDetailPage />} />
           <Route path="workflows" element={<WorkflowsPage />} />
           <Route path="collaborations" element={<CollaborationsPage />} />
           <Route path="admin" element={<AdminPage />} />

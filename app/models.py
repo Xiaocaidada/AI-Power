@@ -319,6 +319,34 @@ class RefreshToken(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class Project(Base):
+    __tablename__ = "projects"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    owner_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(String(500), default="")
+    instructions: Mapped[str] = mapped_column(Text, default="")
+    default_provider_id: Mapped[str | None] = mapped_column(String(50), default=None)
+    default_model: Mapped[str | None] = mapped_column(String(200), default=None)
+    default_kb_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("knowledge_bases.id", ondelete="SET NULL"), default=None
+    )
+    default_agent: Mapped[bool] = mapped_column(Boolean, default=False)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    __table_args__ = (Index("ix_projects_workspace_archived", "workspace_id", "archived_at"),)
+
+
 class Conversation(Base):
     __tablename__ = "conversations"
 
@@ -327,6 +355,9 @@ class Conversation(Base):
         ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
     )
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    project_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"), default=None, index=True
+    )
     title: Mapped[str] = mapped_column(String(120), default="")
     provider_id: Mapped[str] = mapped_column(String(50))
     model: Mapped[str] = mapped_column(String(200))
@@ -338,8 +369,23 @@ class Conversation(Base):
     )
     system_prompt: Mapped[str | None] = mapped_column(Text, default=None)
     agent: Mapped[bool] = mapped_column(Boolean, default=False)
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    generation_settings: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+    __table_args__ = (
+        Index(
+            "ix_conversations_workspace_project_archived",
+            "workspace_id",
+            "project_id",
+            "archived_at",
+        ),
+        Index("ix_conversations_workspace_pinned", "workspace_id", "pinned"),
+    )
 
 
 class Message(Base):
@@ -358,7 +404,30 @@ class Message(Base):
     prompt_tokens: Mapped[int | None] = mapped_column(default=None)
     completion_tokens: Mapped[int | None] = mapped_column(default=None)
     request_id: Mapped[str | None] = mapped_column(String(64), default=None)
+    reply_to_message_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("messages.id", ondelete="SET NULL"), default=None
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class MessageFeedback(Base):
+    __tablename__ = "message_feedback"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    message_id: Mapped[UUID] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    rating: Mapped[str] = mapped_column(String(10))
+    reason: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    __table_args__ = (
+        UniqueConstraint("message_id", "user_id", name="uq_message_feedback_message_user"),
+    )
 
 
 class ApiKey(Base):
