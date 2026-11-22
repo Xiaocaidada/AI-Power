@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState, type ReactNode } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
@@ -33,12 +33,16 @@ export function NewChatPage() {
   const { t } = useI18n()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const [searchParams] = useSearchParams()
+  const initialProvider = searchParams.get('provider')
+  const initialModel = searchParams.get('model')
+  const appliedQueryRef = useRef(false)
   const [modelId, setModelId] = useState('auto')
   const [kbId, setKbId] = useState('')
   const [agent, setAgent] = useState(false)
   const [templateId, setTemplateId] = useState('')
   const [variables, setVariables] = useState<Record<string, string>>({})
-  const [value, setValue] = useState('')
+  const [value, setValue] = useState(() => searchParams.get('prompt') ?? '')
   const [error, setError] = useState<string | null>(null)
 
   const modelsQuery = useQuery({
@@ -73,7 +77,38 @@ export function NewChatPage() {
     ? personalModels.find((model) => `p:${model.provider_id}:${model.model_id}` === modelId)
     : undefined
   const isAuto = modelId === 'auto'
-  const canChat = isAuto || selected !== undefined || personalSelected !== undefined
+  const supportsTools =
+    personalSelected === undefined || personalSelected.capabilities.includes('tools')
+  const personalSupportsChat =
+    personalSelected === undefined || personalSelected.capabilities.includes('chat')
+  const canChat =
+    isAuto ||
+    selected !== undefined ||
+    (personalSelected !== undefined && personalSupportsChat)
+
+  useEffect(() => {
+    if (appliedQueryRef.current || initialProvider === null || initialModel === null) return
+    if (availableModels.length === 0 && personalModels.length === 0) return
+    const personalMatch = personalModels.find(
+      (model) => model.provider_id === initialProvider && model.model_id === initialModel,
+    )
+    if (personalMatch !== undefined) {
+      setModelId(`p:${personalMatch.provider_id}:${personalMatch.model_id}`)
+      appliedQueryRef.current = true
+      return
+    }
+    const platformMatch = availableModels.find(
+      (model) => model.provider_id === initialProvider && model.model_id === initialModel,
+    )
+    if (platformMatch !== undefined) {
+      setModelId(platformMatch.id)
+      appliedQueryRef.current = true
+    }
+  }, [availableModels, initialModel, initialProvider, personalModels])
+
+  useEffect(() => {
+    if (!supportsTools) setAgent(false)
+  }, [supportsTools])
 
   const selectTemplate = (nextId: string) => {
     setTemplateId(nextId)
@@ -208,11 +243,14 @@ export function NewChatPage() {
             type="checkbox"
             className="mt-0.5 h-4 w-4 accent-accent"
             checked={agent}
+            disabled={!supportsTools}
             onChange={(event) => setAgent(event.target.checked)}
           />
           <span>
             <span className="block text-ink">{t('chat.agentMode')}</span>
-            <span className="mt-0.5 block text-xs text-ink-muted">{t('chat.agentModeHint')}</span>
+            <span className="mt-0.5 block text-xs text-ink-muted">
+              {supportsTools ? t('chat.agentModeHint') : t('chat.agentUnsupported')}
+            </span>
           </span>
         </label>
 

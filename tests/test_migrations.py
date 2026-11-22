@@ -32,6 +32,7 @@ def test_alembic_upgrade_head_creates_schema(tmp_path):
         "usage_events",
         "message_citations",
         "api_keys",
+        "market_models",
         "provider_configs",
         "provider_models",
         "prompt_templates",
@@ -108,6 +109,20 @@ def test_alembic_upgrade_head_creates_schema(tmp_path):
     }
     assert {"run_id", "seq", "event", "payload", "created_at"} <= (collaboration_event_columns)
 
+    market_columns = {column["name"] for column in inspector.get_columns("market_models")}
+    assert {
+        "slug",
+        "name",
+        "provider_id",
+        "model_id",
+        "category",
+        "capabilities",
+        "context_window",
+        "featured",
+        "is_new",
+        "enabled",
+    } <= market_columns
+
     provider_config_columns = {
         column["name"] for column in inspector.get_columns("provider_configs")
     }
@@ -122,9 +137,7 @@ def test_alembic_upgrade_head_creates_schema(tmp_path):
         "shared",
         "status",
     } <= provider_config_columns
-    provider_model_columns = {
-        column["name"] for column in inspector.get_columns("provider_models")
-    }
+    provider_model_columns = {column["name"] for column in inspector.get_columns("provider_models")}
     assert {"config_id", "model_id", "capabilities", "source", "enabled"} <= (
         provider_model_columns
     )

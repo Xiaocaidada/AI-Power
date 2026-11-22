@@ -12,8 +12,8 @@ from app.metrics import metrics
 from app.models import Chunk, ChunkEmbedding, Document, KnowledgeBase
 from app.providers.base import ProviderError
 from app.providers.embedding import EmbeddingProvider
-from app.providers.rerank import Reranker, RerankResult, build_reranker
-from app.services.embedding_factory import build_embedder
+from app.providers.rerank import Reranker, RerankResult
+from app.services.kb_models import build_kb_embedder, build_kb_reranker
 from app.services.knowledge_settings import KnowledgeBaseSettings, resolve_kb_settings
 
 logger = logging.getLogger(__name__)
@@ -137,12 +137,13 @@ async def retrieve_with_diagnostics(
     if top_k is not None and top_k < 1:
         raise ValueError("top_k must be >= 1")
 
+    kb = await session.get(KnowledgeBase, kb_id)
+    if kb is None or kb.workspace_id != workspace_id or kb.deleted_at is not None:
+        return RetrievalOutcome([], _empty_timings(), "empty", _fallback_options(top_k))
+    kb_settings = resolve_kb_settings(kb, settings)
     if options is None:
-        kb = await session.get(KnowledgeBase, kb_id)
-        if kb is None or kb.workspace_id != workspace_id or kb.deleted_at is not None:
-            return RetrievalOutcome([], _empty_timings(), "empty", _fallback_options(top_k))
         options = resolve_options(
-            resolve_kb_settings(kb, settings),
+            kb_settings,
             top_k=top_k,
             candidate_k=candidate_k,
             hybrid_enabled=hybrid_enabled,
@@ -162,7 +163,8 @@ async def retrieve_with_diagnostics(
     total_started = time.perf_counter()
     timings = _empty_timings()
 
-    vectors = await (embedder or build_embedder()).embed([question])
+    active_embedder = embedder or await build_kb_embedder(session, kb, kb_settings)
+    vectors = await active_embedder.embed([question])
     if len(vectors) != 1:
         raise ProviderError("embedding_bad_response", "Query embedding is missing")
     vector = vectors[0]
@@ -204,7 +206,7 @@ async def retrieve_with_diagnostics(
 
     results = fused
     if options.rerank_enabled:
-        active_reranker = reranker or build_reranker(settings)
+        active_reranker = reranker or await build_kb_reranker(session, kb, kb_settings)
         if active_reranker is not None and fused:
             rerank_started = time.perf_counter()
             candidates = fused[: min(options.candidate_k, settings.rerank_max_candidates)]

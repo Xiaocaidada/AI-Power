@@ -1,5 +1,6 @@
 import logging
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
@@ -32,9 +33,22 @@ class RetrievalSettings(BaseModel):
         return self
 
 
+class EmbeddingSelection(BaseModel):
+    provider_config_id: UUID | None = None
+    model: str | None = None
+    dimensions: int = Field(default=1024, ge=1, le=4096)
+
+
+class RerankSelection(BaseModel):
+    provider_config_id: UUID | None = None
+    model: str | None = None
+
+
 class KnowledgeBaseSettings(BaseModel):
     chunking: ChunkingSettings = Field(default_factory=ChunkingSettings)
     retrieval: RetrievalSettings = Field(default_factory=RetrievalSettings)
+    embedding: EmbeddingSelection = Field(default_factory=EmbeddingSelection)
+    rerank: RerankSelection = Field(default_factory=RerankSelection)
 
 
 def default_settings(settings: Settings | None = None) -> KnowledgeBaseSettings:
@@ -50,6 +64,11 @@ def default_settings(settings: Settings | None = None) -> KnowledgeBaseSettings:
             hybrid_enabled=current.retrieval_hybrid_enabled,
             rerank_enabled=current.rerank_enabled and bool(current.rerank_base_url.strip()),
         ),
+        embedding=EmbeddingSelection(
+            model=current.embedding_model,
+            dimensions=current.embedding_dim,
+        ),
+        rerank=RerankSelection(model=current.rerank_model),
     )
 
 

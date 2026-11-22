@@ -431,6 +431,38 @@ class ProviderModel(Base):
     )
 
 
+class MarketModel(Base):
+    __tablename__ = "market_models"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    slug: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    provider_id: Mapped[str] = mapped_column(String(100), index=True)
+    provider_name: Mapped[str] = mapped_column(String(100))
+    model_id: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text, default="")
+    category: Mapped[str] = mapped_column(String(50), default="general", index=True)
+    capabilities: Mapped[list[str]] = mapped_column(JSON, default=list)
+    input_types: Mapped[list[str]] = mapped_column(JSON, default=lambda: ["text"])
+    output_types: Mapped[list[str]] = mapped_column(JSON, default=lambda: ["text"])
+    context_window: Mapped[int] = mapped_column(Integer, default=0)
+    max_output: Mapped[int | None] = mapped_column(Integer, default=None)
+    logo_url: Mapped[str] = mapped_column(String(500), default="")
+    docs_url: Mapped[str] = mapped_column(String(500), default="")
+    featured: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    is_new: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=100)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    __table_args__ = (
+        UniqueConstraint("provider_id", "model_id", name="uq_market_models_provider_model"),
+    )
+
+
 class UsageEvent(Base):
     __tablename__ = "usage_events"
 

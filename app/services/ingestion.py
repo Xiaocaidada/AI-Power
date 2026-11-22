@@ -12,7 +12,7 @@ from app.db import SessionLocal
 from app.models import Chunk, ChunkEmbedding, Document, IngestionJob, KnowledgeBase
 from app.providers.base import ProviderError
 from app.services.chunking import chunk_pages
-from app.services.embedding_factory import build_embedder
+from app.services.kb_models import build_kb_embedder
 from app.services.knowledge_settings import resolve_kb_settings
 from app.services.parsing import DocumentParser, UnsupportedDocumentType, parser_for_mime
 
@@ -81,7 +81,7 @@ async def ingest_document(document_id: UUID) -> IngestionOutcome:
             document.status = "embedding"
             await session.commit()
 
-            embedder = build_embedder()
+            embedder = await build_kb_embedder(session, kb, kb_settings)
             chunk_rows: list[Chunk] = []
             embeddings: list[list[float]] = []
             for start in range(0, len(chunks), settings.embedding_batch_size):
