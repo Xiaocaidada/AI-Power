@@ -12,6 +12,7 @@ import type {
   Conversation,
   KnowledgeBase,
   ModelEntry,
+  PersonalModel,
   PromptTemplate,
 } from '../../lib/types'
 import { Composer } from './Composer'
@@ -45,6 +46,11 @@ export function NewChatPage() {
     queryFn: () => apiRequest<ModelEntry[]>('/models'),
     staleTime: 60_000,
   })
+  const personalModelsQuery = useQuery({
+    queryKey: ['provider-configs', 'models'],
+    queryFn: () => apiRequest<PersonalModel[]>('/provider-configs/models'),
+    staleTime: 60_000,
+  })
   const kbsQuery = useQuery({
     queryKey: ['kbs'],
     queryFn: () => apiRequest<KnowledgeBase[]>('/knowledge-bases'),
@@ -57,13 +63,17 @@ export function NewChatPage() {
   })
 
   const availableModels = (modelsQuery.data ?? []).filter((model) => model.available)
+  const personalModels = personalModelsQuery.data ?? []
   const selectedTemplate = (templatesQuery.data ?? []).find(
     (template) => template.id === templateId,
   )
   const selectedVersion = selectedTemplate?.versions[0]
   const selected = availableModels.find((model) => model.id === modelId)
+  const personalSelected = modelId.startsWith('p:')
+    ? personalModels.find((model) => `p:${model.provider_id}:${model.model_id}` === modelId)
+    : undefined
   const isAuto = modelId === 'auto'
-  const canChat = isAuto || selected !== undefined
+  const canChat = isAuto || selected !== undefined || personalSelected !== undefined
 
   const selectTemplate = (nextId: string) => {
     setTemplateId(nextId)
@@ -74,8 +84,12 @@ export function NewChatPage() {
 
   const send = async (content: string) => {
     setError(null)
-    const providerId = isAuto ? 'auto' : selected?.provider_id
-    const modelName = isAuto ? 'auto' : selected?.model_id
+    const providerId = isAuto
+      ? 'auto'
+      : (personalSelected?.provider_id ?? selected?.provider_id)
+    const modelName = isAuto
+      ? 'auto'
+      : (personalSelected?.model_id ?? selected?.model_id)
     if (providerId === undefined || modelName === undefined) {
       setError(t('chat.noProviders'))
       throw new Error('no model')
@@ -106,7 +120,7 @@ export function NewChatPage() {
         <h1 className="font-serif text-3xl text-ink">{t('chat.newTitle')}</h1>
         <p className="mt-2 text-sm text-ink-muted">{t('chat.newLead')}</p>
 
-        {modelsQuery.isLoading ? (
+        {modelsQuery.isLoading || personalModelsQuery.isLoading ? (
           <div className="mt-8 flex items-center gap-2 text-sm text-ink-muted">
             <Spinner />
             {t('common.loading')}
@@ -127,6 +141,18 @@ export function NewChatPage() {
                     {model.display_name} · {model.provider_id}
                   </option>
                 ))}
+                {personalModels.length > 0 && (
+                  <optgroup label={t('chat.personalModels')}>
+                    {personalModels.map((model) => (
+                      <option
+                        key={`p:${model.provider_id}:${model.model_id}`}
+                        value={`p:${model.provider_id}:${model.model_id}`}
+                      >
+                        {model.display_name} · {model.provider_name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
             </Field>
             <Field label={t('chat.knowledgeBase')}>
@@ -190,7 +216,10 @@ export function NewChatPage() {
           </span>
         </label>
 
-        {modelsQuery.data !== undefined && availableModels.length === 0 && (
+        {modelsQuery.data !== undefined &&
+          personalModelsQuery.data !== undefined &&
+          availableModels.length === 0 &&
+          personalModels.length === 0 && (
           <p className="mt-4 rounded-lg bg-warning/10 px-3 py-2 text-sm text-warning">
             {t('chat.noProviders')}
           </p>

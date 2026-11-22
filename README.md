@@ -20,7 +20,7 @@
 | 用量 | 聊天/工作流/协作统一账本；按日/Provider/模型/来源聚合 token、请求数与成本（价格快照），支持按 API Key 对账 |
 | API Key | `X-API-Key`，`chat:write` / `kb:read` / `workflow:run` scope，一次性展示、可吊销、过期与限流 |
 | 多租户 | Workspace/成员、`X-Workspace-Id`、跨租户 404 |
-| 模型平台 | 模型目录/广场对比、`auto` 路由与首 token 前降级、熔断 |
+| 模型平台 | 模型目录/广场对比、`auto` 路由与首 token 前降级、熔断；用户/团队自有 Provider（加密 Key、测试/同步模型、共享只读） |
 | Agent | supervisor + `retrieval`/`math` 子 Agent、`kb_search` / `calculator`、JSON 工具协议、SSE 工具事件、trace 记录 |
 | Prompt 模板 | workspace 级模板与不可变版本、`{{变量}}` 渲染、会话 Prompt 快照 |
 | 界面 | 中英文切换、明暗主题（跟随系统/本地记忆） |

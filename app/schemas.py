@@ -644,6 +644,98 @@ class ProviderOut(BaseModel):
     models: list[str] = Field(default_factory=list)
 
 
+class ProviderConfigCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    provider_type: Literal["openai_compatible", "custom"] = "openai_compatible"
+    base_url: str = Field(min_length=1, max_length=500)
+    api_key: str = Field(min_length=1, max_length=1000)
+    note: str = Field(default="", max_length=500)
+    shared: bool = False
+
+    @field_validator("name", "base_url", "api_key", "note", mode="before")
+    @classmethod
+    def strip_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class ProviderConfigUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    base_url: str | None = Field(default=None, min_length=1, max_length=500)
+    api_key: str | None = Field(default=None, max_length=1000)
+    note: str | None = Field(default=None, max_length=500)
+    shared: bool | None = None
+
+    @field_validator("name", "base_url", "api_key", "note", mode="before")
+    @classmethod
+    def strip_optional_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class ProviderConfigOut(BaseModel):
+    id: UUID
+    name: str
+    provider_type: str
+    base_url: str
+    api_key_hint: str
+    note: str
+    shared: bool
+    owned: bool
+    status: str
+    last_error: str | None
+    last_tested_at: datetime | None
+    model_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProviderModelCreate(BaseModel):
+    model_id: str = Field(min_length=1, max_length=200)
+    display_name: str = Field(default="", max_length=200)
+    capabilities: list[str] | None = None
+
+    @field_validator("model_id", "display_name", mode="before")
+    @classmethod
+    def strip_model_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class ProviderModelUpdate(BaseModel):
+    display_name: str | None = Field(default=None, max_length=200)
+    capabilities: list[str] | None = None
+    enabled: bool | None = None
+
+
+class ProviderModelOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    model_id: str
+    display_name: str
+    capabilities: list[str]
+    source: str
+    enabled: bool
+
+
+class ProviderTestOut(BaseModel):
+    status: str
+    model_count: int
+    error_code: str | None
+
+
+class ProviderSyncOut(BaseModel):
+    added: int
+    updated: int
+    total: int
+
+
+class PersonalModelOut(BaseModel):
+    provider_id: str
+    provider_name: str
+    model_id: str
+    display_name: str
+    capabilities: list[str]
+
+
 class DocumentOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

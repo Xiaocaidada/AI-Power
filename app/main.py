@@ -21,6 +21,7 @@ from app.routers import (
     knowledge_bases,
     models,
     prompts,
+    provider_configs,
     providers,
     traces,
     usage,
@@ -64,12 +65,13 @@ OPENAPI_TAGS = [
     {"name": "workflows", "description": "Versioned workflow definitions and async runs."},
     {"name": "collaborations", "description": "Planner/worker/critic async collaboration runs."},
     {"name": "providers", "description": "Configured provider metadata."},
+    {"name": "provider-configs", "description": "User-owned model provider configurations."},
     {"name": "health", "description": "Liveness and readiness probes."},
 ]
 
 app = FastAPI(
     title="AI Power API",
-    version="0.6.0",
+    version="0.7.0",
     description=(
         "Multi-tenant AI platform: streaming chat, hybrid RAG knowledge bases, model catalog "
         "with auto routing, quotas, traces, multi-agent tools, workflows, prompt templates, "
@@ -98,6 +100,7 @@ app.include_router(usage.router)
 app.include_router(workspaces.router)
 app.include_router(traces.router)
 app.include_router(providers.router)
+app.include_router(provider_configs.router)
 app.include_router(models.router)
 app.include_router(conversations.router)
 app.include_router(documents.router)

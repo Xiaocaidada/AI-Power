@@ -19,6 +19,52 @@ export interface Provider {
   models: string[]
 }
 
+export interface ProviderConfig {
+  id: string
+  name: string
+  provider_type: string
+  base_url: string
+  api_key_hint: string
+  note: string
+  shared: boolean
+  owned: boolean
+  status: string
+  last_error: string | null
+  last_tested_at: string | null
+  model_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ProviderModel {
+  id: string
+  model_id: string
+  display_name: string
+  capabilities: string[]
+  source: string
+  enabled: boolean
+}
+
+export interface PersonalModel {
+  provider_id: string
+  provider_name: string
+  model_id: string
+  display_name: string
+  capabilities: string[]
+}
+
+export interface ProviderTestResult {
+  status: string
+  model_count: number
+  error_code: string | null
+}
+
+export interface ProviderSyncResult {
+  added: number
+  updated: number
+  total: number
+}
+
 export interface KnowledgeBase {
   id: string
   name: string

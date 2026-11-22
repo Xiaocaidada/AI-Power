@@ -157,6 +157,22 @@ def get_registry() -> ProviderRegistry:
     return _registry
 
 
+async def get_scoped_registry(
+    context: Annotated[AuthContext, Depends(get_auth_context)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    base: Annotated[ProviderRegistry, Depends(get_registry)],
+) -> ProviderRegistry:
+    """Platform providers plus the caller's private/shared provider configs."""
+    from app.services.provider_configs import build_user_registry
+
+    return await build_user_registry(
+        session,
+        context.workspace.id,
+        context.user.id,
+        base=base,
+    )
+
+
 def get_tool_registry() -> ToolRegistry:
     return build_tool_registry()
 

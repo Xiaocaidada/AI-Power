@@ -15,6 +15,7 @@ import { KnowledgePage } from './pages/knowledge/KnowledgePage'
 import { LoginPage } from './pages/LoginPage'
 import { ModelsPage } from './pages/models/ModelsPage'
 import { ApiKeysPage } from './pages/settings/ApiKeysPage'
+import { ProvidersPage } from './pages/settings/ProvidersPage'
 import { AdminPage } from './pages/admin/AdminPage'
 import { CollaborationsPage } from './pages/collaborations/CollaborationsPage'
 import { WorkflowsPage } from './pages/workflows/WorkflowsPage'
@@ -84,6 +85,7 @@ export function App() {
             }
           />
           <Route path="settings" element={<Navigate to="/settings/api-keys" replace />} />
+          <Route path="settings/providers" element={<ProvidersPage />} />
           <Route path="settings/api-keys" element={<ApiKeysPage />} />
           <Route path="settings/webhooks" element={<WebhooksPage />} />
           <Route path="settings/workspace" element={<WorkspaceSettingsPage />} />

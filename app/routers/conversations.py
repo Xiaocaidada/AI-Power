@@ -21,7 +21,7 @@ from app.deps import (
     AuthContext,
     get_agent_registry,
     get_jwt_context,
-    get_registry,
+    get_scoped_registry,
     get_tool_registry,
     require_scope,
 )
@@ -575,7 +575,7 @@ async def create_conversation(
     payload: ConversationCreate,
     context: ChatContext,
     session: SessionDep,
-    registry: Annotated[ProviderRegistry, Depends(get_registry)],
+    registry: Annotated[ProviderRegistry, Depends(get_scoped_registry)],
 ) -> Conversation:
     if payload.provider_id != "auto":
         try:
@@ -812,7 +812,7 @@ async def send_message(
     payload: SendMessageIn,
     context: ChatContext,
     session: SessionDep,
-    registry: Annotated[ProviderRegistry, Depends(get_registry)],
+    registry: Annotated[ProviderRegistry, Depends(get_scoped_registry)],
     redis: RedisDep,
     tool_registry: ToolRegistryDep,
     agent_registry: AgentRegistryDep,
