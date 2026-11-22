@@ -319,6 +319,73 @@ class EvalCompareOut(BaseModel):
     runs: list[EvalRunOut]
 
 
+class WebhookCreate(BaseModel):
+    url: str = Field(min_length=1, max_length=1000)
+    events: list[str] = Field(min_length=1, max_length=20)
+
+    @model_validator(mode="after")
+    def _validate_events(self) -> "WebhookCreate":
+        from app.services.webhooks import WEBHOOK_EVENTS
+
+        unknown = sorted(set(self.events) - WEBHOOK_EVENTS)
+        if unknown:
+            raise ValueError(f"unknown webhook events: {', '.join(unknown)}")
+        return self
+
+    @field_validator("url", mode="before")
+    @classmethod
+    def strip_url(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class WebhookUpdate(BaseModel):
+    url: str | None = Field(default=None, min_length=1, max_length=1000)
+    events: list[str] | None = Field(default=None, min_length=1, max_length=20)
+    active: bool | None = None
+
+    @model_validator(mode="after")
+    def _validate_events(self) -> "WebhookUpdate":
+        if self.events is None:
+            return self
+        from app.services.webhooks import WEBHOOK_EVENTS
+
+        unknown = sorted(set(self.events) - WEBHOOK_EVENTS)
+        if unknown:
+            raise ValueError(f"unknown webhook events: {', '.join(unknown)}")
+        return self
+
+    @field_validator("url", mode="before")
+    @classmethod
+    def strip_url(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class WebhookOut(BaseModel):
+    id: UUID
+    url: str
+    events: list[str]
+    active: bool
+    created_at: datetime
+
+
+class WebhookCreatedOut(WebhookOut):
+    secret: str
+
+
+class WebhookDeliveryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    event: str
+    status: str
+    attempts: int
+    response_status: int | None
+    error: str | None
+    next_attempt_at: datetime
+    created_at: datetime
+    delivered_at: datetime | None
+
+
 class CollaborationRunCreate(BaseModel):
     input: str = Field(min_length=1, max_length=20000)
     provider_id: str = Field(min_length=1, max_length=50)
@@ -613,7 +680,7 @@ class UsageCostOut(BaseModel):
 
 class ApiKeyCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    scopes: list[Literal["chat:write", "kb:read"]] | None = None
+    scopes: list[Literal["chat:write", "kb:read", "workflow:run"]] | None = None
     expires_at: datetime | None = None
     rate_limit_per_minute: int | None = Field(default=None, ge=1, le=10000)
 

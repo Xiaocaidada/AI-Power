@@ -453,3 +453,35 @@ async def test_agent_node_runs_supervisor(client, api, registry):
     assert node_end["output"] == "agent done"
     assert provider.calls == 1
     assert events[-1][1]["prompt_tokens"] == 2
+
+
+async def test_workflow_run_requires_workflow_scope_for_api_keys(client, api, registry):
+    headers = await api.headers("wf-scope@example.com")
+    created = await _create_workflow(client, headers)
+    workflow_id = created.json()["id"]
+    valid_key = await client.post(
+        "/api-keys",
+        json={"name": "workflow", "scopes": ["workflow:run"]},
+        headers=headers,
+    )
+    chat_key = await client.post(
+        "/api-keys",
+        json={"name": "chat", "scopes": ["chat:write"]},
+        headers=headers,
+    )
+
+    allowed = await client.post(
+        f"/workflows/{workflow_id}/runs",
+        json={"input": "hello"},
+        headers={"X-API-Key": valid_key.json()["key"]},
+    )
+    denied = await client.post(
+        f"/workflows/{workflow_id}/runs",
+        json={"input": "hello"},
+        headers={"X-API-Key": chat_key.json()["key"]},
+    )
+
+    assert allowed.status_code == 200
+    assert "workflow_start" in allowed.text
+    assert denied.status_code == 403
+    assert denied.json()["detail"]["code"] == "insufficient_scope"

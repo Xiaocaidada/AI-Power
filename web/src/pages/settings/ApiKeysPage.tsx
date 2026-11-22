@@ -14,7 +14,13 @@ import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
 import type { ApiKeyCreated, ApiKeyRecord } from '../../lib/types'
 
-const SCOPES = ['chat:write', 'kb:read'] as const
+const SCOPES = ['chat:write', 'kb:read', 'workflow:run'] as const
+
+const SCOPE_LABELS: Record<(typeof SCOPES)[number], string> = {
+  'chat:write': 'apiKeys.scopeChat',
+  'kb:read': 'apiKeys.scopeKb',
+  'workflow:run': 'apiKeys.scopeWorkflow',
+}
 
 export function ApiKeysPage() {
   const { t, language } = useI18n()
@@ -257,7 +263,7 @@ export function ApiKeysPage() {
                   checked={scopes.includes(scope)}
                   onChange={() => toggleScope(scope)}
                 />
-                {scope === 'chat:write' ? t('apiKeys.scopeChat') : t('apiKeys.scopeKb')}
+                {t(SCOPE_LABELS[scope])}
               </label>
             ))}
           </div>

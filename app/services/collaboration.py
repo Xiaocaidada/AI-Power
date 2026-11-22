@@ -22,6 +22,7 @@ from app.providers.base import ChatMessage, ProviderError, Usage
 from app.providers.registry import ProviderRegistry
 from app.services.agent import AgentFailure, AgentRunner
 from app.services.costs import compute_cost, price_snapshot
+from app.services.webhooks import enqueue_event
 from app.tools.base import ToolContext, ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -457,6 +458,20 @@ class CollaborationRunner:
                 run.total_ms = total_ms
                 run.finished_at = datetime.now(UTC)
                 await session.commit()
+                await enqueue_event(
+                    run.workspace_id,
+                    "collaboration.completed",
+                    {
+                        "run_id": str(run.id),
+                        "status": run.status,
+                        "error_code": run.error_code,
+                        "rounds": run.rounds,
+                        "total_ms": run.total_ms,
+                        "prompt_tokens": run.prompt_tokens,
+                        "completion_tokens": run.completion_tokens,
+                        "cost": run.cost,
+                    },
+                )
         except Exception:
             logger.exception("failed to finalize collaboration run")
 

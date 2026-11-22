@@ -20,6 +20,7 @@ import { CollaborationsPage } from './pages/collaborations/CollaborationsPage'
 import { WorkflowsPage } from './pages/workflows/WorkflowsPage'
 import { ProfilePage } from './pages/settings/ProfilePage'
 import { PromptTemplatesPage } from './pages/settings/PromptTemplatesPage'
+import { WebhooksPage } from './pages/settings/WebhooksPage'
 import { WorkspaceSettingsPage } from './pages/settings/WorkspaceSettingsPage'
 import { useAuthStore } from './store/auth'
 
@@ -84,6 +85,7 @@ export function App() {
           />
           <Route path="settings" element={<Navigate to="/settings/api-keys" replace />} />
           <Route path="settings/api-keys" element={<ApiKeysPage />} />
+          <Route path="settings/webhooks" element={<WebhooksPage />} />
           <Route path="settings/workspace" element={<WorkspaceSettingsPage />} />
           <Route path="settings/prompts" element={<PromptTemplatesPage />} />
           <Route path="settings/profile" element={<ProfilePage />} />

@@ -45,6 +45,8 @@ def test_alembic_upgrade_head_creates_schema(tmp_path):
         "eval_questions",
         "eval_runs",
         "eval_run_items",
+        "webhooks",
+        "webhook_deliveries",
         "alembic_version",
     } <= tables
 

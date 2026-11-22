@@ -1,6 +1,6 @@
 # P5 规划：检索质量、评测平台与开放平台
 
-- **Status:** In progress（D1–D10 已确认；S1–S2 已完成 2026-11-22）
+- **Status:** In progress（D1–D10 已确认；S1–S3 已完成 2026-11-22）
 - **Date:** 2026-11-22
 - **Scope source:** [`PRODUCT-BRIEF.md`](../../PRODUCT-BRIEF.md) §2 Q2/Q7、§3、[`docs/eval/retrieval-baseline.md`](../eval/retrieval-baseline.md)、[`docs/plan/p4-plan.md`](./p4-plan.md)
 - **前置:** P4 已完成（2026-11-22），见 [`p4-plan.md`](./p4-plan.md)、[`p4-s6-final.md`](../tdd/p4-s6-final.md)
@@ -94,7 +94,7 @@ P5 仍**不做真实支付/计费、复杂 RBAC、移动端与拖拽画布**。�
 >
 > **完成证据**：[`docs/tdd/p5-s2-evaluation.md`](../tdd/p5-s2-evaluation.md)、[`ADR-0020`](../adr/0020-evaluation-platform.md)。50 题实测：vector Recall@1=0.960 / MRR=0.9767，hybrid 相同，hybrid+rerank 0.980 / 0.9900；单题真机 judge 5/5、faithful=true。
 
-### P5-S3 开放平台 SDK 与 Webhook — 待开始（约 2 周）
+### P5-S3 开放平台 SDK 与 Webhook — **已完成（2026-11-22）**（约 2 周）
 
 - **SDK**（`sdk/python/`）：
   - `ai_power_sdk/client.py`：`AIPowerClient`（同步）与 `AsyncAIPowerClient`（异步），共享请求/流解析层。
@@ -115,6 +115,8 @@ P5 仍**不做真实支付/计费、复杂 RBAC、移动端与拖拽画布**。�
 - **文档**：ADR-0021、SDK README、Webhook 签名与验证示例。
 
 > 验收：SDK 脚本完成“登录 → 上传 → 检索 → 工作流流式运行 → 用量查询”；本地接收器收到带正确签名的 webhook，并可看到重试/重放。
+>
+> **完成证据**：[`docs/tdd/p5-s3-sdk-webhooks.md`](../tdd/p5-s3-sdk-webhooks.md)、[`ADR-0021`](../adr/0021-sdk-webhooks.md)。SDK 已安装并通过真实 API 冒烟；Webhook 用 fake receiver 验证签名/重试，管理页已验证。
 
 ### P5-S4 统一用量账本 — 待开始（约 1 周）
 

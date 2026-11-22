@@ -159,6 +159,30 @@ export interface EvalRunDetail extends EvalRun {
   items: EvalRunItem[]
 }
 
+export interface Webhook {
+  id: string
+  url: string
+  events: string[]
+  active: boolean
+  created_at: string
+}
+
+export interface WebhookCreated extends Webhook {
+  secret: string
+}
+
+export interface WebhookDelivery {
+  id: string
+  event: string
+  status: string
+  attempts: number
+  response_status: number | null
+  error: string | null
+  next_attempt_at: string
+  created_at: string
+  delivered_at: string | null
+}
+
 export interface Conversation {
   id: string
   title: string
