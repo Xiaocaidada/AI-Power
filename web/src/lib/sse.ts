@@ -5,6 +5,7 @@ import { getAccessToken } from './tokens'
 export interface SseEvent {
   event: string
   data: unknown
+  id?: string
 }
 
 export type SseHandler = (event: SseEvent) => void
@@ -32,6 +33,7 @@ export class SseParser {
 
   private parseBlock(block: string): void {
     let event = 'message'
+    let id: string | undefined
     const dataLines: string[] = []
     for (const line of block.split('\n')) {
       if (line === '' || line.startsWith(':')) continue
@@ -41,6 +43,7 @@ export class SseParser {
       if (value.startsWith(' ')) value = value.slice(1)
       if (field === 'event') event = value
       else if (field === 'data') dataLines.push(value)
+      else if (field === 'id') id = value
     }
     if (dataLines.length === 0) return
     const raw = dataLines.join('\n')
@@ -50,7 +53,7 @@ export class SseParser {
     } catch {
       data = raw
     }
-    this.onEvent({ event, data })
+    this.onEvent({ event, data, id })
   }
 }
 
@@ -61,13 +64,20 @@ export interface StreamChatOptions {
   onEvent: SseHandler
 }
 
-export interface StreamWorkflowOptions {
-  workflowId: string
-  input: string
-  kbId?: string | null
-  version?: number
-  signal?: AbortSignal
-  onEvent: SseHandler
+
+async function readSse(response: Response, onEvent: SseHandler): Promise<void> {
+  if (!response.ok) throw await toApiError(response)
+  if (response.body === null) throw new Error('Streaming is not supported by this browser')
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  const parser = new SseParser(onEvent)
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    parser.push(decoder.decode(value, { stream: true }))
+  }
+  parser.flush()
 }
 
 async function streamResponse(
@@ -86,60 +96,62 @@ async function streamResponse(
     body: JSON.stringify(body),
     signal,
   })
-  if (!response.ok) throw await toApiError(response)
-  if (response.body === null) throw new Error('Streaming is not supported by this browser')
-
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  const parser = new SseParser(onEvent)
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    parser.push(decoder.decode(value, { stream: true }))
-  }
-  parser.flush()
+  await readSse(response, onEvent)
 }
 
-export async function streamWorkflowRun({
-  workflowId,
-  input,
-  kbId,
-  version,
-  signal,
-  onEvent,
-}: StreamWorkflowOptions): Promise<void> {
-  return streamResponse(
-    `${API_BASE}/workflows/${workflowId}/runs`,
-    { input, kb_id: kbId ?? null, version: version ?? null },
-    signal,
-    onEvent,
-  )
-}
+const RUN_TERMINAL_EVENTS = new Set(['workflow_end', 'collaboration_end'])
+const RUN_RECONNECT_LIMIT = 5
 
-export interface StreamCollaborationOptions {
-  input: string
-  providerId: string
-  model: string
-  kbId?: string | null
+export interface StreamRunOptions {
+  path: string
+  after?: number
   signal?: AbortSignal
   onEvent: SseHandler
 }
 
-export async function streamCollaborationRun({
-  input,
-  providerId,
-  model,
-  kbId,
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+export async function streamRunEvents({
+  path,
+  after = 0,
   signal,
   onEvent,
-}: StreamCollaborationOptions): Promise<void> {
-  return streamResponse(
-    `${API_BASE}/collaborations/runs`,
-    { input, provider_id: providerId, model, kb_id: kbId ?? null },
-    signal,
-    onEvent,
-  )
+}: StreamRunOptions): Promise<void> {
+  let cursor = after
+  let attempts = 0
+  while (!signal?.aborted) {
+    const token = getAccessToken()
+    let terminal = false
+    try {
+      const response = await fetch(`${API_BASE}${path}?after=${cursor}`, {
+        method: 'GET',
+        headers: token !== null ? { Authorization: `Bearer ${token}` } : {},
+        signal,
+      })
+      await readSse(response, (event) => {
+        if (event.id !== undefined) {
+          const parsed = Number(event.id)
+          if (Number.isFinite(parsed)) cursor = parsed
+        }
+        if (RUN_TERMINAL_EVENTS.has(event.event)) terminal = true
+        onEvent(event)
+      })
+    } catch (error) {
+      if (signal?.aborted) throw error
+      attempts += 1
+      if (attempts > RUN_RECONNECT_LIMIT) throw error
+      await wait(500 * attempts)
+      continue
+    }
+    if (terminal || signal?.aborted) return
+    attempts += 1
+    if (attempts > RUN_RECONNECT_LIMIT) return
+    await wait(500 * attempts)
+  }
 }
+
 
 export async function streamChat({
   conversationId,

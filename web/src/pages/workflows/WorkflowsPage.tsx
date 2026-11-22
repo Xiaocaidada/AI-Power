@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Play, Plus } from 'lucide-react'
-import { useState } from 'react'
+import { Ban, Play, Plus } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
@@ -10,8 +11,13 @@ import { Textarea } from '../../components/ui/input'
 import { errorTextKey } from '../../lib/errorText'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
-import { streamWorkflowRun } from '../../lib/sse'
-import type { KnowledgeBase, Workflow, WorkflowRun } from '../../lib/types'
+import { streamRunEvents } from '../../lib/sse'
+import type {
+  KnowledgeBase,
+  RunAccepted,
+  Workflow,
+  WorkflowRun,
+} from '../../lib/types'
 import { cn } from '../../lib/utils'
 
 const SAMPLE_DEFINITION = JSON.stringify(
@@ -69,17 +75,29 @@ interface NodeState {
   output?: string
 }
 
+function statusTone(status: string): 'success' | 'danger' | 'accent' | 'neutral' {
+  if (status === 'completed') return 'success'
+  if (status === 'failed') return 'danger'
+  if (status === 'queued' || status === 'running') return 'accent'
+  return 'neutral'
+}
+
 export function WorkflowsPage() {
   const { t } = useI18n()
   const queryClient = useQueryClient()
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const queryWorkflow = searchParams.get('workflow')
+  const queryRun = searchParams.get('run')
+  const [selectedId, setSelectedId] = useState<string | null>(queryWorkflow)
+  const [activeRunId, setActiveRunId] = useState<string | null>(queryRun)
   const [createOpen, setCreateOpen] = useState(false)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [definitionText, setDefinitionText] = useState(SAMPLE_DEFINITION)
   const [runInput, setRunInput] = useState('用三句话介绍这个平台')
   const [kbId, setKbId] = useState('')
-  const [running, setRunning] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [streaming, setStreaming] = useState(false)
   const [nodeStates, setNodeStates] = useState<NodeState[]>([])
   const [runResult, setRunResult] = useState<WorkflowRun | null>(null)
   const [runOutput, setRunOutput] = useState<string | null>(null)
@@ -94,7 +112,17 @@ export function WorkflowsPage() {
     queryFn: () => apiRequest<KnowledgeBase[]>('/knowledge-bases'),
     staleTime: 60_000,
   })
+  const runs = useQuery({
+    queryKey: ['workflow-runs', selectedId],
+    queryFn: () => apiRequest<WorkflowRun[]>(`/workflows/${selectedId}/runs?limit=20`),
+    enabled: selectedId !== null,
+  })
   const selected = (workflows.data ?? []).find((item) => item.id === selectedId) ?? null
+
+  useEffect(() => {
+    setSelectedId(queryWorkflow)
+    setActiveRunId(queryRun)
+  }, [queryWorkflow, queryRun])
 
   const upsertNode = (next: NodeState) => {
     setNodeStates((previous) => {
@@ -105,6 +133,66 @@ export function WorkflowsPage() {
       return copy
     })
   }
+
+  const selectWorkflow = (workflowId: string) => {
+    setSelectedId(workflowId)
+    setActiveRunId(null)
+    setSearchParams({ workflow: workflowId })
+  }
+
+  const openRun = (workflowId: string, runId: string) => {
+    setSelectedId(workflowId)
+    setActiveRunId(runId)
+    setSearchParams({ workflow: workflowId, run: runId })
+  }
+
+  useEffect(() => {
+    if (activeRunId === null) return
+    const controller = new AbortController()
+    setStreaming(true)
+    setError(null)
+    setNodeStates([])
+    setRunResult(null)
+    setRunOutput(null)
+    streamRunEvents({
+      path: `/workflows/runs/${activeRunId}/events`,
+      signal: controller.signal,
+      onEvent: (event) => {
+        const data = event.data as Record<string, unknown>
+        if (event.event === 'node_start') {
+          upsertNode({
+            nodeId: String(data.node_id),
+            nodeType: String(data.node_type),
+            status: 'running',
+          })
+        } else if (event.event === 'node_end') {
+          upsertNode({
+            nodeId: String(data.node_id),
+            nodeType: '',
+            status: String(data.status),
+            attempts: Number(data.attempts ?? 1),
+            durationMs: Number(data.duration_ms ?? 0),
+            output: data.output === undefined ? undefined : String(data.output),
+          })
+        } else if (event.event === 'workflow_end') {
+          if (data.output !== undefined) setRunOutput(String(data.output))
+          if (data.error_code !== undefined) setError(String(data.error_code))
+        }
+      },
+    })
+      .catch((caught) => {
+        if (!controller.signal.aborted) setError(t(errorTextKey(caught)))
+      })
+      .finally(() => {
+        if (controller.signal.aborted) return
+        setStreaming(false)
+        void apiRequest<WorkflowRun>(`/workflows/runs/${activeRunId}`)
+          .then(setRunResult)
+          .catch(() => undefined)
+        void queryClient.invalidateQueries({ queryKey: ['workflow-runs', selectedId] })
+      })
+    return () => controller.abort()
+  }, [activeRunId, queryClient, selectedId, t])
 
   const create = async () => {
     setError(null)
@@ -122,6 +210,7 @@ export function WorkflowsPage() {
       })
       await queryClient.invalidateQueries({ queryKey: ['workflows'] })
       setSelectedId(created.id)
+      setSearchParams({ workflow: created.id })
       setCreateOpen(false)
       setName('')
       setDescription('')
@@ -132,52 +221,35 @@ export function WorkflowsPage() {
 
   const run = async () => {
     if (selected === null || runInput.trim() === '') return
-    setRunning(true)
+    setSubmitting(true)
     setError(null)
-    setNodeStates([])
-    setRunResult(null)
-    setRunOutput(null)
-    let runId: string | null = null
     try {
-      await streamWorkflowRun({
-        workflowId: selected.id,
-        input: runInput.trim(),
-        kbId: kbId === '' ? null : kbId,
-        onEvent: (event) => {
-          const data = event.data as Record<string, unknown>
-          if (event.event === 'node_start') {
-            upsertNode({
-              nodeId: String(data.node_id),
-              nodeType: String(data.node_type),
-              status: 'running',
-            })
-          } else if (event.event === 'node_end') {
-            upsertNode({
-              nodeId: String(data.node_id),
-              nodeType: '',
-              status: String(data.status),
-              attempts: Number(data.attempts ?? 1),
-              durationMs: Number(data.duration_ms ?? 0),
-              output: data.output === undefined ? undefined : String(data.output),
-            })
-          } else if (event.event === 'workflow_end') {
-            runId = String(data.run_id)
-            if (data.output !== undefined) setRunOutput(String(data.output))
-            if (data.error_code !== undefined) setError(String(data.error_code))
-          }
-        },
+      const created = await apiRequest<RunAccepted>(`/workflows/${selected.id}/runs`, {
+        method: 'POST',
+        body: { input: runInput.trim(), kb_id: kbId === '' ? null : kbId },
       })
-      if (runId !== null) {
-        const detail = await apiRequest<WorkflowRun>(`/workflows/runs/${runId}`)
-        setRunResult(detail)
-      }
-      await queryClient.invalidateQueries({ queryKey: ['workflows'] })
+      openRun(selected.id, created.run_id)
+      await queryClient.invalidateQueries({ queryKey: ['workflow-runs', selected.id] })
     } catch (caught) {
       setError(t(errorTextKey(caught)))
     } finally {
-      setRunning(false)
+      setSubmitting(false)
     }
   }
+
+  const cancel = async () => {
+    if (activeRunId === null) return
+    try {
+      await apiRequest(`/workflows/runs/${activeRunId}/cancel`, { method: 'POST' })
+      await queryClient.invalidateQueries({ queryKey: ['workflow-runs', selectedId] })
+    } catch (caught) {
+      setError(t(errorTextKey(caught)))
+    }
+  }
+
+  const activeRun = (runs.data ?? []).find((item) => item.id === activeRunId)
+  const activeStatus = activeRun?.status ?? runResult?.status
+  const canCancel = activeStatus === 'queued' || activeStatus === 'running'
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -194,7 +266,7 @@ export function WorkflowsPage() {
             <button
               key={workflow.id}
               type="button"
-              onClick={() => setSelectedId(workflow.id)}
+              onClick={() => selectWorkflow(workflow.id)}
               className={cn(
                 'block w-full rounded-lg px-3 py-2 text-left text-sm',
                 selectedId === workflow.id
@@ -247,14 +319,26 @@ export function WorkflowsPage() {
                   ))}
                 </select>
               </div>
-              <div className="mt-3 flex items-center gap-3">
-                <Button size="sm" disabled={running} onClick={() => void run()}>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <Button size="sm" disabled={submitting} onClick={() => void run()}>
                   <Play className="h-3.5 w-3.5" />
-                  {running ? t('workflows.running') : t('workflows.runButton')}
+                  {submitting ? t('workflows.running') : t('workflows.runButton')}
                 </Button>
+                {canCancel && activeRunId !== null && (
+                  <Button variant="secondary" size="sm" onClick={() => void cancel()}>
+                    <Ban className="h-3.5 w-3.5" />
+                    {t('runs.cancel')}
+                  </Button>
+                )}
+                {activeStatus !== undefined && (
+                  <span className="text-xs text-ink-muted">
+                    {activeStatus}
+                    {streaming ? ` · ${t('workflows.running')}` : ''}
+                  </span>
+                )}
                 {runResult !== null && (
                   <span className="text-xs text-ink-muted">
-                    {runResult.status} · {Math.round(runResult.total_ms ?? 0)} ms ·{' '}
+                    {Math.round(runResult.total_ms ?? 0)} ms ·{' '}
                     {runResult.prompt_tokens + runResult.completion_tokens} tokens
                   </span>
                 )}
@@ -266,6 +350,52 @@ export function WorkflowsPage() {
                 >
                   {error}
                 </p>
+              )}
+            </section>
+
+            <section className="rounded-card border border-border bg-surface p-4">
+              <h3 className="text-sm font-medium">{t('runs.history')}</h3>
+              {(runs.data?.length ?? 0) === 0 ? (
+                <p className="mt-2 text-sm text-ink-muted">{t('runs.empty')}</p>
+              ) : (
+                <ul className="mt-2 divide-y divide-border text-sm">
+                  {runs.data?.map((item) => (
+                    <li key={item.id} className="flex flex-wrap items-center gap-2 py-2">
+                      <button
+                        type="button"
+                        onClick={() => openRun(item.workflow_id, item.id)}
+                        className={cn(
+                          'flex flex-1 flex-wrap items-center gap-2 text-left',
+                          item.id === activeRunId ? 'text-accent' : 'text-ink',
+                        )}
+                      >
+                        <span className="font-mono text-xs">{item.id.slice(0, 8)}</span>
+                        <Badge tone={statusTone(item.status)}>{item.status}</Badge>
+                        <span className="text-xs text-ink-muted">
+                          {item.prompt_tokens + item.completion_tokens} tokens
+                        </span>
+                      </button>
+                      {(item.status === 'queued' || item.status === 'running') && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            void apiRequest(`/workflows/runs/${item.id}/cancel`, {
+                              method: 'POST',
+                            }).then(() =>
+                              queryClient.invalidateQueries({
+                                queryKey: ['workflow-runs', selectedId],
+                              }),
+                            )
+                          }}
+                        >
+                          <Ban className="h-3 w-3" />
+                          {t('runs.cancel')}
+                        </Button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
               )}
             </section>
 
@@ -282,19 +412,7 @@ export function WorkflowsPage() {
                   >
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-mono text-xs text-ink">{node.nodeId}</span>
-                      <Badge
-                        tone={
-                          node.status === 'completed'
-                            ? 'success'
-                            : node.status === 'failed'
-                              ? 'danger'
-                              : node.status === 'skipped'
-                                ? 'neutral'
-                                : 'accent'
-                        }
-                      >
-                        {node.status}
-                      </Badge>
+                      <Badge tone={statusTone(node.status)}>{node.status}</Badge>
                       {node.durationMs !== undefined && node.status !== 'skipped' && (
                         <span className="text-[11px] text-ink-muted">
                           {Math.round(node.durationMs)} ms

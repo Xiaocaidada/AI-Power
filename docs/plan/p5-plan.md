@@ -1,6 +1,6 @@
 # P5 规划：检索质量、评测平台与开放平台
 
-- **Status:** In progress（D1–D10 已确认；S1–S4 已完成 2026-11-22）
+- **Status:** In progress（D1–D10 已确认；S1–S5 已完成 2026-11-23）
 - **Date:** 2026-11-22
 - **Scope source:** [`PRODUCT-BRIEF.md`](../../PRODUCT-BRIEF.md) §2 Q2/Q7、§3、[`docs/eval/retrieval-baseline.md`](../eval/retrieval-baseline.md)、[`docs/plan/p4-plan.md`](./p4-plan.md)
 - **前置:** P4 已完成（2026-11-22），见 [`p4-plan.md`](./p4-plan.md)、[`p4-s6-final.md`](../tdd/p4-s6-final.md)
@@ -136,9 +136,9 @@ P5 仍**不做真实支付/计费、复杂 RBAC、移动端与拖拽画布**。�
 
 > 验收：同一工作流 run 的成本同时出现在 run 详情、用量页、预算与 `/metrics`，金额一致。
 >
-> **完成证据**：[`docs/tdd/p5-s4-usage-ledger.md`](../tdd/p5-s4-usage-ledger.md)、[`ADR-0022`](../adr/0022-unified-usage-ledger.md)。361 收集 / 358 通过 / 3 跳过；前端 22 通过、构建通过。
+> **完成证据**：[`docs/tdd/p5-s4-usage-ledger.md`](../tdd/p5-s4-usage-ledger.md)、[`ADR-0022`](../adr/0022-unified-usage-ledger.md)。361 收集 / 357 通过 / 4 跳过；前端 22 通过、构建通过。
 
-### P5-S5 异步运行与取消 — 待开始（约 1.5–2 周）
+### P5-S5 异步运行与取消 — **已完成（2026-11-23）**（约 1.5–2 周）
 
 - **事件日志**：`workflow_run_events(run_id, seq, event, payload, created_at)`、`collaboration_run_events(run_id, seq, event, payload, created_at)`；`seq` 单调递增。
 - **执行**：`POST /workflows/{id}/runs` 与 `POST /collaborations/runs` 创建 run（`queued`）并入 Arq；worker 执行 runner，逐个事件写日志；终态写 run 汇总与用量账本。
@@ -150,6 +150,8 @@ P5 仍**不做真实支付/计费、复杂 RBAC、移动端与拖拽画布**。�
 - **文档**：ADR-0023；更新 [`docs/api/workflows.md`](../api/workflows.md)。
 
 > 验收：提交 run 后关闭页面，重新打开仍能看到完整时间线；取消运行中的 run 在下一个节点边界停止且状态/用量正确。
+>
+> **完成证据**：[`docs/tdd/p5-s5-async-runs.md`](../tdd/p5-s5-async-runs.md)、[`ADR-0023`](../adr/0023-async-runs.md)。真实 API 验证 202/queued、事件 seq 回放、运行中取消终态 `cancelled`；Playwright 新增刷新重连用例。
 
 ### P5-S6 收口 — 待开始（约 0.5–1 周）
 

@@ -13,6 +13,7 @@ from app.services.evaluation_runner import run_evaluation
 from app.services.ingestion import ingest_document, mark_job_dead, schedule_retry
 from app.services.maintenance import cleanup_audit_logs, cleanup_orphan_files, cleanup_traces
 from app.services.queue import ArqJobQueue, recover_stale_jobs
+from app.services.run_execution import execute_collaboration_run, execute_workflow_run
 from app.services.webhooks import deliver_due_deliveries, enqueue_event
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,14 @@ async def run_evaluation_job(ctx: dict[str, Any], run_id: str) -> None:
     await run_evaluation(UUID(run_id))
 
 
+async def run_workflow_job(ctx: dict[str, Any], run_id: str) -> None:
+    await execute_workflow_run(UUID(run_id), redis=ctx["redis"])
+
+
+async def run_collaboration_job(ctx: dict[str, Any], run_id: str) -> None:
+    await execute_collaboration_run(UUID(run_id), redis=ctx["redis"])
+
+
 async def deliver_webhooks_job(ctx: dict[str, Any]) -> None:
     delivered = await deliver_due_deliveries()
     if delivered:
@@ -102,7 +111,12 @@ async def cleanup_audit_logs_job(ctx: dict[str, Any]) -> None:
 
 
 class WorkerSettings:
-    functions = [ingest_document_job, run_evaluation_job]
+    functions = [
+        ingest_document_job,
+        run_evaluation_job,
+        run_workflow_job,
+        run_collaboration_job,
+    ]
     cron_jobs = [
         cron(recover_stale_jobs_job, minute=set(range(60))),
         cron(deliver_webhooks_job, minute=set(range(60))),

@@ -162,9 +162,18 @@ class WorkflowRun(Base):
         ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
     )
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    api_key_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("api_keys.id", ondelete="SET NULL"), default=None
+    )
+    kb_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("knowledge_bases.id", ondelete="SET NULL"), default=None
+    )
     status: Mapped[str] = mapped_column(String(20), default="running")
     input_text: Mapped[str] = mapped_column(Text, default="")
     error_code: Mapped[str | None] = mapped_column(String(50), default=None)
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
     prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
     completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
     cost: Mapped[float] = mapped_column(Float, default=0.0)
@@ -173,6 +182,24 @@ class WorkflowRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
     __table_args__ = (Index("ix_workflow_runs_workspace_started", "workspace_id", "started_at"),)
+
+
+class WorkflowRunEvent(Base):
+    __tablename__ = "workflow_run_events"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workflow_runs.id", ondelete="CASCADE"), index=True
+    )
+    seq: Mapped[int] = mapped_column(Integer)
+    event: Mapped[str] = mapped_column(String(50))
+    payload: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("run_id", "seq", name="uq_workflow_run_events_run_seq"),
+        Index("ix_workflow_run_events_run_seq", "run_id", "seq"),
+    )
 
 
 class WorkflowNodeRun(Base):
@@ -201,6 +228,9 @@ class CollaborationRun(Base):
         ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
     )
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    api_key_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("api_keys.id", ondelete="SET NULL"), default=None
+    )
     provider_id: Mapped[str] = mapped_column(String(50))
     model: Mapped[str] = mapped_column(String(200))
     kb_id: Mapped[UUID | None] = mapped_column(
@@ -212,12 +242,33 @@ class CollaborationRun(Base):
     final_output: Mapped[str] = mapped_column(Text, default="")
     rounds: Mapped[int] = mapped_column(Integer, default=0)
     error_code: Mapped[str | None] = mapped_column(String(50), default=None)
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
     prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
     completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
     cost: Mapped[float] = mapped_column(Float, default=0.0)
     total_ms: Mapped[float | None] = mapped_column(Float, default=None)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+
+class CollaborationRunEvent(Base):
+    __tablename__ = "collaboration_run_events"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("collaboration_runs.id", ondelete="CASCADE"), index=True
+    )
+    seq: Mapped[int] = mapped_column(Integer)
+    event: Mapped[str] = mapped_column(String(50))
+    payload: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("run_id", "seq", name="uq_collaboration_run_events_run_seq"),
+        Index("ix_collaboration_run_events_run_seq", "run_id", "seq"),
+    )
 
 
 class CollaborationStep(Base):

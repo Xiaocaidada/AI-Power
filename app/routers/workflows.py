@@ -1,36 +1,31 @@
 import asyncio
 import json
 import logging
+import time
 from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.registry import AgentRegistry
 from app.clients import RedisLike, get_redis
-from app.db import get_session
-from app.deps import (
-    AuthContext,
-    get_agent_registry,
-    get_jwt_context,
-    get_registry,
-    get_tool_registry,
-    require_scope,
-)
+from app.db import SessionLocal, get_session
+from app.deps import AuthContext, get_jwt_context, require_scope
 from app.metrics import track_sse_stream
 from app.models import (
     AuditLog,
     Workflow,
     WorkflowNodeRun,
     WorkflowRun,
+    WorkflowRunEvent,
     WorkflowVersion,
 )
-from app.providers.registry import ProviderRegistry
 from app.schemas import (
+    RunAcceptedOut,
+    RunCancelOut,
     WorkflowCreate,
     WorkflowNodeRunOut,
     WorkflowOut,
@@ -40,14 +35,22 @@ from app.schemas import (
     WorkflowVersionOut,
 )
 from app.services.access import get_owned_knowledge_base
+from app.services.queue import JobQueue, get_queue
 from app.services.quotas import enforce_quota
-from app.services.workflow.runner import WorkflowRunner
+from app.services.run_events import (
+    KEEPALIVE_SECONDS,
+    POLL_INTERVAL_SECONDS,
+    TERMINAL_EVENTS,
+    TERMINAL_STATUSES,
+    append_workflow_event,
+    format_sse,
+    list_workflow_events,
+)
 from app.services.workflow.schema import (
     WorkflowDefinition,
     WorkflowValidationError,
     validate_definition,
 )
-from app.tools.base import ToolRegistry
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 logger = logging.getLogger(__name__)
@@ -56,13 +59,7 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 ChatContext = Annotated[AuthContext, Depends(require_scope("chat:write"))]
 RunContext = Annotated[AuthContext, Depends(require_scope("workflow:run"))]
 RedisDep = Annotated[RedisLike, Depends(get_redis)]
-RegistryDep = Annotated[ProviderRegistry, Depends(get_registry)]
-ToolRegistryDep = Annotated[ToolRegistry, Depends(get_tool_registry)]
-AgentRegistryDep = Annotated[AgentRegistry, Depends(get_agent_registry)]
-
-
-def _sse(event: str, data: dict[str, object]) -> str:
-    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+QueueDep = Annotated[JobQueue, Depends(get_queue)]
 
 
 def _invalid_workflow(exc: WorkflowValidationError) -> HTTPException:
@@ -288,17 +285,40 @@ async def list_workflow_runs(
     return [WorkflowRunOut.model_validate(run) for run in runs]
 
 
-@router.post("/{workflow_id}/runs")
+async def _get_owned_run(run_id: UUID, workspace_id: UUID, session: AsyncSession) -> WorkflowRun:
+    run = (
+        await session.execute(
+            select(WorkflowRun).where(
+                WorkflowRun.id == run_id,
+                WorkflowRun.workspace_id == workspace_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Workflow run not found")
+    return run
+
+
+def _resume_cursor(after: int | None, last_event_id: str | None) -> int:
+    if after is not None:
+        return after
+    if last_event_id is not None:
+        try:
+            return max(int(last_event_id), 0)
+        except ValueError:
+            return 0
+    return 0
+
+
+@router.post("/{workflow_id}/runs", response_model=RunAcceptedOut, status_code=202)
 async def create_workflow_run(
     workflow_id: UUID,
     payload: WorkflowRunCreate,
     context: RunContext,
     session: SessionDep,
-    registry: RegistryDep,
-    tool_registry: ToolRegistryDep,
-    agent_registry: AgentRegistryDep,
+    queue: QueueDep,
     redis: RedisDep,
-) -> StreamingResponse:
+) -> RunAcceptedOut:
     workflow = await _get_owned_workflow(workflow_id, context.workspace.id, session)
     version_statement = select(WorkflowVersion).where(WorkflowVersion.workflow_id == workflow.id)
     if payload.version is None:
@@ -310,59 +330,150 @@ async def create_workflow_run(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Workflow version not found")
     if payload.kb_id is not None:
         await get_owned_knowledge_base(payload.kb_id, context.workspace.id, session)
+    _parse_definition(version.definition)
     await enforce_quota(redis, context)
 
-    definition = _parse_definition(version.definition)
     run = WorkflowRun(
         workflow_id=workflow.id,
         version_id=version.id,
         workspace_id=context.workspace.id,
         user_id=context.user.id,
-        status="running",
+        api_key_id=context.api_key_id,
+        kb_id=payload.kb_id,
+        status="queued",
         input_text=payload.input,
     )
     session.add(run)
     await session.commit()
     await session.refresh(run)
     run_id = run.id
-    await session.close()
+    try:
+        await queue.enqueue_workflow_run(run_id)
+    except Exception:
+        logger.exception("failed to enqueue workflow run %s", run_id)
+        run.status = "failed"
+        run.error_code = "queue_unavailable"
+        run.finished_at = datetime.now(UTC)
+        await session.commit()
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            {"code": "queue_unavailable", "message": "Workflow queue is unavailable"},
+        ) from None
+    return RunAcceptedOut(run_id=run_id, status="queued")
 
-    runner = WorkflowRunner(
-        run_id=run_id,
-        workflow_id=workflow.id,
-        version=version.version,
-        definition=definition,
-        provider_registry=registry,
-        tool_registry=tool_registry,
-        agent_registry=agent_registry,
-        workspace_id=context.workspace.id,
-        user_id=context.user.id,
-        kb_id=payload.kb_id,
-        redis=redis,
-        input_text=payload.input,
-        quota_guard=lambda: enforce_quota(redis, context),
-        api_key_id=context.api_key_id,
-    )
+
+@router.get("/runs/{run_id}/events")
+async def workflow_run_events(
+    run_id: UUID,
+    context: RunContext,
+    session: SessionDep,
+    after: Annotated[int | None, Query(ge=0)] = None,
+    last_event_id: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
+) -> StreamingResponse:
+    await _get_owned_run(run_id, context.workspace.id, session)
+    cursor = _resume_cursor(after, last_event_id)
 
     async def stream():
-        try:
-            async for event in runner.run():
-                yield _sse(event.kind, event.data)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("workflow stream failed for run %s", run_id)
-            yield _sse(
-                "workflow_end",
-                {
-                    "run_id": str(run_id),
-                    "status": "failed",
-                    "error_code": "internal_error",
-                },
-            )
+        position = cursor
+        last_ping = time.monotonic()
+        missing_terminal_polls = 0
+        while True:
+            async with SessionLocal() as poll:
+                run = await poll.get(WorkflowRun, run_id)
+                if run is None:
+                    return
+                events = await list_workflow_events(poll, run_id, position)
+                terminal_rows = (
+                    await poll.execute(
+                        select(func.count())
+                        .select_from(WorkflowRunEvent)
+                        .where(
+                            WorkflowRunEvent.run_id == run_id,
+                            WorkflowRunEvent.event.in_(TERMINAL_EVENTS),
+                        )
+                    )
+                ).scalar_one()
+            terminal_seen = False
+            for event in events:
+                yield format_sse(event)
+                position = event.seq
+                if event.event in TERMINAL_EVENTS:
+                    terminal_seen = True
+            if run.status in TERMINAL_STATUSES:
+                if not terminal_seen and terminal_rows == 0:
+                    missing_terminal_polls += 1
+                    if missing_terminal_polls < 2:
+                        await asyncio.sleep(POLL_INTERVAL_SECONDS)
+                        continue
+                    payload = {
+                        "run_id": str(run.id),
+                        "status": run.status,
+                        "error_code": run.error_code,
+                        "total_ms": run.total_ms,
+                        "prompt_tokens": run.prompt_tokens,
+                        "completion_tokens": run.completion_tokens,
+                        "cost": run.cost,
+                    }
+                    yield (
+                        f"event: workflow_end\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    )
+                return
+            missing_terminal_polls = 0
+            now = time.monotonic()
+            if now - last_ping >= KEEPALIVE_SECONDS:
+                yield ": keepalive\n\n"
+                last_ping = now
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
     return StreamingResponse(
         track_sse_stream(stream()),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/runs/{run_id}/cancel", response_model=RunCancelOut)
+async def cancel_workflow_run(
+    run_id: UUID,
+    context: RunContext,
+    session: SessionDep,
+) -> RunCancelOut:
+    run = await _get_owned_run(run_id, context.workspace.id, session)
+    if run.status not in TERMINAL_STATUSES:
+        now = datetime.now(UTC)
+        cancelled = await session.execute(
+            update(WorkflowRun)
+            .where(
+                WorkflowRun.id == run_id,
+                WorkflowRun.workspace_id == context.workspace.id,
+                WorkflowRun.status == "queued",
+            )
+            .values(status="cancelled", error_code="cancelled", finished_at=now)
+        )
+        await session.commit()
+        if cancelled.rowcount == 1:
+            try:
+                await append_workflow_event(
+                    run_id,
+                    "workflow_end",
+                    {"run_id": str(run_id), "status": "cancelled", "error_code": "cancelled"},
+                )
+            except Exception:
+                logger.exception("failed to append workflow cancel event %s", run_id)
+        else:
+            await session.execute(
+                update(WorkflowRun)
+                .where(
+                    WorkflowRun.id == run_id,
+                    WorkflowRun.workspace_id == context.workspace.id,
+                    WorkflowRun.status == "running",
+                )
+                .values(cancel_requested_at=now)
+            )
+            await session.commit()
+        await session.refresh(run)
+    return RunCancelOut(
+        run_id=run.id,
+        status=run.status,
+        cancel_requested_at=run.cancel_requested_at,
     )

@@ -109,9 +109,76 @@ def test_get_retries_429_with_retry_after():
     client.close()
 
 
+def _run_handler(request: httpx.Request) -> httpx.Response:
+    if request.url.path == "/workflows/w1/runs" and request.method == "POST":
+        return httpx.Response(202, json={"run_id": "r1", "status": "queued"})
+    if request.url.path == "/workflows/runs/r1/events":
+        assert request.url.params["after"] == "0"
+        return httpx.Response(
+            200,
+            text=(
+                "id: 1\n"
+                "event: workflow_start\n"
+                'data: {"run_id":"r1"}\n'
+                "\n"
+                "id: 2\n"
+                "event: workflow_end\n"
+                'data: {"run_id":"r1","status":"completed"}\n'
+                "\n"
+            ),
+            headers={"content-type": "text/event-stream"},
+        )
+    if request.url.path == "/workflows/runs/r1/cancel":
+        return httpx.Response(200, json={"run_id": "r1", "status": "cancelled"})
+    return httpx.Response(404, json={"detail": "unknown"})
+
+
+def test_sync_workflow_run_queues_then_streams_events():
+    client = AIPowerClient(
+        "http://test", access_token="a", transport=httpx.MockTransport(_run_handler)
+    )
+
+    events = list(client.workflow_run("w1", "hello"))
+
+    assert [event.event for event in events] == ["workflow_start", "workflow_end"]
+    assert events[-1].json()["status"] == "completed"
+    started = client.start_workflow_run("w1", "hello")
+    assert started["run_id"] == "r1"
+    assert client.cancel_workflow_run("r1")["status"] == "cancelled"
+    client.close()
+
+
 def test_sse_parser_supports_comments_and_multiline_data():
     events = list(iter_sse([": keepalive", "event: x", "data: a", "data: b", ""]))
     assert events == [SSEEvent(event="x", data="a\nb")]
+
+
+async def test_async_workflow_run_queues_then_streams_events():
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/workflows/w1/runs":
+            return httpx.Response(202, json={"run_id": "r1", "status": "queued"})
+        if request.url.path == "/workflows/runs/r1/events":
+            return httpx.Response(
+                200,
+                text=(
+                    "event: workflow_start\n"
+                    'data: {"run_id":"r1"}\n'
+                    "\n"
+                    "event: workflow_end\n"
+                    'data: {"run_id":"r1","status":"completed"}\n'
+                    "\n"
+                ),
+                headers={"content-type": "text/event-stream"},
+            )
+        return httpx.Response(404, json={"detail": "unknown"})
+
+    client = AsyncAIPowerClient(
+        "http://test", access_token="a", transport=httpx.MockTransport(handler)
+    )
+    events = [event async for event in client.workflow_run("w1", "hello")]
+    assert [event.event for event in events] == ["workflow_start", "workflow_end"]
+    assert (await client.start_workflow_run("w1", "hello"))["run_id"] == "r1"
+    await client.aclose()
 
 
 async def test_async_login_and_stream():

@@ -79,11 +79,15 @@ def _clear_provider():
 
 
 async def _run(client, headers, payload=None):
-    return await client.post(
+    created = await client.post(
         "/collaborations/runs",
         json=payload or {"input": "research this", "provider_id": "fake", "model": "fake-model"},
         headers=headers,
     )
+    if created.status_code != 202:
+        return created
+    run_id = created.json()["run_id"]
+    return await client.get(f"/collaborations/runs/{run_id}/events", headers=headers)
 
 
 async def test_collaboration_plans_workers_and_accepts(client, api, registry):

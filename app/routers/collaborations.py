@@ -1,38 +1,46 @@
 import asyncio
 import json
 import logging
+import time
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.registry import AgentRegistry
 from app.clients import RedisLike, get_redis
-from app.db import get_session
-from app.deps import (
-    AuthContext,
-    get_agent_registry,
-    get_jwt_context,
-    get_registry,
-    get_tool_registry,
-    require_scope,
-)
+from app.db import SessionLocal, get_session
+from app.deps import AuthContext, get_jwt_context, get_registry, require_scope
 from app.metrics import track_sse_stream
-from app.models import CollaborationRun, CollaborationStep
+from app.models import (
+    CollaborationRun,
+    CollaborationRunEvent,
+    CollaborationStep,
+)
 from app.providers.base import ProviderError
 from app.providers.registry import ProviderRegistry
 from app.schemas import (
     CollaborationRunCreate,
     CollaborationRunOut,
     CollaborationStepOut,
+    RunAcceptedOut,
+    RunCancelOut,
 )
 from app.services.access import get_owned_knowledge_base
-from app.services.collaboration import CollaborationRunner
+from app.services.queue import JobQueue, get_queue
 from app.services.quotas import enforce_quota
-from app.tools.base import ToolRegistry
+from app.services.run_events import (
+    KEEPALIVE_SECONDS,
+    POLL_INTERVAL_SECONDS,
+    TERMINAL_EVENTS,
+    TERMINAL_STATUSES,
+    append_collaboration_event,
+    format_sse,
+    list_collaboration_events,
+)
 
 router = APIRouter(prefix="/collaborations", tags=["collaborations"])
 logger = logging.getLogger(__name__)
@@ -41,24 +49,45 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 ChatContext = Annotated[AuthContext, Depends(require_scope("chat:write"))]
 RedisDep = Annotated[RedisLike, Depends(get_redis)]
 RegistryDep = Annotated[ProviderRegistry, Depends(get_registry)]
-ToolRegistryDep = Annotated[ToolRegistry, Depends(get_tool_registry)]
-AgentRegistryDep = Annotated[AgentRegistry, Depends(get_agent_registry)]
+QueueDep = Annotated[JobQueue, Depends(get_queue)]
 
 
-def _sse(event: str, data: dict[str, object]) -> str:
-    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+async def _get_owned_run(
+    run_id: UUID, workspace_id: UUID, session: AsyncSession
+) -> CollaborationRun:
+    run = (
+        await session.execute(
+            select(CollaborationRun).where(
+                CollaborationRun.id == run_id,
+                CollaborationRun.workspace_id == workspace_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Collaboration run not found")
+    return run
 
 
-@router.post("/runs")
+def _resume_cursor(after: int | None, last_event_id: str | None) -> int:
+    if after is not None:
+        return after
+    if last_event_id is not None:
+        try:
+            return max(int(last_event_id), 0)
+        except ValueError:
+            return 0
+    return 0
+
+
+@router.post("/runs", response_model=RunAcceptedOut, status_code=202)
 async def create_collaboration_run(
     payload: CollaborationRunCreate,
     context: ChatContext,
     session: SessionDep,
+    queue: QueueDep,
     registry: RegistryDep,
-    tool_registry: ToolRegistryDep,
-    agent_registry: AgentRegistryDep,
     redis: RedisDep,
-) -> StreamingResponse:
+) -> RunAcceptedOut:
     try:
         registry.get(payload.provider_id)
     except ProviderError as exc:
@@ -70,55 +99,152 @@ async def create_collaboration_run(
     run = CollaborationRun(
         workspace_id=context.workspace.id,
         user_id=context.user.id,
+        api_key_id=context.api_key_id,
         provider_id=payload.provider_id,
         model=payload.model,
         kb_id=payload.kb_id,
-        status="running",
+        status="queued",
         input_text=payload.input,
     )
     session.add(run)
     await session.commit()
     await session.refresh(run)
     run_id = run.id
-    await session.close()
+    try:
+        await queue.enqueue_collaboration_run(run_id)
+    except Exception:
+        logger.exception("failed to enqueue collaboration run %s", run_id)
+        run.status = "failed"
+        run.error_code = "queue_unavailable"
+        run.finished_at = datetime.now(UTC)
+        await session.commit()
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            {"code": "queue_unavailable", "message": "Collaboration queue is unavailable"},
+        ) from None
+    return RunAcceptedOut(run_id=run_id, status="queued")
 
-    runner = CollaborationRunner(
-        run_id=run_id,
-        workspace_id=context.workspace.id,
-        user_id=context.user.id,
-        provider_id=payload.provider_id,
-        model=payload.model,
-        kb_id=payload.kb_id,
-        redis=redis,
-        input_text=payload.input,
-        provider_registry=registry,
-        tool_registry=tool_registry,
-        agent_registry=agent_registry,
-        quota_guard=lambda: enforce_quota(redis, context),
-        api_key_id=context.api_key_id,
-    )
+
+@router.get("/runs/{run_id}/events")
+async def collaboration_run_events(
+    run_id: UUID,
+    context: ChatContext,
+    session: SessionDep,
+    after: Annotated[int | None, Query(ge=0)] = None,
+    last_event_id: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
+) -> StreamingResponse:
+    await _get_owned_run(run_id, context.workspace.id, session)
+    cursor = _resume_cursor(after, last_event_id)
 
     async def stream():
-        try:
-            async for event in runner.run():
-                yield _sse(event.kind, event.data)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("collaboration stream failed for run %s", run_id)
-            yield _sse(
-                "collaboration_end",
-                {
-                    "run_id": str(run_id),
-                    "status": "failed",
-                    "error_code": "internal_error",
-                },
-            )
+        position = cursor
+        last_ping = time.monotonic()
+        missing_terminal_polls = 0
+        while True:
+            async with SessionLocal() as poll:
+                run = await poll.get(CollaborationRun, run_id)
+                if run is None:
+                    return
+                events = await list_collaboration_events(poll, run_id, position)
+                terminal_rows = (
+                    await poll.execute(
+                        select(func.count())
+                        .select_from(CollaborationRunEvent)
+                        .where(
+                            CollaborationRunEvent.run_id == run_id,
+                            CollaborationRunEvent.event.in_(TERMINAL_EVENTS),
+                        )
+                    )
+                ).scalar_one()
+            terminal_seen = False
+            for event in events:
+                yield format_sse(event)
+                position = event.seq
+                if event.event in TERMINAL_EVENTS:
+                    terminal_seen = True
+            if run.status in TERMINAL_STATUSES:
+                if not terminal_seen and terminal_rows == 0:
+                    missing_terminal_polls += 1
+                    if missing_terminal_polls < 2:
+                        await asyncio.sleep(POLL_INTERVAL_SECONDS)
+                        continue
+                    payload = {
+                        "run_id": str(run.id),
+                        "status": run.status,
+                        "error_code": run.error_code,
+                        "total_ms": run.total_ms,
+                        "rounds": run.rounds,
+                        "prompt_tokens": run.prompt_tokens,
+                        "completion_tokens": run.completion_tokens,
+                        "cost": run.cost,
+                    }
+                    yield (
+                        "event: collaboration_end\n"
+                        f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    )
+                return
+            missing_terminal_polls = 0
+            now = time.monotonic()
+            if now - last_ping >= KEEPALIVE_SECONDS:
+                yield ": keepalive\n\n"
+                last_ping = now
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
     return StreamingResponse(
         track_sse_stream(stream()),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/runs/{run_id}/cancel", response_model=RunCancelOut)
+async def cancel_collaboration_run(
+    run_id: UUID,
+    context: ChatContext,
+    session: SessionDep,
+) -> RunCancelOut:
+    run = await _get_owned_run(run_id, context.workspace.id, session)
+    if run.status not in TERMINAL_STATUSES:
+        now = datetime.now(UTC)
+        cancelled = await session.execute(
+            update(CollaborationRun)
+            .where(
+                CollaborationRun.id == run_id,
+                CollaborationRun.workspace_id == context.workspace.id,
+                CollaborationRun.status == "queued",
+            )
+            .values(status="cancelled", error_code="cancelled", finished_at=now)
+        )
+        await session.commit()
+        if cancelled.rowcount == 1:
+            try:
+                await append_collaboration_event(
+                    run_id,
+                    "collaboration_end",
+                    {
+                        "run_id": str(run_id),
+                        "status": "cancelled",
+                        "error_code": "cancelled",
+                    },
+                )
+            except Exception:
+                logger.exception("failed to append collaboration cancel event %s", run_id)
+        else:
+            await session.execute(
+                update(CollaborationRun)
+                .where(
+                    CollaborationRun.id == run_id,
+                    CollaborationRun.workspace_id == context.workspace.id,
+                    CollaborationRun.status == "running",
+                )
+                .values(cancel_requested_at=now)
+            )
+            await session.commit()
+        await session.refresh(run)
+    return RunCancelOut(
+        run_id=run.id,
+        status=run.status,
+        cancel_requested_at=run.cancel_requested_at,
     )
 
 

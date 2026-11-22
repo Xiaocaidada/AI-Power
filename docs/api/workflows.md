@@ -1,6 +1,6 @@
 # 工作流 API 参考
 
-工作流是 workspace 级的 DAG 定义：不可变版本 + 每次运行持久化 node 状态。所有接口需要 JWT；跨 workspace 一律 404。
+工作流是 workspace 级的 DAG 定义：不可变版本 + 每次运行持久化 node 状态与事件日志。管理接口需要 JWT；提交运行、订阅事件与取消支持 JWT 或带 `workflow:run` scope 的 API Key。跨 workspace 一律 404。
 
 ## 接口
 
@@ -11,8 +11,10 @@
 | GET | `/workflows/{id}` | 详情 |
 | POST | `/workflows/{id}/versions` | 发布新版本（不可变） |
 | DELETE | `/workflows/{id}` | 软删除 |
-| POST | `/workflows/{id}/runs` | 运行（SSE） |
+| POST | `/workflows/{id}/runs` | 提交运行，返回 `202 {run_id, status:"queued"}` |
 | GET | `/workflows/runs/{run_id}` | run + node 状态 |
+| GET | `/workflows/runs/{run_id}/events?after` | SSE 回放 + tail（`id` 为 seq） |
+| POST | `/workflows/runs/{run_id}/cancel` | 取消 queued/running run |
 | GET | `/workflows/{id}/runs?limit&before` | 运行历史 |
 
 运行请求：
@@ -22,6 +24,26 @@
 ```
 
 `version` 缺省使用最新版本；`kb_id` 供 `kb_search` 节点使用，会校验归属。
+
+### 提交、回放与取消
+
+```bash
+# 提交：202 + run_id
+curl -s -X POST "$BASE/workflows/$WF_ID/runs" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"input":"总结这份资料"}'
+
+# 回放（after=已收到的最大 seq；也可用 Last-Event-ID）
+curl -N "$BASE/workflows/runs/$RUN_ID/events?after=0" \
+  -H "Authorization: Bearer $TOKEN"
+
+# 取消（queued 立即 cancelled；running 在节点边界停止）
+curl -s -X POST "$BASE/workflows/runs/$RUN_ID/cancel" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+状态机：`queued → running → completed|failed|cancelled`。worker 以条件更新认领 run；重复取消幂等。事件日志持久化，刷新页面后可用同一 URL 恢复完整时间线。
 
 ## 定义格式
 
@@ -77,18 +99,31 @@
 - 条件分支只执行一侧；另一侧标记 `skipped`，跳过会向后传播，join 不被跳过的分支阻塞。
 - 并发由 `WORKFLOW_PARALLEL_LIMIT`（默认 3）限制。
 - 节点超时 `WORKFLOW_NODE_TIMEOUT_SECONDS`（默认 120），ProviderError 重试至 `WORKFLOW_NODE_ATTEMPTS`（默认 2）。
-- 每个 `llm` 节点前检查 workspace 配额；run 统计 token 与成本（不写 `usage_events`）。
+- 每个 `llm` 节点前检查 workspace 配额；每个成功调用的 token 与成本写入 `usage_events`（`source='workflow'`，按 node/API Key 归属），run 汇总使用同一账本。
 
 ## SSE 事件
 
+事件带 `id: <seq>` 且 seq 单调递增：
+
 ```
-workflow_start {run_id, workflow_id, version}
-node_start {run_id, node_id, node_type}
-node_end {run_id, node_id, status, attempts, duration_ms, output?, error_code?}
-workflow_end {run_id, status, total_ms, prompt_tokens, completion_tokens, cost, output?, error_code?}
+id: 1
+event: workflow_start
+data: {run_id, workflow_id, version}
+
+id: 2
+event: node_start
+data: {run_id, node_id, node_type}
+
+id: 3
+event: node_end
+data: {run_id, node_id, status, attempts, duration_ms, output?, error_code?}
+
+id: 4
+event: workflow_end
+data: {run_id, status, total_ms, prompt_tokens, completion_tokens, cost, output?, error_code?}
 ```
 
-`status` 可为 `completed` / `failed` / `skipped`。`error_code` 示例：`invalid_workflow`、`invalid_template`、`node_timeout`、`no_knowledge_base`、`quota_exceeded`、`collaboration_step_limit`。
+node `status` 可为 `completed` / `failed` / `skipped`；run `status` 可为 `completed` / `failed` / `cancelled`。`error_code` 示例：`invalid_workflow`、`invalid_template`、`node_timeout`、`no_knowledge_base`、`quota_exceeded`、`cancelled`。
 
 ## Python 示例
 
@@ -101,4 +136,4 @@ export AI_POWER_PASSWORD='...'
 python scripts/workflow_example.py --provider local-qwen --model qwen2.5-7b-instruct
 ```
 
-脚本会创建（或复用同名）工作流、发起一次运行并打印 `workflow_end` 结果。
+脚本会创建（或复用同名）工作流，提交运行后从 `/runs/{run_id}/events` 回放事件并打印 `workflow_end` 结果。SDK 的 `workflow_run()` 同样先提交再订阅事件；需要断线续传时使用 `workflow_run_events(run_id, after=seq)`。

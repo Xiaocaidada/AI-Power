@@ -37,7 +37,7 @@
 - Secret 不能再次读取；丢失需删除重建。
 - 时间戳校验由集成方完成；服务端未强制拒绝旧时间戳（重放防护在客户端）。
 - SSRF 防护有 DNS rebinding 残余风险；投递前二次解析降低风险但不能完全消除。
-- SDK 当前对齐 P5-S3 的**同步 SSE** workflow API；P5-S5 改为 202 + 事件回放后需要更新 SDK 的 `workflow_run`。
+- SDK 在 P5-S3 对齐同步 SSE；P5-S5 已更新为 202 + 事件回放（`start_*` / `*_run_events` / `cancel_*`），见 [ADR-0023](0023-async-runs.md)。
 
 ## Alternatives
 

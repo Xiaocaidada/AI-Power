@@ -525,6 +525,11 @@ export const en: Dictionary = {
     invalidJson: 'Definition is not valid JSON',
     definitionHint: 'Node types: llm / kb_search / tool / agent / condition / parallel / join; edges support when=true/false.',
   },
+  runs: {
+    history: 'Runs',
+    empty: 'No runs yet.',
+    cancel: 'Cancel run',
+  },
   admin: {
     title: 'Admin console',
     lead: 'Platform users, workspaces, models, usage, and audit.',
