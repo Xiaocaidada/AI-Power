@@ -8,6 +8,7 @@ from arq.connections import RedisSettings
 
 from app.config import get_settings
 from app.db import SessionLocal
+from app.services.evaluation_runner import run_evaluation
 from app.services.ingestion import ingest_document, mark_job_dead, schedule_retry
 from app.services.maintenance import cleanup_audit_logs, cleanup_orphan_files, cleanup_traces
 from app.services.queue import ArqJobQueue, recover_stale_jobs
@@ -33,6 +34,10 @@ async def ingest_document_job(ctx: dict[str, Any], document_id: str) -> None:
         _job_id=f"ingest:{document_uuid}:retry:{uuid4().hex[:12]}",
         _defer_by=2**outcome.attempts,
     )
+
+
+async def run_evaluation_job(ctx: dict[str, Any], run_id: str) -> None:
+    await run_evaluation(UUID(run_id))
 
 
 async def recover_stale_jobs_job(ctx: dict[str, Any]) -> None:
@@ -66,7 +71,7 @@ async def cleanup_audit_logs_job(ctx: dict[str, Any]) -> None:
 
 
 class WorkerSettings:
-    functions = [ingest_document_job]
+    functions = [ingest_document_job, run_evaluation_job]
     cron_jobs = [
         cron(recover_stale_jobs_job, minute=set(range(60))),
         cron(cleanup_orphan_files_job, hour=3, minute=0),
@@ -75,5 +80,5 @@ class WorkerSettings:
     ]
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)
     max_tries = 1
-    job_timeout = 900
+    job_timeout = 3600
     keep_result = 3600

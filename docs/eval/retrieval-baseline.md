@@ -85,4 +85,21 @@
 
 ## 7. P5-S1 说明（2026-11-22）
 
-本文件 §3 的结果仍来自**纯向量检索**。P5-S1 已接入 `pg_trgm` 词法召回 + RRF 融合与可选 bge-reranker 重排（见 [`ADR-0019`](../adr/0019-hybrid-retrieval.md)），但尚未在评测集上重跑；vector vs hybrid vs hybrid+rerank 的对比与 ≥100 题数据集属于 P5-S2。
+本文件 §3 的结果仍来自**纯向量检索**。P5-S1 已接入 `pg_trgm` 词法召回 + RRF 融合与可选 bge-reranker 重排（见 [`ADR-0019`](../adr/0019-hybrid-retrieval.md)），但尚未在评测集上重跑；vector vs hybrid vs hybrid+rerank 的对比属于 P5-S2。
+
+## 8. P5-S2 重跑：vector vs hybrid vs rerank（2026-11-22）
+
+通过评测平台对同一 `eval/dataset.json`（20 文档 / 50 题）跑三次，KB 默认分块（1000/150），`top_k=5`、`candidate_k=20`：
+
+| 配置 | Recall@1 | Recall@3 | Recall@5 | MRR | 检索 P50 | 检索 P95 |
+|---|---|---|---|---|---|---|
+| 纯向量 | 0.960 | 1.000 | 1.000 | 0.9767 | 27.17ms | 130.50ms |
+| 混合检索 | 0.960 | 1.000 | 1.000 | 0.9767 | 28.08ms | 42.82ms |
+| 混合 + 重排 | **0.980** | 1.000 | 1.000 | **0.9900** | 56.71ms | 133.22ms |
+
+解读：
+
+- 50 题短文档集上 Recall@3/5 已饱和，Top-1/MRR 才是有效信号。
+- 重排修复了 1 道 Top-1 错误，MRR +0.0133；代价是 P95 从约 43ms 升到约 133ms。
+- 本数据集上混合检索未改变 Top-1，但 P95 更低；不能据此推断其他语料。
+- 50 题全量 answer+judge 在本地 Qwen 上耗时较长，本次只跑检索指标；judge 已用单题真机验证（见 [`p5-s2-evaluation.md`](../tdd/p5-s2-evaluation.md)）。

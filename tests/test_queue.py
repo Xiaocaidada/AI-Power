@@ -78,6 +78,20 @@ async def test_arq_queue_unique_enqueue_uses_fresh_job_id():
     assert kwargs["_job_id"] != f"ingest:{document_id}"
 
 
+async def test_arq_queue_enqueues_evaluation_with_stable_job_id():
+    from app.services.queue import ArqJobQueue
+
+    pool = FakePool()
+    run_id = uuid4()
+
+    await ArqJobQueue(pool).enqueue_evaluation(run_id)
+
+    name, args, kwargs = pool.jobs[0]
+    assert name == "run_evaluation_job"
+    assert args == (str(run_id),)
+    assert kwargs == {"_job_id": f"eval:{run_id}"}
+
+
 async def test_recover_stale_jobs_requeues_only_expired_leases():
     from app.services.queue import ArqJobQueue, recover_stale_jobs
 

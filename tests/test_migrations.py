@@ -41,6 +41,10 @@ def test_alembic_upgrade_head_creates_schema(tmp_path):
         "workflow_node_runs",
         "collaboration_runs",
         "collaboration_steps",
+        "eval_datasets",
+        "eval_questions",
+        "eval_runs",
+        "eval_run_items",
         "alembic_version",
     } <= tables
 
