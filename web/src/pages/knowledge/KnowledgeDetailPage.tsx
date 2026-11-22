@@ -38,12 +38,13 @@ import type {
   KnowledgeBaseStats,
 } from '../../lib/types'
 import { uploadDocument } from '../../lib/upload'
+import {
+  createUploadTasks,
+  type UploadTask,
+} from '../../lib/uploadBatch'
 import { KnowledgeChunksTab } from './KnowledgeChunksTab'
 import { KnowledgeRetrievalTab } from './KnowledgeRetrievalTab'
 import { KnowledgeSettingsTab } from './KnowledgeSettingsTab'
-
-const MAX_UPLOAD_BYTES = 20 * 1024 * 1024
-const ALLOWED_EXTENSIONS = ['.pdf', '.md', '.txt']
 
 type TabId = 'documents' | 'chunks' | 'retrieval' | 'settings'
 
@@ -54,8 +55,7 @@ export function KnowledgeDetailPage() {
   const queryClient = useQueryClient()
   const fileInput = useRef<HTMLInputElement | null>(null)
   const [tab, setTab] = useState<TabId>('documents')
-  const [uploading, setUploading] = useState<{ name: string; percent: number } | null>(null)
-  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [uploads, setUploads] = useState<UploadTask[]>([])
   const [actionError, setActionError] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DocumentItem | null>(null)
   const [reprocessTarget, setReprocessTarget] = useState<DocumentItem | null>(null)
@@ -102,32 +102,41 @@ export function KnowledgeDetailPage() {
     ])
   }
 
-  const upload = async (file: File) => {
-    const suffix = file.name.slice(file.name.lastIndexOf('.')).toLowerCase()
-    if (!ALLOWED_EXTENSIONS.includes(suffix)) {
-      setUploadError(t('errors.unsupportedType'))
-      return
+  const updateUpload = (taskId: string, patch: Partial<UploadTask>) => {
+    setUploads((previous) =>
+      previous.map((task) => (task.id === taskId ? { ...task, ...patch } : task)),
+    )
+  }
+
+  const uploadBatch = async (files: File[]) => {
+    if (files.length === 0) return
+    const tasks = createUploadTasks(files)
+    setUploads((previous) => [
+      ...previous.filter((task) => task.status === 'uploading'),
+      ...tasks,
+    ])
+    let changed = false
+    for (const [index, task] of tasks.entries()) {
+      if (task.status !== 'uploading') continue
+      try {
+        const result = await uploadDocument({
+          kbId: id,
+          file: files[index],
+          onProgress: (percent) => updateUpload(task.id, { percent }),
+        })
+        updateUpload(task.id, {
+          percent: 100,
+          status: result.duplicate ? 'duplicate' : 'ready',
+        })
+        changed = true
+      } catch (caught) {
+        updateUpload(task.id, {
+          status: 'failed',
+          errorKey: errorTextKey(caught),
+        })
+      }
     }
-    if (file.size > MAX_UPLOAD_BYTES) {
-      setUploadError(t('errors.tooLarge'))
-      return
-    }
-    setUploadError(null)
-    setUploading({ name: file.name, percent: 0 })
-    try {
-      const result = await uploadDocument({
-        kbId: id,
-        file,
-        onProgress: (percent) =>
-          setUploading((previous) => (previous === null ? previous : { ...previous, percent })),
-      })
-      if (result.duplicate) setUploadError(t('documents.duplicate'))
-      await refreshKnowledgeBase()
-    } catch (caught) {
-      setUploadError(t(errorTextKey(caught)))
-    } finally {
-      setUploading(null)
-    }
+    if (changed) await refreshKnowledgeBase()
   }
 
   const retry = async (documentId: string) => {
@@ -255,17 +264,11 @@ export function KnowledgeDetailPage() {
           multiple
           className="hidden"
           onChange={(event) => {
-            const files = Array.from(event.target.files ?? [])
-            for (const file of files) void upload(file)
+            void uploadBatch(Array.from(event.target.files ?? []))
             event.target.value = ''
           }}
         />
 
-        {uploadError !== null && (
-          <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">
-            {uploadError}
-          </p>
-        )}
         {actionError !== null && (
           <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">
             {actionError}
@@ -285,7 +288,7 @@ export function KnowledgeDetailPage() {
               onDragOver={(event) => event.preventDefault()}
               onDrop={(event) => {
                 event.preventDefault()
-                for (const file of Array.from(event.dataTransfer.files)) void upload(file)
+                void uploadBatch(Array.from(event.dataTransfer.files))
               }}
             >
               <FileUp className="mx-auto h-6 w-6 text-ink-muted" />
@@ -293,21 +296,52 @@ export function KnowledgeDetailPage() {
               <p className="mt-1 text-xs text-ink-muted">{t('documents.types')}</p>
             </div>
 
-            {uploading !== null && (
-              <div className="rounded-lg border border-border bg-surface p-3">
-                <p className="text-xs text-ink-muted">
-                  {t('documents.uploading', {
-                    name: uploading.name,
-                    percent: uploading.percent,
-                  })}
-                </p>
-                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-muted">
-                  <div
-                    className="h-full bg-accent transition-all"
-                    style={{ width: `${uploading.percent}%` }}
-                  />
+            {uploads.length > 0 && (
+              <section className="rounded-card border border-border bg-surface p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-sm font-medium">{t('documents.batchTitle')}</h3>
+                  {!uploads.some((task) => task.status === 'uploading') && (
+                    <Button variant="ghost" size="sm" onClick={() => setUploads([])}>
+                      {t('documents.batchClear')}
+                    </Button>
+                  )}
                 </div>
-              </div>
+                <ul className="mt-2 space-y-2">
+                  {uploads.map((task) => (
+                    <li key={task.id} className="rounded-lg border border-border px-3 py-2">
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="min-w-0 flex-1 truncate font-mono text-ink">
+                          {task.name}
+                        </span>
+                        {task.status === 'uploading' && (
+                          <span className="text-ink-muted">
+                            {t('documents.uploadProgress', { percent: task.percent })}
+                          </span>
+                        )}
+                        {task.status === 'ready' && (
+                          <span className="text-success">{t('documents.uploaded')}</span>
+                        )}
+                        {task.status === 'duplicate' && (
+                          <span className="text-warning">{t('documents.duplicateShort')}</span>
+                        )}
+                        {task.status === 'failed' && (
+                          <span className="text-danger">
+                            {t(task.errorKey ?? 'documents.uploadFailed')}
+                          </span>
+                        )}
+                      </div>
+                      {task.status === 'uploading' && (
+                        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-muted">
+                          <div
+                            className="h-full bg-accent transition-all"
+                            style={{ width: `${task.percent}%` }}
+                          />
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </section>
             )}
 
             {documents.isLoading && (

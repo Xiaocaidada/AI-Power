@@ -1,12 +1,17 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Archive, Quote } from 'lucide-react'
+import { Archive, Download, Quote } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { Button } from '../../components/ui/button'
 import { Dialog } from '../../components/ui/dialog'
 import { Spinner } from '../../components/ui/spinner'
+import { errorTextKey } from '../../lib/errorText'
 import { ApiError } from '../../lib/errors'
+import {
+  downloadConversationExport,
+  type ConversationExportFormat,
+} from '../../lib/exportConversation'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
 import { streamChat } from '../../lib/sse'
@@ -45,6 +50,9 @@ export function ChatPage() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerCitations, setDrawerCitations] = useState<Citation[]>([])
   const [confirmArchive, setConfirmArchive] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
   const [traceRequestId, setTraceRequestId] = useState<string | null>(null)
   const [cooldown, setCooldown] = useState(0)
   const abortRef = useRef<AbortController | null>(null)
@@ -212,6 +220,20 @@ export function ChatPage() {
     setDrawerOpen(true)
   }
 
+  const exportConversation = async (format: ConversationExportFormat) => {
+    if (conversationId === '') return
+    setExporting(true)
+    setExportError(null)
+    try {
+      await downloadConversationExport(conversationId, format)
+      setExportOpen(false)
+    } catch (caught) {
+      setExportError(t(errorTextKey(caught)))
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const archive = async () => {
     if (conversationId === '') return
     try {
@@ -301,6 +323,17 @@ export function ChatPage() {
           <Button
             variant="ghost"
             size="sm"
+            aria-label={t('chat.export')}
+            onClick={() => {
+              setExportError(null)
+              setExportOpen(true)
+            }}
+          >
+            <Download className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
             aria-label={t('chat.archive')}
             onClick={() => setConfirmArchive(true)}
           >
@@ -369,6 +402,43 @@ export function ChatPage() {
       />
 
       <TraceDialog requestId={traceRequestId} onClose={() => setTraceRequestId(null)} />
+
+      <Dialog
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        title={t('chat.exportTitle')}
+        footer={
+          <Button variant="secondary" size="sm" onClick={() => setExportOpen(false)}>
+            {t('common.cancel')}
+          </Button>
+        }
+      >
+        <p className="text-sm text-ink-muted">{t('chat.exportHint')}</p>
+        {exportError !== null && (
+          <p role="alert" className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">
+            {exportError}
+          </p>
+        )}
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            disabled={exporting}
+            onClick={() => void exportConversation('markdown')}
+          >
+            <Download className="h-3.5 w-3.5" />
+            {t('chat.exportMarkdown')}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={exporting}
+            onClick={() => void exportConversation('json')}
+          >
+            <Download className="h-3.5 w-3.5" />
+            {t('chat.exportJson')}
+          </Button>
+        </div>
+      </Dialog>
 
       <Dialog
         open={confirmArchive}

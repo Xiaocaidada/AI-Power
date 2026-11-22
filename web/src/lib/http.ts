@@ -50,3 +50,36 @@ export function publicRequest<T>(
 ): Promise<T> {
   return apiRequest<T>(path, { ...options, auth: false, retryOn401: false })
 }
+
+export interface DownloadResult {
+  blob: Blob
+  filename: string | null
+}
+
+export async function apiDownload(
+  path: string,
+  options: Pick<RequestOptions, 'signal'> = {},
+): Promise<DownloadResult> {
+  const send = async (): Promise<Response> => {
+    const headers: Record<string, string> = {}
+    const token = getAccessToken()
+    if (token !== null) headers.Authorization = `Bearer ${token}`
+    const workspaceId = getActiveWorkspaceId()
+    if (workspaceId !== null) headers['X-Workspace-Id'] = workspaceId
+    return fetch(`${API_BASE}${path}`, { headers, signal: options.signal })
+  }
+
+  let response = await send()
+  if (response.status === 401 && hasSession()) {
+    try {
+      await refreshAccessToken()
+    } catch {
+      throw await toApiError(response)
+    }
+    response = await send()
+  }
+  if (!response.ok) throw await toApiError(response)
+  const disposition = response.headers.get('content-disposition') ?? ''
+  const match = /filename="?([^";]+)"?/.exec(disposition)
+  return { blob: await response.blob(), filename: match?.[1] ?? null }
+}
