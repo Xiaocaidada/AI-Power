@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     quota_pro_daily_cost_usd: float = 50.0
     budget_webhook_url: str = ""
     webhook_secret_key: str = ""
+    provider_secret_key: str = ""
     webhook_allow_private_hosts: bool = False
     webhook_timeout_seconds: float = 10.0
     webhook_max_attempts: int = 5
@@ -99,6 +100,8 @@ class Settings(BaseSettings):
             raise ValueError("JWT_SECRET must be set to a generated value outside dev")
         if self.app_env != "dev" and not self.webhook_secret_key.strip():
             raise ValueError("WEBHOOK_SECRET_KEY must be set outside dev")
+        if self.app_env != "dev" and not self.provider_secret_key.strip():
+            raise ValueError("PROVIDER_SECRET_KEY must be set outside dev")
         return self
 
     @model_validator(mode="after")

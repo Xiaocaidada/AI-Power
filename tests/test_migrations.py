@@ -32,6 +32,8 @@ def test_alembic_upgrade_head_creates_schema(tmp_path):
         "usage_events",
         "message_citations",
         "api_keys",
+        "provider_configs",
+        "provider_models",
         "prompt_templates",
         "prompt_versions",
         "audit_logs",
@@ -105,6 +107,27 @@ def test_alembic_upgrade_head_creates_schema(tmp_path):
         column["name"] for column in inspector.get_columns("collaboration_run_events")
     }
     assert {"run_id", "seq", "event", "payload", "created_at"} <= (collaboration_event_columns)
+
+    provider_config_columns = {
+        column["name"] for column in inspector.get_columns("provider_configs")
+    }
+    assert {
+        "workspace_id",
+        "owner_user_id",
+        "name",
+        "provider_type",
+        "base_url",
+        "api_key_encrypted",
+        "api_key_hint",
+        "shared",
+        "status",
+    } <= provider_config_columns
+    provider_model_columns = {
+        column["name"] for column in inspector.get_columns("provider_models")
+    }
+    assert {"config_id", "model_id", "capabilities", "source", "enabled"} <= (
+        provider_model_columns
+    )
 
     api_key_columns = {column["name"] for column in inspector.get_columns("api_keys")}
     assert {

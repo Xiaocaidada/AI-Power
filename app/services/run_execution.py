@@ -18,8 +18,9 @@ from app.models import (
     WorkflowVersion,
     Workspace,
 )
-from app.providers.registry import ProviderRegistry, build_registry
+from app.providers.registry import ProviderRegistry
 from app.services.collaboration import CollaborationRunner
+from app.services.provider_configs import build_user_registry
 from app.services.quotas import enforce_quota
 from app.services.run_events import (
     append_collaboration_event,
@@ -126,12 +127,15 @@ async def execute_workflow_run(
             )
             return
         context = _context(user, workspace, run.api_key_id)
+        scoped_registry = provider_registry or await build_user_registry(
+            session, run.workspace_id, run.user_id
+        )
         input_text = run.input_text
         version_number = version.version
         workflow_id = workflow.id
         kb_id = run.kb_id
 
-    registry = provider_registry or build_registry()
+    registry = scoped_registry
     tools = build_tool_registry()
     agents = build_agent_registry()
     runner = WorkflowRunner(
@@ -194,12 +198,15 @@ async def execute_collaboration_run(
             await _mark_failed(CollaborationRun, run_id, "run_context_missing")
             return
         context = _context(user, workspace, run.api_key_id)
+        scoped_registry = provider_registry or await build_user_registry(
+            session, run.workspace_id, run.user_id
+        )
         provider_id = run.provider_id
         model = run.model
         kb_id = run.kb_id
         input_text = run.input_text
 
-    registry = provider_registry or build_registry()
+    registry = scoped_registry
     try:
         registry.get(provider_id)
     except Exception:

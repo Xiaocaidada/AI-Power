@@ -13,7 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients import RedisLike, get_redis
 from app.db import SessionLocal, get_session
-from app.deps import AuthContext, get_jwt_context, get_registry, require_scope
+from app.deps import (
+    AuthContext,
+    get_jwt_context,
+    get_scoped_registry,
+    require_scope,
+)
 from app.metrics import track_sse_stream
 from app.models import (
     CollaborationRun,
@@ -48,7 +53,7 @@ logger = logging.getLogger(__name__)
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 ChatContext = Annotated[AuthContext, Depends(require_scope("chat:write"))]
 RedisDep = Annotated[RedisLike, Depends(get_redis)]
-RegistryDep = Annotated[ProviderRegistry, Depends(get_registry)]
+RegistryDep = Annotated[ProviderRegistry, Depends(get_scoped_registry)]
 QueueDep = Annotated[JobQueue, Depends(get_queue)]
 
 
