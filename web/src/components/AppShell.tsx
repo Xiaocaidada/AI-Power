@@ -3,6 +3,7 @@ import {
   Archive,
   BarChart3,
   BookOpen,
+  Bot,
   FlaskConical,
   FolderInput,
   Megaphone,
@@ -12,6 +13,8 @@ import {
   MoreHorizontal,
   Pencil,
   Pin,
+  Plug,
+  Puzzle,
   Settings,
   Shield,
   Sun,
@@ -34,6 +37,7 @@ import { useAuthStore } from '../store/auth'
 
 const workNav = [
   { to: '/chat', labelKey: 'nav.chat', icon: MessageSquare },
+  { to: '/agents', labelKey: 'nav.agents', icon: Bot },
   { to: '/knowledge', labelKey: 'nav.knowledge', icon: BookOpen },
 ]
 
@@ -45,6 +49,7 @@ const buildNav = [
 
 const bottomNav = [
   { to: '/usage', labelKey: 'nav.usage', icon: BarChart3 },
+  { to: '/plugins', labelKey: 'nav.plugins', icon: Plug },
   { to: '/settings', labelKey: 'nav.settings', icon: Settings },
 ]
 
@@ -160,6 +165,7 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
       ? [
           { to: '/admin', labelKey: 'nav.admin', icon: Shield },
           { to: '/admin/content', labelKey: 'nav.contentAdmin', icon: Megaphone },
+          { to: '/admin/plugins', labelKey: 'nav.pluginAdmin', icon: Puzzle },
         ]
       : []
 

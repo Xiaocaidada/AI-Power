@@ -13,7 +13,8 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import delete, exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.registry import AgentRegistry
+from app.agents.base import AgentSpec
+from app.agents.registry import SUPERVISOR_AGENT, AgentRegistry
 from app.clients import RedisLike, get_redis
 from app.config import get_settings
 from app.db import SessionLocal, get_session
@@ -28,6 +29,7 @@ from app.deps import (
 from app.metrics import record_usage_metrics, track_sse_stream
 from app.models import (
     Conversation,
+    CustomAgent,
     Document,
     Message,
     MessageCitation,
@@ -44,16 +46,33 @@ from app.schemas import (
     ConversationCreate,
     ConversationDetailOut,
     ConversationOut,
+    ConversationPluginOut,
+    ConversationPluginsIn,
     ConversationUpdate,
     ErrorOut,
     MessageFeedbackIn,
     MessageFeedbackOut,
     MessageOut,
+    PluginCallOut,
     SendMessageIn,
 )
 from app.services.access import get_owned_knowledge_base
 from app.services.agent import AgentFailure, AgentRunner
 from app.services.budget import check_workspace_budget
+from app.services.custom_agents import (
+    CustomAgentError,
+    build_agent_spec,
+    get_custom_agent,
+)
+from app.services.plugins import (
+    PluginError,
+    build_plugin_tools,
+    confirm_conversation_plugin,
+    list_conversation_plugins,
+    list_plugin_calls,
+    plugin_tool_names,
+    set_conversation_plugins,
+)
 from app.services.projects import ProjectError, get_project
 from app.services.prompts import resolve_conversation_prompt
 from app.services.provider_configs import ProviderConfigError, ensure_model_capability
@@ -487,6 +506,7 @@ async def _stream_agent_reply(
     trace_id: UUID | None = None,
     started: float | None = None,
     generation_opts: dict[str, object] | None = None,
+    root_agent: str = SUPERVISOR_AGENT,
 ) -> AsyncIterator[str]:
     tool_citations: list[Citation] = []
     runner = AgentRunner(
@@ -499,11 +519,13 @@ async def _stream_agent_reply(
             workspace_id=workspace_id,
             user_id=user_id,
             kb_id=kb_id,
+            conversation_id=conversation_id,
             redis=redis,
             citations=tool_citations,
         ),
         quota_guard=lambda: enforce_quota(redis, context),
         system_prompt=system_prompt,
+        root_agent=root_agent,
     )
     parts: list[str] = []
     ttft_ms: float | None = None
@@ -688,6 +710,17 @@ async def create_conversation(
             project = await get_project(session, context.workspace.id, payload.project_id)
         except ProjectError:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found") from None
+    custom_agent = None
+    if payload.custom_agent_id is not None:
+        try:
+            custom_agent = await get_custom_agent(
+                session,
+                context.workspace.id,
+                payload.custom_agent_id,
+                context.user.id,
+            )
+        except CustomAgentError:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found") from None
 
     if payload.provider_id == "":
         raise HTTPException(
@@ -695,16 +728,13 @@ async def create_conversation(
             {"code": "invalid_model", "message": "provider_id is required"},
         )
     provider_id = payload.provider_id
+    if provider_id is None and custom_agent is not None:
+        provider_id = custom_agent.default_provider_id
     if provider_id is None and project is not None:
         provider_id = project.default_provider_id
     if provider_id is None:
         provider_id = "auto"
 
-    if provider_id == "":
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            {"code": "invalid_model", "message": "provider_id is required"},
-        )
     if provider_id == "auto":
         model = "auto"
     elif payload.model is not None:
@@ -714,6 +744,12 @@ async def create_conversation(
                 {"code": "invalid_model", "message": "model is required"},
             )
         model = payload.model
+    elif (
+        custom_agent is not None
+        and custom_agent.default_provider_id == provider_id
+        and custom_agent.default_model
+    ):
+        model = custom_agent.default_model
     elif (
         project is not None
         and project.default_provider_id == provider_id
@@ -728,12 +764,27 @@ async def create_conversation(
 
     if "kb_id" in payload.model_fields_set:
         kb_id = payload.kb_id
+    elif custom_agent is not None and custom_agent.default_kb_id is not None:
+        kb_id = custom_agent.default_kb_id
     else:
         kb_id = project.default_kb_id if project is not None else None
-    if "agent" in payload.model_fields_set:
+
+    if custom_agent is not None:
+        agent = True
+    elif "agent" in payload.model_fields_set:
         agent = payload.agent
     else:
         agent = project.default_agent if project is not None else False
+
+    if "plugin_ids" in payload.model_fields_set:
+        plugin_ids = list(dict.fromkeys(payload.plugin_ids))
+    elif custom_agent is not None:
+        plugin_ids = [UUID(item) for item in custom_agent.plugin_ids]
+    else:
+        plugin_ids = []
+    if plugin_ids:
+        agent = True
+    confirmed_ids = set(payload.confirmed_plugin_ids)
 
     if provider_id != "auto":
         try:
@@ -777,7 +828,7 @@ async def create_conversation(
                 "message": "prompt_variables require a prompt_version_id",
             },
         )
-    if project is not None and project.instructions:
+    if project is not None and project.instructions and custom_agent is None:
         system_prompt = (
             f"{project.instructions}\n\n{system_prompt}"
             if system_prompt
@@ -788,6 +839,7 @@ async def create_conversation(
         workspace_id=context.workspace.id,
         user_id=context.user.id,
         project_id=project.id if project is not None else None,
+        custom_agent_id=custom_agent.id if custom_agent is not None else None,
         title="",
         provider_id=provider_id,
         model=model,
@@ -797,6 +849,20 @@ async def create_conversation(
         system_prompt=system_prompt,
     )
     session.add(conversation)
+    await session.flush()
+    if plugin_ids:
+        try:
+            await set_conversation_plugins(
+                session,
+                conversation,
+                plugin_ids,
+                confirmed_ids=confirmed_ids,
+            )
+        except PluginError as exc:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                {"code": exc.code, "message": exc.message},
+            ) from None
     await session.commit()
     await session.refresh(conversation)
     return conversation
@@ -810,6 +876,7 @@ async def list_conversations(
     before: UUID | None = None,
     q: str | None = None,
     project_id: str | None = None,
+    custom_agent_id: str | None = None,
     archived: Literal["false", "true", "all"] = "false",
     pinned: bool | None = None,
 ) -> list[Conversation]:
@@ -835,6 +902,14 @@ async def list_conversations(
                     status.HTTP_422_UNPROCESSABLE_CONTENT,
                     {"code": "invalid_project", "message": "Invalid project_id"},
                 ) from None
+    if custom_agent_id is not None:
+        try:
+            conditions.append(Conversation.custom_agent_id == UUID(custom_agent_id))
+        except ValueError:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                {"code": "invalid_agent", "message": "Invalid custom_agent_id"},
+            ) from None
     if q is not None and q.strip() != "":
         term = f"%{_escape_like(q.strip())}%"
         conditions.append(
@@ -899,8 +974,19 @@ async def _conversation_detail(
                     updated_at=feedback.updated_at,
                 )
 
+    plugin_rows = await list_conversation_plugins(session, conversation.id)
     return ConversationDetailOut(
         **ConversationOut.model_validate(conversation).model_dump(),
+        plugins=[
+            ConversationPluginOut(
+                plugin_id=definition.id,
+                slug=definition.slug,
+                name=definition.name,
+                sensitive=definition.sensitive,
+                confirmed_at=link.confirmed_at,
+            )
+            for link, definition in plugin_rows
+        ],
         messages=[
             MessageOut.model_validate(message).model_copy(
                 update={
@@ -1021,6 +1107,109 @@ async def batch_conversations(
             conversation.project_id = project_id
     await session.commit()
     return ConversationBatchOut(updated=len(conversations))
+
+
+def _conversation_plugins_out(rows) -> list[ConversationPluginOut]:
+    return [
+        ConversationPluginOut(
+            plugin_id=definition.id,
+            slug=definition.slug,
+            name=definition.name,
+            sensitive=definition.sensitive,
+            confirmed_at=link.confirmed_at,
+        )
+        for link, definition in rows
+    ]
+
+
+@router.get("/{conversation_id}/plugins", response_model=list[ConversationPluginOut])
+async def get_conversation_plugins(
+    conversation_id: UUID, context: JwtContext, session: SessionDep
+) -> list[ConversationPluginOut]:
+    conversation = await _get_workspace_conversation(
+        conversation_id, context.workspace.id, session, include_archived=True
+    )
+    return _conversation_plugins_out(
+        await list_conversation_plugins(session, conversation.id)
+    )
+
+
+@router.put("/{conversation_id}/plugins", response_model=list[ConversationPluginOut])
+async def put_conversation_plugins(
+    conversation_id: UUID,
+    payload: ConversationPluginsIn,
+    context: JwtContext,
+    session: SessionDep,
+) -> list[ConversationPluginOut]:
+    conversation = await _get_workspace_conversation(
+        conversation_id, context.workspace.id, session, include_archived=True
+    )
+    if payload.plugin_ids and not conversation.agent:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {"code": "agent_required", "message": "Plugins require agent mode"},
+        )
+    try:
+        rows = await set_conversation_plugins(
+            session, conversation, list(dict.fromkeys(payload.plugin_ids))
+        )
+    except PluginError as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {"code": exc.code, "message": exc.message},
+        ) from None
+    await session.commit()
+    return _conversation_plugins_out(rows)
+
+
+@router.post(
+    "/{conversation_id}/plugins/{plugin_id}/confirm",
+    response_model=list[ConversationPluginOut],
+)
+async def confirm_conversation_plugin_endpoint(
+    conversation_id: UUID, plugin_id: UUID, context: JwtContext, session: SessionDep
+) -> list[ConversationPluginOut]:
+    conversation = await _get_workspace_conversation(
+        conversation_id, context.workspace.id, session, include_archived=True
+    )
+    try:
+        await confirm_conversation_plugin(session, conversation.id, plugin_id, True)
+    except PluginError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, exc.message) from None
+    await session.commit()
+    return _conversation_plugins_out(
+        await list_conversation_plugins(session, conversation.id)
+    )
+
+
+@router.delete(
+    "/{conversation_id}/plugins/{plugin_id}/confirm",
+    response_model=list[ConversationPluginOut],
+)
+async def unconfirm_conversation_plugin_endpoint(
+    conversation_id: UUID, plugin_id: UUID, context: JwtContext, session: SessionDep
+) -> list[ConversationPluginOut]:
+    conversation = await _get_workspace_conversation(
+        conversation_id, context.workspace.id, session, include_archived=True
+    )
+    try:
+        await confirm_conversation_plugin(session, conversation.id, plugin_id, False)
+    except PluginError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, exc.message) from None
+    await session.commit()
+    return _conversation_plugins_out(
+        await list_conversation_plugins(session, conversation.id)
+    )
+
+
+@router.get("/{conversation_id}/plugin-calls", response_model=list[PluginCallOut])
+async def get_conversation_plugin_calls(
+    conversation_id: UUID, context: JwtContext, session: SessionDep
+) -> list:
+    conversation = await _get_workspace_conversation(
+        conversation_id, context.workspace.id, session, include_archived=True
+    )
+    return await list_plugin_calls(session, context.workspace.id, conversation.id)
 
 
 def _markdown_export(detail: ConversationDetailOut, filenames: dict[UUID, str]) -> str:
@@ -1230,6 +1419,37 @@ async def _start_chat_turn(
             registry, candidates, chat_history, redis, opts
         )
 
+    custom_agent = None
+    if conversation.custom_agent_id is not None:
+        candidate = await session.get(CustomAgent, conversation.custom_agent_id)
+        if candidate is not None and candidate.archived_at is None:
+            custom_agent = candidate
+    plugin_tools = await build_plugin_tools(session, conversation)
+    effective_tools = (
+        tool_registry.with_tools(plugin_tools) if plugin_tools else tool_registry
+    )
+    effective_agents = agent_registry
+    root_agent = SUPERVISOR_AGENT
+    if custom_agent is not None:
+        extra_tools = list(plugin_tool_names(plugin_tools))
+        if conversation.kb_id is not None and "kb_search" not in extra_tools:
+            extra_tools.append("kb_search")
+        spec = build_agent_spec(custom_agent, tuple(extra_tools))
+        effective_agents = AgentRegistry([*agent_registry.all(), spec])
+        root_agent = spec.name
+    elif plugin_tools:
+        supervisor = agent_registry.get(SUPERVISOR_AGENT)
+        specs = [spec for spec in agent_registry.all() if spec.name != SUPERVISOR_AGENT]
+        specs.insert(
+            0,
+            AgentSpec(
+                name=supervisor.name,
+                system_prompt=supervisor.system_prompt,
+                tools=plugin_tool_names(plugin_tools),
+            ),
+        )
+        effective_agents = AgentRegistry(specs)
+
     if persist_user_message and not conversation.title:
         conversation.title = content[:TITLE_MAX_LENGTH]
 
@@ -1292,8 +1512,9 @@ async def _start_chat_turn(
             kb_id=conversation.kb_id,
             context=context,
             redis=redis,
-            tool_registry=tool_registry,
-            agent_registry=agent_registry,
+            tool_registry=effective_tools,
+            agent_registry=effective_agents,
+            root_agent=root_agent,
             system_prompt=conversation.system_prompt,
             citations=citations,
             trace_id=trace.id,

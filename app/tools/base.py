@@ -19,6 +19,7 @@ class ToolContext:
     workspace_id: UUID
     user_id: UUID
     kb_id: UUID | None = None
+    conversation_id: UUID | None = None
     redis: RedisLike | None = None
     citations: list[Citation] | None = None
 
@@ -78,6 +79,14 @@ class ToolRegistry:
 
     def get(self, name: str) -> ToolSpec | None:
         return next((spec for spec in self.tools if spec.name == name), None)
+
+    def with_tools(self, tools: Sequence[ToolSpec]) -> "ToolRegistry":
+        existing = {spec.name for spec in self.tools}
+        return ToolRegistry(
+            [*self.tools, *(spec for spec in tools if spec.name not in existing)],
+            timeout_seconds=self.timeout_seconds,
+            max_output_chars=self.max_output_chars,
+        )
 
     def has(self, name: str) -> bool:
         return self.get(name) is not None

@@ -319,6 +319,41 @@ class RefreshToken(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class CustomAgent(Base):
+    __tablename__ = "custom_agents"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    owner_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(String(500), default="")
+    instructions: Mapped[str] = mapped_column(Text)
+    category: Mapped[str] = mapped_column(String(40), default="general", index=True)
+    default_provider_id: Mapped[str | None] = mapped_column(String(50), default=None)
+    default_model: Mapped[str | None] = mapped_column(String(200), default=None)
+    default_kb_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("knowledge_bases.id", ondelete="SET NULL"), default=None
+    )
+    tools: Mapped[list[str]] = mapped_column(JSON, default=list)
+    plugin_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    visibility: Mapped[str] = mapped_column(String(20), default="private", index=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "name", name="uq_custom_agents_workspace_name"),
+        Index("ix_custom_agents_workspace_archived", "workspace_id", "archived_at"),
+    )
+
+
 class Project(Base):
     __tablename__ = "projects"
 
@@ -357,6 +392,9 @@ class Conversation(Base):
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     project_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("projects.id", ondelete="SET NULL"), default=None, index=True
+    )
+    custom_agent_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("custom_agents.id", ondelete="SET NULL"), default=None, index=True
     )
     title: Mapped[str] = mapped_column(String(120), default="")
     provider_id: Mapped[str] = mapped_column(String(50))
@@ -929,4 +967,104 @@ class WebhookDelivery(Base):
     __table_args__ = (
         Index("ix_webhook_deliveries_due", "status", "next_attempt_at"),
         Index("ix_webhook_deliveries_workspace_created", "workspace_id", "created_at"),
+    )
+
+
+class PluginDefinition(Base):
+    __tablename__ = "plugin_definitions"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    slug: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(String(500), default="")
+    category: Mapped[str] = mapped_column(String(40), default="general", index=True)
+    docs_url: Mapped[str] = mapped_column(String(500), default="")
+    endpoint_url: Mapped[str] = mapped_column(String(1000))
+    method: Mapped[str] = mapped_column(String(10), default="POST")
+    auth_type: Mapped[str] = mapped_column(String(20), default="none")
+    parameters: Mapped[dict] = mapped_column(JSON, default=dict)
+    sensitive: Mapped[bool] = mapped_column(Boolean, default=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    timeout_seconds: Mapped[int] = mapped_column(Integer, default=10)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class PluginConfig(Base):
+    __tablename__ = "plugin_configs"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    plugin_id: Mapped[UUID] = mapped_column(
+        ForeignKey("plugin_definitions.id", ondelete="CASCADE"), index=True
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    credential_encrypted: Mapped[str] = mapped_column(String(1000), default="")
+    credential_hint: Mapped[str] = mapped_column(String(20), default="")
+    status: Mapped[str] = mapped_column(String(20), default="unknown")
+    last_error: Mapped[str | None] = mapped_column(String(200), default=None)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    created_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), default=None
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "plugin_id", name="uq_plugin_configs_workspace_plugin"),
+    )
+
+
+class ConversationPlugin(Base):
+    __tablename__ = "conversation_plugins"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    conversation_id: Mapped[UUID] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), index=True
+    )
+    plugin_id: Mapped[UUID] = mapped_column(
+        ForeignKey("plugin_definitions.id", ondelete="CASCADE"), index=True
+    )
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "conversation_id", "plugin_id", name="uq_conversation_plugins_conversation_plugin"
+        ),
+    )
+
+
+class PluginCall(Base):
+    __tablename__ = "plugin_calls"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    conversation_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="SET NULL"), default=None, index=True
+    )
+    message_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("messages.id", ondelete="SET NULL"), default=None
+    )
+    plugin_id: Mapped[UUID] = mapped_column(
+        ForeignKey("plugin_definitions.id", ondelete="CASCADE"), index=True
+    )
+    status: Mapped[str] = mapped_column(String(20), default="ok", index=True)
+    request_summary: Mapped[str] = mapped_column(String(500), default="")
+    response_summary: Mapped[str] = mapped_column(String(500), default="")
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    error_code: Mapped[str | None] = mapped_column(String(50), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        Index("ix_plugin_calls_workspace_created", "workspace_id", "created_at"),
+        Index("ix_plugin_calls_conversation_created", "conversation_id", "created_at"),
     )

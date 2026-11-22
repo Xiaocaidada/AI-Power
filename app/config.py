@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     webhook_allow_private_hosts: bool = False
     webhook_timeout_seconds: float = 10.0
     webhook_max_attempts: int = 5
+    plugin_allowed_hosts: str = ""
+    plugin_allow_private_hosts: bool = False
+    plugin_timeout_seconds: float = 10.0
+    plugin_max_response_chars: int = 8000
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://192.168.29.100:8080"
 
     deepseek_base_url: str = "https://api.deepseek.com"
@@ -148,6 +152,10 @@ class Settings(BaseSettings):
             raise ValueError("WEBHOOK_TIMEOUT_SECONDS must be > 0")
         if self.webhook_max_attempts < 1:
             raise ValueError("WEBHOOK_MAX_ATTEMPTS must be >= 1")
+        if self.plugin_timeout_seconds <= 0:
+            raise ValueError("PLUGIN_TIMEOUT_SECONDS must be > 0")
+        if self.plugin_max_response_chars < 1:
+            raise ValueError("PLUGIN_MAX_RESPONSE_CHARS must be >= 1")
         if self.workflow_node_timeout_seconds <= 0:
             raise ValueError("WORKFLOW_NODE_TIMEOUT_SECONDS must be > 0")
         if self.workflow_node_attempts < 1:

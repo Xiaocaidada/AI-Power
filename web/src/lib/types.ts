@@ -336,6 +336,73 @@ export interface GenerationSettings {
   top_p?: number | null
 }
 
+export interface CustomAgent {
+  id: string
+  name: string
+  description: string
+  instructions: string
+  category: string
+  default_provider_id: string | null
+  default_model: string | null
+  default_kb_id: string | null
+  tools: string[]
+  plugin_ids: string[]
+  visibility: 'private' | 'shared'
+  enabled: boolean
+  archived: boolean
+  owned: boolean
+  builtin: boolean
+  conversation_count: number
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface Plugin {
+  id: string
+  slug: string
+  name: string
+  description: string
+  category: string
+  docs_url: string
+  endpoint_url: string
+  method: string
+  auth_type: string
+  parameters: {
+    type?: string
+    properties?: Record<string, { type?: string; description?: string }>
+    required?: string[]
+  }
+  sensitive: boolean
+  enabled: boolean
+  timeout_seconds: number
+  configured: boolean
+  config_enabled: boolean
+  credential_hint: string
+  status: string
+  last_error: string | null
+  last_checked_at: string | null
+}
+
+export interface ConversationPlugin {
+  plugin_id: string
+  slug: string
+  name: string
+  sensitive: boolean
+  confirmed_at: string | null
+}
+
+export interface PluginCall {
+  id: string
+  plugin_id: string
+  conversation_id: string | null
+  status: string
+  request_summary: string
+  response_summary: string
+  latency_ms: number
+  error_code: string | null
+  created_at: string
+}
+
 export interface Conversation {
   id: string
   title: string
@@ -343,6 +410,7 @@ export interface Conversation {
   model: string
   kb_id: string | null
   project_id?: string | null
+  custom_agent_id?: string | null
   agent: boolean
   pinned?: boolean
   generation_settings?: GenerationSettings
@@ -653,6 +721,7 @@ export interface TraceRecord {
 
 export interface ConversationDetail extends Conversation {
   messages: Message[]
+  plugins: ConversationPlugin[]
 }
 
 export interface ChatUsage {

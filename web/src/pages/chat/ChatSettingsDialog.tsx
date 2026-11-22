@@ -7,10 +7,15 @@ import { Input } from '../../components/ui/input'
 import { errorTextKey } from '../../lib/errorText'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
-import type { Conversation, ModelEntry, PersonalModel } from '../../lib/types'
+import type {
+  ConversationDetail,
+  ModelEntry,
+  PersonalModel,
+  Plugin,
+} from '../../lib/types'
 
 interface ChatSettingsDialogProps {
-  conversation: Conversation
+  conversation: ConversationDetail
   onClose: () => void
 }
 
@@ -37,9 +42,28 @@ export function ChatSettingsDialog({ conversation, onClose }: ChatSettingsDialog
     queryFn: () => apiRequest<PersonalModel[]>('/provider-configs/models'),
     staleTime: 60_000,
   })
+  const plugins = useQuery({
+    queryKey: ['plugins'],
+    queryFn: () => apiRequest<Plugin[]>('/plugins'),
+    staleTime: 60_000,
+  })
+  const [pluginIds, setPluginIds] = useState(
+    conversation.plugins.map((item) => item.plugin_id),
+  )
+  const [confirmedIds, setConfirmedIds] = useState(
+    conversation.plugins
+      .filter((item) => item.confirmed_at !== null)
+      .map((item) => item.plugin_id),
+  )
 
   const platform = (models.data ?? []).filter((model) => model.available)
   const personal = personalModels.data ?? []
+  const configuredPlugins = (plugins.data ?? []).filter(
+    (plugin) => plugin.configured && plugin.config_enabled && plugin.enabled,
+  )
+  const selectedSensitive = configuredPlugins.filter(
+    (plugin) => plugin.sensitive && pluginIds.includes(plugin.id),
+  )
   const initialChoice =
     conversation.provider_id === 'auto'
       ? 'auto'
@@ -86,6 +110,37 @@ export function ChatSettingsDialog({ conversation, onClose }: ChatSettingsDialog
           },
         },
       })
+      if (conversation.agent) {
+        await apiRequest(`/conversations/${conversation.id}/plugins`, {
+          method: 'PUT',
+          body: { plugin_ids: pluginIds },
+        })
+        const initiallyConfirmed = new Set(
+          conversation.plugins
+            .filter((item) => item.confirmed_at !== null)
+            .map((item) => item.plugin_id),
+        )
+        const configured = (plugins.data ?? []).filter(
+          (plugin) => plugin.configured && plugin.config_enabled && plugin.enabled,
+        )
+        for (const pluginId of pluginIds) {
+          const plugin = configured.find((item) => item.id === pluginId)
+          if (plugin === undefined || !plugin.sensitive) continue
+          const shouldConfirm = confirmedIds.includes(pluginId)
+          const wasConfirmed = initiallyConfirmed.has(pluginId)
+          if (shouldConfirm && !wasConfirmed) {
+            await apiRequest(
+              `/conversations/${conversation.id}/plugins/${pluginId}/confirm`,
+              { method: 'POST' },
+            )
+          } else if (!shouldConfirm && wasConfirmed) {
+            await apiRequest(
+              `/conversations/${conversation.id}/plugins/${pluginId}/confirm`,
+              { method: 'DELETE' },
+            )
+          }
+        }
+      }
       onClose()
     } catch (caught) {
       setError(t(errorTextKey(caught)))
@@ -180,6 +235,57 @@ export function ChatSettingsDialog({ conversation, onClose }: ChatSettingsDialog
           />
         </label>
       </div>
+      {conversation.agent && (
+        <div className="mt-4 border-t border-border pt-3">
+          <p className="text-xs text-ink-muted">{t('chat.plugins')}</p>
+          {configuredPlugins.length === 0 ? (
+            <p className="mt-1 text-xs text-ink-muted">{t('chat.noPlugins')}</p>
+          ) : (
+            <div className="mt-1 flex flex-wrap gap-3">
+              {configuredPlugins.map((plugin) => (
+                <label key={plugin.id} className="flex items-center gap-1.5 text-xs text-ink">
+                  <input
+                    type="checkbox"
+                    checked={pluginIds.includes(plugin.id)}
+                    onChange={() =>
+                      setPluginIds((current) =>
+                        current.includes(plugin.id)
+                          ? current.filter((item) => item !== plugin.id)
+                          : [...current, plugin.id],
+                      )
+                    }
+                  />
+                  {plugin.name}
+                </label>
+              ))}
+            </div>
+          )}
+          {selectedSensitive.length > 0 && (
+            <div className="mt-2 space-y-1">
+              {selectedSensitive.map((plugin) => (
+                <label
+                  key={plugin.id}
+                  className="flex items-start gap-2 text-xs text-warning"
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={confirmedIds.includes(plugin.id)}
+                    onChange={() =>
+                      setConfirmedIds((current) =>
+                        current.includes(plugin.id)
+                          ? current.filter((item) => item !== plugin.id)
+                          : [...current, plugin.id],
+                      )
+                    }
+                  />
+                  {t('chat.confirmSensitivePlugin', { name: plugin.name })}
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       {error !== null && <p className="mt-2 text-xs text-danger">{error}</p>}
     </Dialog>
   )
