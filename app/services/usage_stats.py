@@ -26,4 +26,6 @@ def bucket_expression(group_by: str):
         return func.date(UsageEvent.created_at)
     if group_by == "provider":
         return func.coalesce(UsageEvent.provider_id, "unknown")
+    if group_by == "source":
+        return func.coalesce(UsageEvent.source, "chat")
     return func.coalesce(UsageEvent.model, "unknown")

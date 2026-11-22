@@ -1,6 +1,6 @@
 # P5 规划：检索质量、评测平台与开放平台
 
-- **Status:** In progress（D1–D10 已确认；S1–S3 已完成 2026-11-22）
+- **Status:** In progress（D1–D10 已确认；S1–S4 已完成 2026-11-22）
 - **Date:** 2026-11-22
 - **Scope source:** [`PRODUCT-BRIEF.md`](../../PRODUCT-BRIEF.md) §2 Q2/Q7、§3、[`docs/eval/retrieval-baseline.md`](../eval/retrieval-baseline.md)、[`docs/plan/p4-plan.md`](./p4-plan.md)
 - **前置:** P4 已完成（2026-11-22），见 [`p4-plan.md`](./p4-plan.md)、[`p4-s6-final.md`](../tdd/p4-s6-final.md)
@@ -118,7 +118,7 @@ P5 仍**不做真实支付/计费、复杂 RBAC、移动端与拖拽画布**。�
 >
 > **完成证据**：[`docs/tdd/p5-s3-sdk-webhooks.md`](../tdd/p5-s3-sdk-webhooks.md)、[`ADR-0021`](../adr/0021-sdk-webhooks.md)。SDK 已安装并通过真实 API 冒烟；Webhook 用 fake receiver 验证签名/重试，管理页已验证。
 
-### P5-S4 统一用量账本 — 待开始（约 1 周）
+### P5-S4 统一用量账本 — **已完成（2026-11-22）**（约 1 周）
 
 - **迁移**：
   - `usage_events.message_id` 改可空；新增 `source`（`chat|workflow|collaboration`，默认 `chat`）、`api_key_id`、`workflow_node_run_id`、`collaboration_step_id`。
@@ -135,6 +135,8 @@ P5 仍**不做真实支付/计费、复杂 RBAC、移动端与拖拽画布**。�
 - **文档**：ADR-0022；修订 ADR-0018 的“仅消息用量”限制。
 
 > 验收：同一工作流 run 的成本同时出现在 run 详情、用量页、预算与 `/metrics`，金额一致。
+>
+> **完成证据**：[`docs/tdd/p5-s4-usage-ledger.md`](../tdd/p5-s4-usage-ledger.md)、[`ADR-0022`](../adr/0022-unified-usage-ledger.md)。361 收集 / 358 通过 / 3 跳过；前端 22 通过、构建通过。
 
 ### P5-S5 异步运行与取消 — 待开始（约 1.5–2 周）
 

@@ -678,6 +678,27 @@ class UsageCostOut(BaseModel):
     buckets: list[UsageCostBucketOut] = Field(default_factory=list)
 
 
+class UsageByKeyBucketOut(BaseModel):
+    api_key_id: UUID | None
+    name: str
+    prefix: str | None
+    requests: int
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    cost: float
+    unpriced_requests: int
+
+
+class UsageByKeyOut(BaseModel):
+    start: datetime
+    end: datetime
+    total_requests: int
+    total_cost: float
+    unpriced_requests: int
+    buckets: list[UsageByKeyBucketOut] = Field(default_factory=list)
+
+
 class ApiKeyCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     scopes: list[Literal["chat:write", "kb:read", "workflow:run"]] | None = None

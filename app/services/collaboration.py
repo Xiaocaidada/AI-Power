@@ -21,7 +21,8 @@ from app.models import CollaborationRun, CollaborationStep
 from app.providers.base import ChatMessage, ProviderError, Usage
 from app.providers.registry import ProviderRegistry
 from app.services.agent import AgentFailure, AgentRunner
-from app.services.costs import compute_cost, price_snapshot
+from app.services.budget import check_workspace_budget
+from app.services.usage_ledger import SOURCE_COLLABORATION, write_usage_event
 from app.services.webhooks import enqueue_event
 from app.tools.base import ToolContext, ToolRegistry
 
@@ -98,6 +99,7 @@ class CollaborationRunner:
         tool_registry: ToolRegistry,
         agent_registry: AgentRegistry,
         quota_guard,
+        api_key_id: UUID | None = None,
     ) -> None:
         self._run_id = run_id
         self._workspace_id = workspace_id
@@ -111,6 +113,7 @@ class CollaborationRunner:
         self._tools = tool_registry
         self._agents = agent_registry
         self._quota_guard = quota_guard
+        self._api_key_id = api_key_id
         self._settings = get_settings()
         self._budget = self._settings.collaboration_max_steps
         self._prompt_tokens = 0
@@ -222,7 +225,7 @@ class CollaborationRunner:
             await self._finish_step(step_id, "failed", "", Usage(), getattr(exc, "code", None))
             raise
         plan = _parse_plan(text)
-        cost = await self._record_usage(usage)
+        cost = await self._record_usage(usage, step_id)
         await self._finish_step(step_id, "completed", text, usage, None, cost)
         await self._save_plan(plan)
         return plan
@@ -305,14 +308,16 @@ class CollaborationRunner:
                 if event.kind == "delta":
                     parts.append(str(event.data.get("text", "")))
         except AgentFailure as exc:
-            await self._finish_step(step_id, "failed", "", runner.usage, exc.code)
+            cost = await self._record_failed_usage(runner.usage, step_id)
+            await self._finish_step(step_id, "failed", "", runner.usage, exc.code, cost)
             raise
         except ProviderError as exc:
-            await self._finish_step(step_id, "failed", "", runner.usage, exc.code)
+            cost = await self._record_failed_usage(runner.usage, step_id)
+            await self._finish_step(step_id, "failed", "", runner.usage, exc.code, cost)
             raise
         output = "".join(parts)
         usage = runner.usage
-        cost = await self._record_usage(usage)
+        cost = await self._record_usage(usage, step_id)
         await self._finish_step(step_id, "completed", output, usage, None, cost)
         return task.id, output, _elapsed_ms(started)
 
@@ -327,7 +332,7 @@ class CollaborationRunner:
             await self._finish_step(step_id, "failed", "", Usage(), getattr(exc, "code", None))
             raise
         critique = _parse_critique(text)
-        cost = await self._record_usage(usage)
+        cost = await self._record_usage(usage, step_id)
         await self._finish_step(step_id, "completed", text, usage, None, cost)
         return critique
 
@@ -357,27 +362,45 @@ class CollaborationRunner:
             prompt_tokens=prompt_tokens, completion_tokens=completion_tokens
         )
 
-    async def _record_usage(self, usage: Usage) -> float:
+    async def _record_failed_usage(self, usage: Usage, step_id: UUID) -> float:
+        """Bill a failed step only when the provider actually reported tokens."""
+        if not usage.prompt_tokens and not usage.completion_tokens:
+            return 0.0
+        return await self._record_usage(usage, step_id)
+
+    async def _record_usage(self, usage: Usage, step_id: UUID) -> float:
         self._prompt_tokens += usage.prompt_tokens or 0
         self._completion_tokens += usage.completion_tokens or 0
         try:
             async with SessionLocal() as session:
-                input_price, output_price = await price_snapshot(
-                    session, self._provider_id, self._model
+                written = await write_usage_event(
+                    session,
+                    workspace_id=self._workspace_id,
+                    user_id=self._user_id,
+                    source=SOURCE_COLLABORATION,
+                    provider_id=self._provider_id,
+                    model=self._model,
+                    prompt_tokens=usage.prompt_tokens,
+                    completion_tokens=usage.completion_tokens,
+                    api_key_id=self._api_key_id,
+                    collaboration_step_id=step_id,
                 )
+                await session.commit()
         except Exception:
-            logger.warning("failed to read model price for collaboration", exc_info=True)
+            logger.exception("failed to record collaboration step usage")
             return 0.0
-        cost = compute_cost(usage.prompt_tokens, usage.completion_tokens, input_price, output_price)
-        self._cost += cost
+        if written is None:
+            return 0.0
+        self._cost += written.cost
         record_usage_metrics(
             prompt_tokens=usage.prompt_tokens,
             completion_tokens=usage.completion_tokens,
-            cost=cost,
+            cost=written.cost,
             provider_id=self._provider_id,
             model=self._model,
+            source=SOURCE_COLLABORATION,
         )
-        return cost
+        return written.cost
 
     async def _start_step(self, role: str, key: str, input_summary: str) -> UUID:
         try:
@@ -458,6 +481,11 @@ class CollaborationRunner:
                 run.total_ms = total_ms
                 run.finished_at = datetime.now(UTC)
                 await session.commit()
+                try:
+                    await check_workspace_budget(session, self._redis, self._workspace_id)
+                    await session.commit()
+                except Exception:
+                    logger.warning("collaboration budget check failed", exc_info=True)
                 await enqueue_event(
                     run.workspace_id,
                     "collaboration.completed",

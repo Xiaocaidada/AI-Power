@@ -340,8 +340,24 @@ class UsageEvent(Base):
     conversation_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("conversations.id", ondelete="SET NULL"), default=None, index=True
     )
-    message_id: Mapped[UUID] = mapped_column(
-        ForeignKey("messages.id", ondelete="CASCADE"), unique=True, index=True
+    message_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), unique=True, index=True, default=None
+    )
+    source: Mapped[str] = mapped_column(String(20), default="chat", index=True)
+    api_key_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("api_keys.id", ondelete="SET NULL"), default=None, index=True
+    )
+    workflow_node_run_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("workflow_node_runs.id", ondelete="SET NULL"),
+        unique=True,
+        index=True,
+        default=None,
+    )
+    collaboration_step_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("collaboration_steps.id", ondelete="SET NULL"),
+        unique=True,
+        index=True,
+        default=None,
     )
     provider_id: Mapped[str | None] = mapped_column(String(50), default=None)
     model: Mapped[str | None] = mapped_column(String(200), default=None)
@@ -353,7 +369,13 @@ class UsageEvent(Base):
     unpriced: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
-    __table_args__ = (Index("ix_usage_events_workspace_created", "workspace_id", "created_at"),)
+    __table_args__ = (
+        Index("ix_usage_events_workspace_created", "workspace_id", "created_at"),
+        Index("ix_usage_events_workspace_source_created", "workspace_id", "source", "created_at"),
+        Index(
+            "ix_usage_events_workspace_api_key_created", "workspace_id", "api_key_id", "created_at"
+        ),
+    )
 
 
 class MessageCitation(Base):

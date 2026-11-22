@@ -19,7 +19,8 @@ from app.models import WorkflowNodeRun, WorkflowRun
 from app.providers.base import ChatMessage, ProviderError, Usage
 from app.providers.registry import ProviderRegistry
 from app.services.agent import AgentFailure, AgentRunner
-from app.services.costs import compute_cost, price_snapshot
+from app.services.budget import check_workspace_budget
+from app.services.usage_ledger import SOURCE_WORKFLOW, write_usage_event
 from app.services.webhooks import enqueue_event
 from app.services.workflow.schema import (
     AgentNodeConfig,
@@ -78,6 +79,7 @@ class WorkflowRunner:
         redis: RedisLike,
         input_text: str,
         quota_guard: Callable[[], Awaitable[None]] | None = None,
+        api_key_id: UUID | None = None,
     ) -> None:
         self._run_id = run_id
         self._workflow_id = workflow_id
@@ -92,6 +94,7 @@ class WorkflowRunner:
         self._redis = redis
         self._input = input_text
         self._quota_guard = quota_guard
+        self._api_key_id = api_key_id
         self._settings = get_settings()
         self._outputs: dict[str, str] = {}
         self._prompt_tokens = 0
@@ -260,7 +263,7 @@ class WorkflowRunner:
             attempts += 1
             try:
                 output, input_summary = await asyncio.wait_for(
-                    self._execute_node(node),
+                    self._execute_node(node, node_run_id),
                     timeout=self._settings.workflow_node_timeout_seconds,
                 )
                 last_error = None
@@ -301,14 +304,14 @@ class WorkflowRunner:
             input_summary=input_summary,
         )
 
-    async def _execute_node(self, node: WorkflowNode) -> tuple[str, str]:
+    async def _execute_node(self, node: WorkflowNode, node_run_id: UUID) -> tuple[str, str]:
         if node.type == "llm":
             config = LLMNodeConfig.model_validate(node.config)
             prompt = self._render(config.prompt)
             system_prompt = self._render(config.system_prompt) if config.system_prompt else None
             await self._guard_quota()
             output, usage = await self._call_llm(config, prompt, system_prompt)
-            await self._record_usage(config.provider_id, config.model, usage)
+            await self._record_usage(config.provider_id, config.model, usage, node_run_id)
             return output, prompt
         if node.type == "kb_search":
             config = KbSearchNodeConfig.model_validate(node.config)
@@ -321,7 +324,7 @@ class WorkflowRunner:
         if node.type == "agent":
             config = AgentNodeConfig.model_validate(node.config)
             task = self._render(config.task)
-            return await self._call_agent(config, task), task
+            return await self._call_agent(config, task, node_run_id), task
         if node.type == "condition":
             config = ConditionNodeConfig.model_validate(node.config)
             left = self._render(config.left)
@@ -357,7 +360,7 @@ class WorkflowRunner:
             prompt_tokens=prompt_tokens, completion_tokens=completion_tokens
         )
 
-    async def _call_agent(self, config: AgentNodeConfig, task: str) -> str:
+    async def _call_agent(self, config: AgentNodeConfig, task: str, node_run_id: UUID) -> str:
         provider = self._providers.get(config.provider_id)
         runner = AgentRunner(
             provider=provider,
@@ -379,7 +382,7 @@ class WorkflowRunner:
                     parts.append(str(event.data.get("text", "")))
         except AgentFailure as exc:
             raise NodeFailure(exc.code, exc.message) from None
-        await self._record_usage(config.provider_id, config.model, runner.usage)
+        await self._record_usage(config.provider_id, config.model, runner.usage, node_run_id)
         return "".join(parts)
 
     async def _call_tool(self, tool: str, arguments: dict[str, str]) -> str:
@@ -412,23 +415,39 @@ class WorkflowRunner:
             code = detail.get("code") if isinstance(detail, dict) else None
             raise NodeFailure(str(code or "quota_exceeded"), "Quota exceeded") from None
 
-    async def _record_usage(self, provider_id: str, model: str, usage: Usage) -> None:
+    async def _record_usage(
+        self, provider_id: str, model: str, usage: Usage, node_run_id: UUID
+    ) -> None:
         self._prompt_tokens += usage.prompt_tokens or 0
         self._completion_tokens += usage.completion_tokens or 0
         try:
             async with SessionLocal() as session:
-                input_price, output_price = await price_snapshot(session, provider_id, model)
+                written = await write_usage_event(
+                    session,
+                    workspace_id=self._workspace_id,
+                    user_id=self._user_id,
+                    source=SOURCE_WORKFLOW,
+                    provider_id=provider_id,
+                    model=model,
+                    prompt_tokens=usage.prompt_tokens,
+                    completion_tokens=usage.completion_tokens,
+                    api_key_id=self._api_key_id,
+                    workflow_node_run_id=node_run_id,
+                )
+                await session.commit()
         except Exception:
-            logger.warning("failed to read model price for workflow node", exc_info=True)
+            logger.exception("failed to record workflow node usage")
             return
-        cost = compute_cost(usage.prompt_tokens, usage.completion_tokens, input_price, output_price)
-        self._cost += cost
+        if written is None:
+            return
+        self._cost += written.cost
         record_usage_metrics(
             prompt_tokens=usage.prompt_tokens,
             completion_tokens=usage.completion_tokens,
-            cost=cost,
+            cost=written.cost,
             provider_id=provider_id,
             model=model,
+            source=SOURCE_WORKFLOW,
         )
 
     def _join_outputs(self, node: WorkflowNode) -> str:
@@ -519,6 +538,11 @@ class WorkflowRunner:
                 run.cost = round(self._cost, 6)
                 run.finished_at = datetime.now(UTC)
                 await session.commit()
+                try:
+                    await check_workspace_budget(session, self._redis, self._workspace_id)
+                    await session.commit()
+                except Exception:
+                    logger.warning("workflow budget check failed", exc_info=True)
                 await enqueue_event(
                     run.workspace_id,
                     "workflow.completed",

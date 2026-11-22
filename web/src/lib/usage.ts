@@ -2,7 +2,7 @@ import type { UsageBucket } from './types'
 
 const DAY_MS = 86_400_000
 
-export type GroupBy = 'day' | 'provider' | 'model'
+export type GroupBy = 'day' | 'provider' | 'model' | 'source'
 
 export interface DateRange {
   from: string

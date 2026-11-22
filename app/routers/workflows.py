@@ -341,6 +341,7 @@ async def create_workflow_run(
         redis=redis,
         input_text=payload.input,
         quota_guard=lambda: enforce_quota(redis, context),
+        api_key_id=context.api_key_id,
     )
 
     async def stream():

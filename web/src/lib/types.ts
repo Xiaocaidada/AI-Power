@@ -525,6 +525,27 @@ export interface UsageCost {
   buckets: UsageCostBucket[]
 }
 
+export interface UsageByKeyBucket {
+  api_key_id: string | null
+  name: string
+  prefix: string | null
+  requests: number
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  cost: number
+  unpriced_requests: number
+}
+
+export interface UsageByKey {
+  start: string
+  end: string
+  total_requests: number
+  total_cost: number
+  unpriced_requests: number
+  buckets: UsageByKeyBucket[]
+}
+
 export interface ApiKeyRecord {
   id: string
   name: string
