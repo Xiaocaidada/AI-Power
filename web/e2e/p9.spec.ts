@@ -240,3 +240,191 @@ test('Knowledge retrieval studio renders canvas and test tab', async ({ page }) 
   await expect(page.getByPlaceholder('输入测试问题…')).toBeVisible()
   await expect(page.getByRole('button', { name: '运行检索' })).toBeVisible()
 })
+
+
+test('Knowledge evaluation page renders metrics, analysis and optimization', async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    localStorage.setItem('ai_power_refresh_token', 'e2e-refresh-token-0123456789'),
+  )
+  await mockBase(page)
+  await page.route('**/api/knowledge-bases/kb-1', (route) =>
+    route.fulfill({
+      json: {
+        id: 'kb-1',
+        name: '技术知识库',
+        description: '',
+        created_at: '2026-11-23T00:00:00Z',
+      },
+    }),
+  )
+  await page.route('**/api/knowledge-bases/kb-1/retrieval/binding', (route) =>
+    route.fulfill({
+      json: {
+        workflow_version_id: 'wfr-1',
+        workflow_id: 'wf-retrieval',
+        version: 1,
+        kind: 'knowledge_retrieval',
+        name: 'Hybrid retrieval',
+      },
+    }),
+  )
+  await page.route('**/api/knowledge-bases/kb-1/optimizations', (route) =>
+    route.fulfill({ json: [] }),
+  )
+  await page.route('**/api/evaluations/datasets', (route) =>
+    route.fulfill({
+      json: [
+        {
+          id: 'ds-1',
+          name: '检索评测集',
+          description: '',
+          question_count: 2,
+          created_at: '2026-11-23T00:00:00Z',
+        },
+      ],
+    }),
+  )
+  const retrievalWorkflow = {
+    id: 'wf-retrieval',
+    name: 'Hybrid retrieval',
+    description: '',
+    kind: 'knowledge_retrieval',
+    created_at: '2026-11-23T00:00:00Z',
+    versions: [
+      {
+        id: 'wfr-1',
+        version: 1,
+        definition: {
+          nodes: [
+            { id: 'start', type: 'start', config: {} },
+            { id: 'hybrid', type: 'hybrid_search', config: { top_k: 5, candidate_k: 10 } },
+            { id: 'out', type: 'output', config: {} },
+          ],
+          edges: [
+            { from: 'start', to: 'hybrid' },
+            { from: 'hybrid', to: 'out' },
+          ],
+        },
+        created_at: '2026-11-23T00:00:00Z',
+      },
+    ],
+  }
+  await page.route('**/api/workflows?kind=knowledge_retrieval', (route) =>
+    route.fulfill({ json: [retrievalWorkflow] }),
+  )
+  const metrics = {
+    recall_at_1: 1,
+    recall_at_3: 1,
+    recall_at_5: 1,
+    precision_at_5: 0.2,
+    recall_at_5_docs: 1,
+    ndcg_at_5: 1,
+    precision_at_10: 0.1,
+    recall_at_10_docs: 1,
+    ndcg_at_10: 1,
+    mrr: 1,
+    latency_p95_ms: 12.5,
+    success_rate: 1,
+    retrieval_mode: 'workflow',
+    cost: 0,
+    node_timing: [
+      { node_type: 'hybrid_search', runs: 2, failures: 0, avg_ms: 8, avg_count: 5 },
+    ],
+  }
+  const run = {
+    id: 'run-1',
+    dataset_id: 'ds-1',
+    kb_id: 'kb-1',
+    retrieval_workflow_version_id: 'wfr-1',
+    status: 'completed',
+    config: {},
+    metrics,
+    error_code: null,
+    progress_total: 2,
+    progress_done: 2,
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    cost: 0,
+    started_at: null,
+    finished_at: null,
+    created_at: '2026-11-23T00:00:00Z',
+  }
+  await page.route('**/api/evaluations/runs?limit=100', (route) =>
+    route.fulfill({ json: [run] }),
+  )
+  await page.route('**/api/evaluations/runs/run-1/analysis', (route) =>
+    route.fulfill({
+      json: {
+        run,
+        node_timing: metrics.node_timing,
+        worst_questions: [
+          {
+            question_id: 'q-1',
+            question_text: 'alpha beta',
+            hit_rank: 1,
+            precision_at_5: 0.2,
+            recall_at_5: 1,
+            ndcg_at_5: 1,
+            latency_ms: 12,
+            retrieval_mode: 'workflow',
+            error_code: null,
+          },
+        ],
+        missed_questions: [],
+        slowest_questions: [],
+      },
+    }),
+  )
+  await page.route('**/api/evaluations/runs/run-1', (route) =>
+    route.fulfill({
+      json: {
+        ...run,
+        items: [
+          {
+            id: 'item-1',
+            question_id: 'q-1',
+            question_text: 'alpha beta',
+            hit_rank: 1,
+            reciprocal_rank: 1,
+            precision_at_5: 0.2,
+            recall_at_5: 1,
+            ndcg_at_5: 1,
+            precision_at_10: 0.1,
+            recall_at_10: 1,
+            ndcg_at_10: 1,
+            retrieval_mode: 'workflow',
+            retrieval_trace: [],
+            evidence_hit: null,
+            latency_ms: 12,
+            top_document_ids: [],
+            top_chunk_ids: [],
+            answer: null,
+            judge_score: null,
+            judge_faithful: null,
+            judge_reason: null,
+            judge_error: null,
+            answer_latency_ms: null,
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            cost: 0,
+            error_code: null,
+          },
+        ],
+      },
+    }),
+  )
+  await page.route('**/api/models', (route) => route.fulfill({ json: [] }))
+  await page.route('**/api/provider-configs/models', (route) =>
+    route.fulfill({ json: [] }),
+  )
+
+  await page.goto('/knowledge/kb-1/evaluation')
+  await expect(page.getByRole('heading', { name: /评估与优化/ })).toBeVisible()
+  await expect(page.getByText('P@5').first()).toBeVisible()
+  await expect(page.getByText('NDCG@5').first()).toBeVisible()
+  await expect(page.getByText('节点耗时')).toBeVisible()
+  await expect(page.getByText('AI 优化建议')).toBeVisible()
+  await expect(page.getByText('最差问题')).toBeVisible()
+})

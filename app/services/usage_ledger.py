@@ -15,6 +15,7 @@ SOURCE_PROMPT_LAB = "prompt_lab"
 SOURCE_MODEL_EVAL = "model_eval"
 SOURCE_AGENT_BUILDER = "agent_builder"
 SOURCE_KNOWLEDGE_RETRIEVAL = "knowledge_retrieval"
+SOURCE_KNOWLEDGE_EVAL = "knowledge_eval"
 ALLOWED_SOURCES = frozenset(
     {
         SOURCE_CHAT,
@@ -25,6 +26,7 @@ ALLOWED_SOURCES = frozenset(
         SOURCE_MODEL_EVAL,
         SOURCE_AGENT_BUILDER,
         SOURCE_KNOWLEDGE_RETRIEVAL,
+        SOURCE_KNOWLEDGE_EVAL,
     }
 )
 
