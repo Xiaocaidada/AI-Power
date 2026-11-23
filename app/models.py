@@ -601,6 +601,7 @@ class Project(Base):
     default_kb_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("knowledge_bases.id", ondelete="SET NULL"), default=None
     )
+    kb_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     default_custom_agent_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("custom_agents.id", ondelete="SET NULL"), default=None
     )

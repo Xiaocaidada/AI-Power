@@ -10,6 +10,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.metrics import metrics
 from app.models import (
     AuditLog,
     EvalRun,
@@ -207,13 +208,13 @@ async def generate_optimization(
             user_id=user_id,
             source=SOURCE_KNOWLEDGE_EVAL,
         )
-        metrics = await completion.run()
-        if metrics.status != "completed":
+        completion_metrics = await completion.run()
+        if completion_metrics.status != "completed":
             raise KnowledgeOptimizerError(
-                metrics.error_code or "optimization_failed",
+                completion_metrics.error_code or "optimization_failed",
                 "Optimization generation failed",
             )
-        payload = _parse_json(metrics.content)
+        payload = _parse_json(completion_metrics.content)
         if payload is None:
             last_error = "Model did not return valid JSON."
         else:
@@ -263,6 +264,9 @@ async def generate_optimization(
                     session.add(optimization)
                     await session.commit()
                     await session.refresh(optimization)
+                    metrics.inc_counter(
+                        "ai_power_knowledge_optimizations_total", action="generated"
+                    )
                     return optimization
         messages.append(
             ChatMessage(
@@ -384,6 +388,7 @@ async def apply_optimization(
     await session.commit()
     await session.refresh(version)
     await session.refresh(optimization)
+    metrics.inc_counter("ai_power_knowledge_optimizations_total", action="applied")
     return version
 
 
@@ -407,6 +412,7 @@ async def rollback_optimization(
     optimization.reverted_at = datetime.now(UTC)
     await session.commit()
     await session.refresh(optimization)
+    metrics.inc_counter("ai_power_knowledge_optimizations_total", action="reverted")
 
 
 async def dismiss_optimization(
@@ -419,3 +425,4 @@ async def dismiss_optimization(
     optimization.status = "dismissed"
     await session.commit()
     await session.refresh(optimization)
+    metrics.inc_counter("ai_power_knowledge_optimizations_total", action="dismissed")

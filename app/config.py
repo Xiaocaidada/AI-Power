@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     quota_pro_max_keys: int = 50
     quota_free_daily_cost_usd: float = 1.0
     quota_pro_daily_cost_usd: float = 50.0
+    quota_free_max_kbs: int = 10
+    quota_pro_max_kbs: int = 100
+    quota_free_max_documents_per_kb: int = 200
+    quota_pro_max_documents_per_kb: int = 5000
+    quota_free_max_kb_bytes: int = 100_000_000
+    quota_pro_max_kb_bytes: int = 10_000_000_000
     budget_webhook_url: str = ""
     webhook_secret_key: str = ""
     provider_secret_key: str = ""
@@ -271,6 +277,12 @@ class Settings(BaseSettings):
             "quota_pro_requests_per_minute",
             "quota_pro_tokens_per_day",
             "quota_pro_max_keys",
+            "quota_free_max_kbs",
+            "quota_pro_max_kbs",
+            "quota_free_max_documents_per_kb",
+            "quota_pro_max_documents_per_kb",
+            "quota_free_max_kb_bytes",
+            "quota_pro_max_kb_bytes",
         ):
             if getattr(self, name) < 1:
                 raise ValueError(f"{name.upper()} must be >= 1")

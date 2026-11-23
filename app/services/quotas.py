@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.clients import RedisLike
 from app.config import get_settings
 from app.deps import AuthContext
-from app.models import ApiKey
+from app.models import ApiKey, Document, KnowledgeBase
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,9 @@ class PlanLimits:
     tokens_per_day: int
     max_keys: int
     daily_cost_usd: float
+    max_kbs: int
+    max_documents_per_kb: int
+    max_kb_bytes: int
 
 
 def plan_limits(plan: str) -> PlanLimits:
@@ -35,12 +38,18 @@ def plan_limits(plan: str) -> PlanLimits:
             tokens_per_day=settings.quota_pro_tokens_per_day,
             max_keys=settings.quota_pro_max_keys,
             daily_cost_usd=settings.quota_pro_daily_cost_usd,
+            max_kbs=settings.quota_pro_max_kbs,
+            max_documents_per_kb=settings.quota_pro_max_documents_per_kb,
+            max_kb_bytes=settings.quota_pro_max_kb_bytes,
         )
     return PlanLimits(
         requests_per_minute=settings.quota_free_requests_per_minute,
         tokens_per_day=settings.quota_free_tokens_per_day,
         max_keys=settings.quota_free_max_keys,
         daily_cost_usd=settings.quota_free_daily_cost_usd,
+        max_kbs=settings.quota_free_max_kbs,
+        max_documents_per_kb=settings.quota_free_max_documents_per_kb,
+        max_kb_bytes=settings.quota_free_max_kb_bytes,
     )
 
 
@@ -155,6 +164,11 @@ class QuotaSnapshot:
     token_reset: int
     max_keys: int
     active_keys: int
+    max_kbs: int
+    kb_count: int
+    max_documents_per_kb: int
+    max_kb_bytes: int
+    kb_bytes: int
 
 
 async def quota_snapshot(
@@ -181,6 +195,24 @@ async def quota_snapshot(
             )
         )
     ).scalar_one()
+    kb_count = (
+        await session.execute(
+            select(func.count())
+            .select_from(KnowledgeBase)
+            .where(
+                KnowledgeBase.workspace_id == context.workspace.id,
+                KnowledgeBase.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one()
+    kb_bytes = (
+        await session.execute(
+            select(func.coalesce(func.sum(Document.size_bytes), 0)).where(
+                Document.workspace_id == context.workspace.id,
+                Document.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one()
 
     return QuotaSnapshot(
         plan=context.workspace.plan,
@@ -192,7 +224,76 @@ async def quota_snapshot(
         token_reset=_day_reset_seconds(),
         max_keys=limits.max_keys,
         active_keys=active_keys,
+        max_kbs=limits.max_kbs,
+        kb_count=int(kb_count),
+        max_documents_per_kb=limits.max_documents_per_kb,
+        max_kb_bytes=limits.max_kb_bytes,
+        kb_bytes=int(kb_bytes),
     )
+
+
+async def enforce_knowledge_base_creation(
+    session: AsyncSession, context: AuthContext
+) -> None:
+    limits = plan_limits(context.workspace.plan)
+    count = (
+        await session.execute(
+            select(func.count())
+            .select_from(KnowledgeBase)
+            .where(
+                KnowledgeBase.workspace_id == context.workspace.id,
+                KnowledgeBase.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one()
+    if count >= limits.max_kbs:
+        raise _quota_error("workspace", "knowledge_bases", limits.max_kbs, 0, 3600)
+
+
+async def enforce_kb_document_quota(
+    session: AsyncSession,
+    context: AuthContext,
+    *,
+    kb_id: UUID,
+    additional_bytes: int = 0,
+) -> None:
+    limits = plan_limits(context.workspace.plan)
+    count = (
+        await session.execute(
+            select(func.count())
+            .select_from(Document)
+            .where(
+                Document.kb_id == kb_id,
+                Document.workspace_id == context.workspace.id,
+                Document.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one()
+    if count >= limits.max_documents_per_kb:
+        raise _quota_error(
+            "knowledge_base",
+            "documents",
+            limits.max_documents_per_kb,
+            0,
+            3600,
+        )
+    used = (
+        await session.execute(
+            select(func.coalesce(func.sum(Document.size_bytes), 0)).where(
+                Document.kb_id == kb_id,
+                Document.workspace_id == context.workspace.id,
+                Document.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one()
+    if int(used) + max(additional_bytes, 0) > limits.max_kb_bytes:
+        raise _quota_error(
+            "knowledge_base",
+            "bytes",
+            limits.max_kb_bytes,
+            max(limits.max_kb_bytes - int(used), 0),
+            3600,
+        )
 
 
 async def enforce_key_creation(

@@ -152,6 +152,18 @@ metrics.describe("ai_power_circuit_open", "Provider circuit breaker state (1=ope
 metrics.describe("ai_power_retrieval_requests_total", "Knowledge retrieval requests by mode")
 metrics.describe("ai_power_retrieval_duration_seconds", "Knowledge retrieval duration by mode")
 metrics.describe("ai_power_rerank_failures_total", "Reranker failures by error code")
+metrics.describe(
+    "ai_power_knowledge_imports_total",
+    "Knowledge document imports by kind and outcome",
+)
+metrics.describe(
+    "ai_power_knowledge_eval_runs_total",
+    "Knowledge evaluation runs by terminal status",
+)
+metrics.describe(
+    "ai_power_knowledge_optimizations_total",
+    "Knowledge optimization actions",
+)
 
 
 class MetricsMiddleware(BaseHTTPMiddleware):

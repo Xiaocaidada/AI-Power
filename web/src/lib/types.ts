@@ -398,6 +398,7 @@ export interface Project {
   default_provider_id: string | null
   default_model: string | null
   default_kb_id: string | null
+  kb_ids: string[]
   default_custom_agent_id: string | null
   default_agent: boolean
   archived: boolean
@@ -1263,12 +1264,21 @@ export interface QuotaWindow {
   reset_seconds: number
 }
 
+export interface QuotaKnowledge {
+  max_kbs: number
+  kb_count: number
+  max_documents_per_kb: number
+  max_kb_bytes: number
+  kb_bytes: number
+}
+
 export interface QuotaSummary {
   plan: string
   requests: QuotaWindow
   tokens: QuotaWindow
   max_keys: number
   active_keys: number
+  knowledge: QuotaKnowledge
 }
 
 export interface TraceRecord {

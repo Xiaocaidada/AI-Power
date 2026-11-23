@@ -39,6 +39,7 @@ def _project_out(project: Project, count: int, context: AuthContext) -> ProjectO
         default_provider_id=project.default_provider_id,
         default_model=project.default_model,
         default_kb_id=project.default_kb_id,
+        kb_ids=[UUID(item) for item in project.kb_ids],
         default_custom_agent_id=project.default_custom_agent_id,
         default_agent=project.default_agent,
         archived=project.archived_at is not None,
@@ -67,6 +68,7 @@ async def _validate_defaults(
     model: str | None,
     agent: bool,
     kb_id: UUID | None,
+    kb_ids: list[UUID] | None = None,
     custom_agent_id: UUID | None = None,
 ) -> None:
     if provider_id is None:
@@ -97,6 +99,8 @@ async def _validate_defaults(
             raise _defaults_error(exc) from None
     if kb_id is not None:
         await get_owned_knowledge_base(kb_id, context.workspace.id, session)
+    for item in kb_ids or []:
+        await get_owned_knowledge_base(item, context.workspace.id, session)
     if custom_agent_id is not None:
         custom_agent = await session.get(CustomAgent, custom_agent_id)
         if (
@@ -146,11 +150,13 @@ async def create_workspace_project(
         model=model,
         agent=payload.default_agent,
         kb_id=payload.default_kb_id,
+        kb_ids=payload.kb_ids,
         custom_agent_id=payload.default_custom_agent_id,
     )
     values = payload.model_dump()
     values["default_provider_id"] = provider_id
     values["default_model"] = model
+    values["kb_ids"] = [str(item) for item in dict.fromkeys(payload.kb_ids)]
     project = await create_project(
         session,
         workspace_id=context.workspace.id,
@@ -201,6 +207,10 @@ async def update_workspace_project(
     custom_agent_id = data.get(
         "default_custom_agent_id", project.default_custom_agent_id
     )
+    if "kb_ids" in data:
+        kb_ids = list(dict.fromkeys(data["kb_ids"] or []))
+    else:
+        kb_ids = [UUID(item) for item in project.kb_ids]
     if "default_provider_id" in data and provider_id not in (None, "auto"):
         if "default_model" not in data and project.default_provider_id != provider_id:
             raise HTTPException(
@@ -216,10 +226,13 @@ async def update_workspace_project(
         model=model,
         agent=agent,
         kb_id=kb_id,
+        kb_ids=kb_ids,
         custom_agent_id=custom_agent_id,
     )
     data["default_provider_id"] = provider_id
     data["default_model"] = model
+    if "kb_ids" in data:
+        data["kb_ids"] = [str(item) for item in kb_ids]
     project = await update_project(session, project, data)
     session.add(
         AuditLog(

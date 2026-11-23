@@ -831,15 +831,26 @@ async def create_conversation(
             {"code": "invalid_model", "message": "model is required"},
         )
 
+    project_kb_ids = (
+        [UUID(item) for item in project.kb_ids] if project is not None else []
+    )
+    explicit_kbs = "kb_id" in payload.model_fields_set or bool(payload.kb_ids)
     if "kb_id" in payload.model_fields_set:
         kb_id = payload.kb_id
     elif payload.kb_ids:
         kb_id = payload.kb_ids[0]
     elif custom_agent is not None and custom_agent.default_kb_id is not None:
         kb_id = custom_agent.default_kb_id
+    elif project_kb_ids:
+        kb_id = project_kb_ids[0]
     else:
         kb_id = project.default_kb_id if project is not None else None
     kb_ids = list(dict.fromkeys(payload.kb_ids))
+    if not explicit_kbs and custom_agent is None and project is not None:
+        inherited = project_kb_ids or (
+            [project.default_kb_id] if project.default_kb_id is not None else []
+        )
+        kb_ids = list(dict.fromkeys([*kb_ids, *inherited]))
     if kb_id is not None and kb_id not in kb_ids:
         kb_ids.insert(0, kb_id)
     kb_ids = kb_ids[:10]
