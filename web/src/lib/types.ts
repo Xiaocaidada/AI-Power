@@ -256,12 +256,13 @@ export interface EvalDatasetDetail extends EvalDataset {
   questions: EvalQuestion[]
 }
 
-export type EvalMetrics = Record<string, number | string | boolean | null>
+export type EvalMetrics = Record<string, unknown>
 
 export interface EvalRun {
   id: string
   dataset_id: string
   kb_id: string
+  retrieval_workflow_version_id: string | null
   status: string
   config: Record<string, unknown>
   metrics: EvalMetrics | null
@@ -282,6 +283,14 @@ export interface EvalRunItem {
   question_text: string
   hit_rank: number | null
   reciprocal_rank: number
+  precision_at_5: number
+  recall_at_5: number
+  ndcg_at_5: number
+  precision_at_10: number
+  recall_at_10: number
+  ndcg_at_10: number
+  retrieval_mode: string | null
+  retrieval_trace: KnowledgeRetrievalTestNode[]
   evidence_hit: boolean | null
   latency_ms: number | null
   top_document_ids: string[]
@@ -300,6 +309,60 @@ export interface EvalRunItem {
 
 export interface EvalRunDetail extends EvalRun {
   items: EvalRunItem[]
+}
+
+export interface EvalNodeTiming {
+  node_type: string
+  runs: number
+  failures: number
+  avg_ms: number
+  avg_count: number
+}
+
+export interface EvalQuestionInsight {
+  question_id: string
+  question_text: string
+  hit_rank: number | null
+  precision_at_5: number
+  recall_at_5: number
+  ndcg_at_5: number
+  latency_ms: number | null
+  retrieval_mode: string | null
+  error_code: string | null
+}
+
+export interface EvalRunAnalysis {
+  run: EvalRun
+  node_timing: EvalNodeTiming[]
+  worst_questions: EvalQuestionInsight[]
+  missed_questions: EvalQuestionInsight[]
+  slowest_questions: EvalQuestionInsight[]
+}
+
+export interface KnowledgeOptimization {
+  id: string
+  kb_id: string
+  eval_run_id: string | null
+  workflow_id: string | null
+  base_version_id: string | null
+  applied_version_id: string | null
+  previous_binding_version_id: string | null
+  status: 'proposed' | 'applied' | 'reverted' | 'dismissed' | string
+  summary: string
+  rationale: string
+  suggestions: { title: string; detail: string }[]
+  metrics_snapshot: EvalMetrics
+  provider_id: string | null
+  model: string | null
+  error_code: string | null
+  created_at: string
+  applied_at: string | null
+  reverted_at: string | null
+}
+
+export interface KnowledgeOptimizationDetail extends KnowledgeOptimization {
+  proposed_definition: WorkflowDefinition | null
+  diff: AgentBuilderDiff | null
 }
 
 export interface Webhook {

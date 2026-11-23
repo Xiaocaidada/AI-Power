@@ -1212,6 +1212,9 @@ class EvalRun(Base):
     kb_id: Mapped[UUID] = mapped_column(
         ForeignKey("knowledge_bases.id", ondelete="CASCADE"), index=True
     )
+    retrieval_workflow_version_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("workflow_versions.id", ondelete="SET NULL"), default=None, index=True
+    )
     workspace_id: Mapped[UUID] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
     )
@@ -1243,6 +1246,14 @@ class EvalRunItem(Base):
     question_text: Mapped[str] = mapped_column(Text)
     hit_rank: Mapped[int | None] = mapped_column(Integer, default=None)
     reciprocal_rank: Mapped[float] = mapped_column(Float, default=0.0)
+    precision_at_5: Mapped[float] = mapped_column(Float, default=0.0)
+    recall_at_5: Mapped[float] = mapped_column(Float, default=0.0)
+    ndcg_at_5: Mapped[float] = mapped_column(Float, default=0.0)
+    precision_at_10: Mapped[float] = mapped_column(Float, default=0.0)
+    recall_at_10: Mapped[float] = mapped_column(Float, default=0.0)
+    ndcg_at_10: Mapped[float] = mapped_column(Float, default=0.0)
+    retrieval_mode: Mapped[str | None] = mapped_column(String(20), default=None)
+    retrieval_trace: Mapped[list[dict[str, object]]] = mapped_column(JSON, default=list)
     evidence_hit: Mapped[bool | None] = mapped_column(Boolean, default=None)
     latency_ms: Mapped[float | None] = mapped_column(Float, default=None)
     top_document_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
@@ -1261,6 +1272,53 @@ class EvalRunItem(Base):
 
     __table_args__ = (
         UniqueConstraint("run_id", "question_id", name="uq_eval_run_items_run_question"),
+    )
+
+
+class KnowledgeOptimization(Base):
+    __tablename__ = "knowledge_optimizations"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    kb_id: Mapped[UUID] = mapped_column(
+        ForeignKey("knowledge_bases.id", ondelete="CASCADE"), index=True
+    )
+    eval_run_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("eval_runs.id", ondelete="SET NULL"), default=None, index=True
+    )
+    workflow_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("workflows.id", ondelete="SET NULL"), default=None
+    )
+    base_version_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("workflow_versions.id", ondelete="SET NULL"), default=None
+    )
+    applied_version_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("workflow_versions.id", ondelete="SET NULL"), default=None
+    )
+    previous_binding_version_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("workflow_versions.id", ondelete="SET NULL"), default=None
+    )
+    created_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), default=None
+    )
+    status: Mapped[str] = mapped_column(String(20), default="proposed", index=True)
+    summary: Mapped[str] = mapped_column(String(2000), default="")
+    rationale: Mapped[str] = mapped_column(Text, default="")
+    suggestions: Mapped[list[dict[str, object]]] = mapped_column(JSON, default=list)
+    proposed_definition: Mapped[dict[str, object] | None] = mapped_column(JSON, default=None)
+    diff: Mapped[dict[str, object] | None] = mapped_column(JSON, default=None)
+    metrics_snapshot: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
+    provider_id: Mapped[str | None] = mapped_column(String(50), default=None)
+    model: Mapped[str | None] = mapped_column(String(200), default=None)
+    error_code: Mapped[str | None] = mapped_column(String(50), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    reverted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+    __table_args__ = (
+        Index("ix_knowledge_optimizations_kb_created", "kb_id", "created_at"),
     )
 
 

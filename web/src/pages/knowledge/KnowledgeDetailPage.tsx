@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
+  BarChart3,
   FileText,
   FileUp,
   Layers,
@@ -271,6 +272,13 @@ export function KnowledgeDetailPage() {
             >
               <Search className="h-4 w-4" />
               {t('retrievalStudio.open')}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => navigate(`/knowledge/${id}/evaluation`)}
+            >
+              <BarChart3 className="h-4 w-4" />
+              {t('knowledgeEval.open')}
             </Button>
             <Button onClick={() => fileInput.current?.click()}>
               <FileUp className="h-4 w-4" />

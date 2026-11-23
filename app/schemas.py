@@ -285,6 +285,7 @@ class EvalDatasetImportIn(BaseModel):
 class EvalRunCreate(BaseModel):
     dataset_id: UUID
     kb_id: UUID
+    retrieval_workflow_version_id: UUID | None = None
     top_k: int | None = Field(default=None, ge=1, le=20)
     candidate_k: int | None = Field(default=None, ge=1, le=100)
     hybrid_enabled: bool | None = None
@@ -311,6 +312,7 @@ class EvalRunOut(BaseModel):
     id: UUID
     dataset_id: UUID
     kb_id: UUID
+    retrieval_workflow_version_id: UUID | None
     status: str
     config: dict[str, object]
     metrics: dict[str, object] | None
@@ -333,6 +335,14 @@ class EvalRunItemOut(BaseModel):
     question_text: str
     hit_rank: int | None
     reciprocal_rank: float
+    precision_at_5: float
+    recall_at_5: float
+    ndcg_at_5: float
+    precision_at_10: float
+    recall_at_10: float
+    ndcg_at_10: float
+    retrieval_mode: str | None
+    retrieval_trace: list[dict[str, object]]
     evidence_hit: bool | None
     latency_ms: float | None
     top_document_ids: list[str]
@@ -355,6 +365,73 @@ class EvalRunDetailOut(EvalRunOut):
 
 class EvalCompareOut(BaseModel):
     runs: list[EvalRunOut]
+
+
+class EvalNodeTimingOut(BaseModel):
+    node_type: str
+    runs: int
+    failures: int
+    avg_ms: float
+    avg_count: float
+
+
+class EvalQuestionInsightOut(BaseModel):
+    question_id: UUID
+    question_text: str
+    hit_rank: int | None
+    precision_at_5: float
+    recall_at_5: float
+    ndcg_at_5: float
+    latency_ms: float | None
+    retrieval_mode: str | None
+    error_code: str | None
+
+
+class EvalRunAnalysisOut(BaseModel):
+    run: EvalRunOut
+    node_timing: list[EvalNodeTimingOut]
+    worst_questions: list[EvalQuestionInsightOut]
+    missed_questions: list[EvalQuestionInsightOut]
+    slowest_questions: list[EvalQuestionInsightOut]
+
+
+class KnowledgeOptimizationCreate(BaseModel):
+    eval_run_id: UUID
+    provider_id: str = Field(min_length=1, max_length=50)
+    model: str = Field(min_length=1, max_length=200)
+
+    @field_validator("provider_id", "model", mode="before")
+    @classmethod
+    def strip_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class KnowledgeOptimizationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    kb_id: UUID
+    eval_run_id: UUID | None
+    workflow_id: UUID | None
+    base_version_id: UUID | None
+    applied_version_id: UUID | None
+    previous_binding_version_id: UUID | None
+    status: str
+    summary: str
+    rationale: str
+    suggestions: list[dict[str, object]]
+    metrics_snapshot: dict[str, object]
+    provider_id: str | None
+    model: str | None
+    error_code: str | None
+    created_at: datetime
+    applied_at: datetime | None
+    reverted_at: datetime | None
+
+
+class KnowledgeOptimizationDetailOut(KnowledgeOptimizationOut):
+    proposed_definition: dict[str, object] | None
+    diff: dict[str, object] | None
 
 
 class WebhookCreate(BaseModel):

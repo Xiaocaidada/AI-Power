@@ -12,13 +12,28 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db import SessionLocal
-from app.models import EvalQuestion, EvalRun, EvalRunItem
+from app.models import EvalQuestion, EvalRun, EvalRunItem, Workflow, WorkflowVersion
 from app.providers.base import ChatMessage, LLMProvider, ProviderError, Usage
 from app.providers.embedding import EmbeddingProvider
 from app.providers.registry import ProviderRegistry, build_registry
 from app.providers.rerank import Reranker, build_reranker
 from app.services.costs import compute_cost, price_snapshot
 from app.services.embedding_factory import build_embedder
+from app.services.knowledge.metrics import (
+    aggregate_retrieval_traces,
+    ndcg_at_k,
+    precision_at_k,
+    recall_at_k,
+)
+from app.services.knowledge.retrieval_pipeline import (
+    RetrievalWorkflowError,
+    run_retrieval_workflow,
+)
+from app.services.knowledge.retrieval_schema import (
+    KnowledgeRetrievalDefinition,
+    RetrievalValidationError,
+    validate_knowledge_retrieval,
+)
 from app.services.rag import build_rag_messages, fit_context
 from app.services.retrieval import RetrievalOptions, RetrievedChunk, retrieve_chunks
 
@@ -140,6 +155,9 @@ async def run_evaluation(
             judge_enabled = bool(config.get("judge_enabled", False))
             provider_id = _optional_str(config.get("provider_id"))
             model = _optional_str(config.get("model"))
+            workflow_definition = await _load_retrieval_definition(
+                session, run, _optional_str(config.get("retrieval_workflow_version_id"))
+            )
             judge_provider_id = _optional_str(config.get("judge_provider_id")) or provider_id
             judge_model = _optional_str(config.get("judge_model")) or model
 
@@ -177,6 +195,8 @@ async def run_evaluation(
                     answer_prices=answer_prices,
                     judge_prices=judge_prices,
                     max_context_chars=settings.retrieval_max_context_chars,
+                    workflow_definition=workflow_definition,
+                    registry=registry,
                 )
                 session.add(item)
                 items.append(item)
@@ -205,6 +225,37 @@ async def run_evaluation(
             await _mark_failed(session, run_id, "evaluation_failed")
 
 
+async def _load_retrieval_definition(
+    session: AsyncSession, run: EvalRun, raw_version_id: str | None
+) -> KnowledgeRetrievalDefinition | None:
+    if raw_version_id is None:
+        return None
+    try:
+        version_id = UUID(raw_version_id)
+    except ValueError:
+        raise ProviderError(
+            "invalid_retrieval_workflow", "Invalid retrieval workflow version"
+        ) from None
+    version = await session.get(WorkflowVersion, version_id)
+    workflow = await session.get(Workflow, version.workflow_id) if version else None
+    if (
+        version is None
+        or workflow is None
+        or workflow.workspace_id != run.workspace_id
+        or workflow.kind != "knowledge_retrieval"
+        or workflow.deleted_at is not None
+    ):
+        raise ProviderError(
+            "invalid_retrieval_workflow", "Retrieval workflow version not found"
+        )
+    try:
+        return validate_knowledge_retrieval(version.definition)
+    except RetrievalValidationError as exc:
+        raise ProviderError(
+            "invalid_retrieval_workflow", f"Retrieval workflow is invalid: {exc}"
+        ) from None
+
+
 async def _evaluate_question(
     session: AsyncSession,
     *,
@@ -222,19 +273,61 @@ async def _evaluate_question(
     answer_prices: tuple[float | None, float | None],
     judge_prices: tuple[float | None, float | None],
     max_context_chars: int,
+    workflow_definition: KnowledgeRetrievalDefinition | None = None,
+    registry: ProviderRegistry | None = None,
 ) -> EvalRunItem:
     started = time.perf_counter()
-    chunks = await retrieve_chunks(
-        session,
-        workspace_id=run.workspace_id,
-        kb_id=run.kb_id,
-        query=question.question,
-        options=options,
-        embedder=embedder,
-        reranker=reranker,
-    )
+    retrieval_mode = "workflow" if workflow_definition is not None else "builtin"
+    traces: list[dict[str, object]] = []
+    error_code: str | None = None
+    if workflow_definition is not None:
+        try:
+            workflow_result = await run_retrieval_workflow(
+                session,
+                definition=workflow_definition,
+                workspace_id=run.workspace_id,
+                kb_ids=[run.kb_id],
+                query=question.question,
+                registry=registry,
+                user_id=run.user_id,
+                collect_traces=True,
+            )
+            chunks = workflow_result.chunks or workflow_result.selected
+            traces = [
+                {
+                    "node_id": trace.node_id,
+                    "node_type": trace.node_type,
+                    "status": trace.status,
+                    "duration_ms": trace.duration_ms,
+                    "count": trace.count,
+                    "error_code": trace.error_code,
+                }
+                for trace in workflow_result.traces[:50]
+            ]
+        except RetrievalWorkflowError as exc:
+            chunks = []
+            error_code = exc.code
+        except Exception:
+            logger.exception(
+                "evaluation %s question %s retrieval workflow failed",
+                run.id,
+                question.id,
+            )
+            chunks = []
+            error_code = "retrieval_workflow_failed"
+    else:
+        chunks = await retrieve_chunks(
+            session,
+            workspace_id=run.workspace_id,
+            kb_id=run.kb_id,
+            query=question.question,
+            options=options,
+            embedder=embedder,
+            reranker=reranker,
+        )
     latency_ms = _elapsed_ms(started)
     relevant = {UUID(str(value)) for value in question.relevant_document_ids}
+    ranked_documents = [chunk.document_id for chunk in chunks]
     hit_rank = next(
         (index for index, chunk in enumerate(chunks, start=1) if chunk.document_id in relevant),
         None,
@@ -252,6 +345,14 @@ async def _evaluate_question(
         question_text=question.question,
         hit_rank=hit_rank,
         reciprocal_rank=1.0 / hit_rank if hit_rank else 0.0,
+        precision_at_5=precision_at_k(relevant, ranked_documents, 5),
+        recall_at_5=recall_at_k(relevant, ranked_documents, 5),
+        ndcg_at_5=ndcg_at_k(relevant, ranked_documents, 5),
+        precision_at_10=precision_at_k(relevant, ranked_documents, 10),
+        recall_at_10=recall_at_k(relevant, ranked_documents, 10),
+        ndcg_at_10=ndcg_at_k(relevant, ranked_documents, 10),
+        retrieval_mode=retrieval_mode,
+        retrieval_trace=traces,
         evidence_hit=evidence_hit,
         latency_ms=latency_ms,
         top_document_ids=[str(chunk.document_id) for chunk in chunks],
@@ -259,7 +360,10 @@ async def _evaluate_question(
         prompt_tokens=0,
         completion_tokens=0,
         cost=0.0,
+        error_code=error_code,
     )
+    if error_code is not None:
+        return item
     if not answer_enabled or provider is None or model is None:
         return item
 
@@ -331,6 +435,15 @@ def compute_metrics(
         "recall_at_1": round(sum(1 for rank in ranks if rank is not None and rank <= 1) / total, 4),
         "recall_at_3": round(sum(1 for rank in ranks if rank is not None and rank <= 3) / total, 4),
         "recall_at_5": round(sum(1 for rank in ranks if rank is not None and rank <= 5) / total, 4),
+        "precision_at_5": _mean(items, "precision_at_5"),
+        "recall_at_5_docs": _mean(items, "recall_at_5"),
+        "ndcg_at_5": _mean(items, "ndcg_at_5"),
+        "precision_at_10": _mean(items, "precision_at_10"),
+        "recall_at_10_docs": _mean(items, "recall_at_10"),
+        "ndcg_at_10": _mean(items, "ndcg_at_10"),
+        "success_rate": round(
+            sum(1 for item in items if item.error_code is None) / total, 4
+        ),
         "mrr": round(sum(item.reciprocal_rank for item in items) / total, 4),
         "evidence_hit_rate": (
             round(sum(1 for item in evidence_items if item.evidence_hit) / len(evidence_items), 4)
@@ -361,8 +474,18 @@ def compute_metrics(
         "prompt_tokens": sum(item.prompt_tokens or 0 for item in items),
         "completion_tokens": sum(item.completion_tokens or 0 for item in items),
         "cost": round(sum(item.cost or 0.0 for item in items), 6),
+        "retrieval_mode": items[0].retrieval_mode if items else None,
+        "node_timing": aggregate_retrieval_traces(
+            [item.retrieval_trace for item in items if item.retrieval_trace]
+        ),
     }
     return metrics
+
+
+def _mean(items: list[EvalRunItem], attribute: str) -> float:
+    if not items:
+        return 0.0
+    return round(sum(float(getattr(item, attribute) or 0.0) for item in items) / len(items), 4)
 
 
 def _judge_messages(question: str, chunks: list[RetrievedChunk], answer: str) -> list[ChatMessage]:

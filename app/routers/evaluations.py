@@ -9,7 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
 from app.deps import AuthContext, get_jwt_context, get_registry
-from app.models import Document, EvalDataset, EvalQuestion, EvalRun, EvalRunItem
+from app.models import (
+    Document,
+    EvalDataset,
+    EvalQuestion,
+    EvalRun,
+    EvalRunItem,
+    Workflow,
+    WorkflowVersion,
+)
 from app.providers.base import ProviderError
 from app.providers.registry import ProviderRegistry
 from app.schemas import (
@@ -18,13 +26,21 @@ from app.schemas import (
     EvalDatasetDetailOut,
     EvalDatasetImportIn,
     EvalDatasetOut,
+    EvalNodeTimingOut,
+    EvalQuestionInsightOut,
     EvalQuestionOut,
+    EvalRunAnalysisOut,
     EvalRunCreate,
     EvalRunDetailOut,
     EvalRunItemOut,
     EvalRunOut,
 )
 from app.services.access import get_owned_knowledge_base
+from app.services.knowledge.metrics import aggregate_retrieval_traces
+from app.services.knowledge.retrieval_schema import (
+    RetrievalValidationError,
+    validate_knowledge_retrieval,
+)
 from app.services.knowledge_settings import resolve_kb_settings
 from app.services.queue import JobQueue, get_queue
 from app.services.retrieval import resolve_options
@@ -62,6 +78,46 @@ async def _get_run(session: AsyncSession, run_id: UUID, workspace_id: UUID) -> E
     if run is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Evaluation run not found")
     return run
+
+
+async def _resolve_retrieval_version(
+    session: AsyncSession, version_id: UUID | None, workspace_id: UUID
+) -> tuple[WorkflowVersion | None, dict[str, object] | None]:
+    if version_id is None:
+        return None, None
+    version = await session.get(WorkflowVersion, version_id)
+    workflow = await session.get(Workflow, version.workflow_id) if version else None
+    if (
+        version is None
+        or workflow is None
+        or workflow.workspace_id != workspace_id
+        or workflow.deleted_at is not None
+        or workflow.kind != "knowledge_retrieval"
+    ):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {
+                "code": "invalid_retrieval_workflow",
+                "message": "Retrieval workflow version not found",
+            },
+        )
+    try:
+        validate_knowledge_retrieval(version.definition)
+    except RetrievalValidationError as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {
+                "code": "invalid_retrieval_workflow",
+                "message": f"Retrieval workflow is invalid: {exc}",
+            },
+        ) from None
+    snapshot = {
+        "retrieval_workflow_version_id": str(version.id),
+        "workflow_id": str(workflow.id),
+        "version": version.version,
+        "name": workflow.name,
+    }
+    return version, snapshot
 
 
 async def _dataset_questions(session: AsyncSession, dataset_id: UUID) -> list[EvalQuestion]:
@@ -297,6 +353,9 @@ async def create_run(
 ) -> EvalRunOut:
     dataset = await _get_dataset(session, payload.dataset_id, context.workspace.id)
     kb = await get_owned_knowledge_base(payload.kb_id, context.workspace.id, session)
+    retrieval_version, retrieval_snapshot = await _resolve_retrieval_version(
+        session, payload.retrieval_workflow_version_id, context.workspace.id
+    )
     questions = await _dataset_questions(session, dataset.id)
     if not questions:
         raise HTTPException(
@@ -361,10 +420,17 @@ async def create_run(
         "judge_provider_id": judge_provider_id,
         "judge_model": judge_model,
         "judge_version": 1,
+        "retrieval_workflow_version_id": (
+            str(retrieval_version.id) if retrieval_version is not None else None
+        ),
+        "retrieval_workflow": retrieval_snapshot,
     }
     run = EvalRun(
         dataset_id=dataset.id,
         kb_id=kb.id,
+        retrieval_workflow_version_id=(
+            retrieval_version.id if retrieval_version is not None else None
+        ),
         workspace_id=context.workspace.id,
         user_id=context.user.id,
         status="queued",
@@ -420,6 +486,57 @@ async def get_run(run_id: UUID, context: JwtContext, session: SessionDep) -> Eva
     return EvalRunDetailOut(
         **base.model_dump(),
         items=[EvalRunItemOut.model_validate(item) for item in items],
+    )
+
+
+def _insight(item: EvalRunItem) -> EvalQuestionInsightOut:
+    return EvalQuestionInsightOut(
+        question_id=item.question_id,
+        question_text=item.question_text,
+        hit_rank=item.hit_rank,
+        precision_at_5=item.precision_at_5,
+        recall_at_5=item.recall_at_5,
+        ndcg_at_5=item.ndcg_at_5,
+        latency_ms=item.latency_ms,
+        retrieval_mode=item.retrieval_mode,
+        error_code=item.error_code,
+    )
+
+
+@router.get("/runs/{run_id}/analysis", response_model=EvalRunAnalysisOut)
+async def get_run_analysis(
+    run_id: UUID, context: JwtContext, session: SessionDep
+) -> EvalRunAnalysisOut:
+    run = await _get_run(session, run_id, context.workspace.id)
+    items = list(
+        (
+            await session.execute(
+                select(EvalRunItem)
+                .where(EvalRunItem.run_id == run.id)
+                .order_by(EvalRunItem.created_at, EvalRunItem.id)
+            )
+        ).scalars()
+    )
+    node_rows = aggregate_retrieval_traces(
+        [item.retrieval_trace for item in items if item.retrieval_trace]
+    )
+    worst = sorted(items, key=lambda item: (item.ndcg_at_5, item.hit_rank or 999))[:10]
+    missed = [
+        item
+        for item in items
+        if item.hit_rank is None or item.ndcg_at_5 <= 0.0 or item.error_code is not None
+    ][:20]
+    slowest = sorted(
+        (item for item in items if item.latency_ms is not None),
+        key=lambda item: item.latency_ms or 0.0,
+        reverse=True,
+    )[:10]
+    return EvalRunAnalysisOut(
+        run=EvalRunOut.model_validate(run),
+        node_timing=[EvalNodeTimingOut(**row) for row in node_rows],
+        worst_questions=[_insight(item) for item in worst],
+        missed_questions=[_insight(item) for item in missed],
+        slowest_questions=[_insight(item) for item in slowest],
     )
 
 

@@ -8,12 +8,14 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
-from app.deps import AuthContext, get_jwt_context, require_scope
+from app.deps import AuthContext, get_jwt_context, get_registry, require_scope
 from app.models import (
     Chunk,
     Document,
+    EvalRun,
     KnowledgeBase,
     KnowledgeChunkDraft,
+    KnowledgeOptimization,
     Workflow,
     WorkflowArtifact,
     WorkflowNodeRun,
@@ -21,6 +23,7 @@ from app.models import (
     WorkflowVersion,
 )
 from app.providers.base import ProviderError
+from app.providers.registry import ProviderRegistry
 from app.schemas import (
     ChunkOut,
     ChunkPageOut,
@@ -30,6 +33,9 @@ from app.schemas import (
     KnowledgeBaseSettingsUpdate,
     KnowledgeBaseStatsOut,
     KnowledgeBaseUpdate,
+    KnowledgeOptimizationCreate,
+    KnowledgeOptimizationDetailOut,
+    KnowledgeOptimizationOut,
     KnowledgeProcessApplyOut,
     KnowledgeProcessArtifactOut,
     KnowledgeProcessBindingIn,
@@ -51,6 +57,15 @@ from app.services.knowledge.apply import (
     draft_preview,
     run_document_id,
 )
+from app.services.knowledge.optimizer import (
+    KnowledgeOptimizerError,
+    apply_optimization,
+    dismiss_optimization,
+    generate_optimization,
+    get_optimization,
+    list_optimizations,
+    rollback_optimization,
+)
 from app.services.knowledge.retrieval_pipeline import (
     RetrievalWorkflowError,
     run_retrieval_workflow,
@@ -65,6 +80,7 @@ router = APIRouter(prefix="/knowledge-bases", tags=["knowledge-bases"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 JwtContext = Annotated[AuthContext, Depends(get_jwt_context)]
 ReadContext = Annotated[AuthContext, Depends(require_scope("kb:read"))]
+RegistryDep = Annotated[ProviderRegistry, Depends(get_registry)]
 
 
 @router.post("", response_model=KnowledgeBaseOut, status_code=status.HTTP_201_CREATED)
@@ -690,3 +706,179 @@ def _retrieval_hit(chunk) -> RetrievalHitOut:
         fused_score=chunk.fused_score,
         rerank_score=chunk.rerank_score,
     )
+
+
+OPTIMIZER_STATUS_CODES = {
+    "run_not_found": status.HTTP_404_NOT_FOUND,
+    "not_found": status.HTTP_404_NOT_FOUND,
+    "provider_not_found": status.HTTP_422_UNPROCESSABLE_CONTENT,
+    "invalid_retrieval_workflow": status.HTTP_422_UNPROCESSABLE_CONTENT,
+    "invalid_definition": status.HTTP_422_UNPROCESSABLE_CONTENT,
+    "invalid_workflow": status.HTTP_422_UNPROCESSABLE_CONTENT,
+    "no_definition": status.HTTP_422_UNPROCESSABLE_CONTENT,
+    "run_not_completed": status.HTTP_409_CONFLICT,
+    "invalid_status": status.HTTP_409_CONFLICT,
+    "binding_changed": status.HTTP_409_CONFLICT,
+}
+
+
+def _raise_optimizer_error(exc: KnowledgeOptimizerError) -> None:
+    raise HTTPException(
+        OPTIMIZER_STATUS_CODES.get(exc.code, status.HTTP_502_BAD_GATEWAY),
+        {"code": exc.code, "message": exc.message},
+    ) from None
+
+
+def _optimization_detail(
+    row: KnowledgeOptimization,
+) -> KnowledgeOptimizationDetailOut:
+    return KnowledgeOptimizationDetailOut.model_validate(row)
+
+
+@router.post(
+    "/{kb_id}/optimizations",
+    response_model=KnowledgeOptimizationDetailOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_kb_optimization(
+    kb_id: UUID,
+    payload: KnowledgeOptimizationCreate,
+    context: JwtContext,
+    session: SessionDep,
+    registry: RegistryDep,
+) -> KnowledgeOptimizationDetailOut:
+    kb = await get_owned_knowledge_base(kb_id, context.workspace.id, session)
+    run = await session.get(EvalRun, payload.eval_run_id)
+    if (
+        run is None
+        or run.workspace_id != context.workspace.id
+        or run.kb_id != kb.id
+    ):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Evaluation run not found")
+    try:
+        row = await generate_optimization(
+            session,
+            registry,
+            workspace_id=context.workspace.id,
+            user_id=context.user.id,
+            kb=kb,
+            run=run,
+            provider_id=payload.provider_id,
+            model=payload.model,
+        )
+    except KnowledgeOptimizerError as exc:
+        _raise_optimizer_error(exc)
+    return _optimization_detail(row)
+
+
+@router.get(
+    "/{kb_id}/optimizations", response_model=list[KnowledgeOptimizationOut]
+)
+async def list_kb_optimizations(
+    kb_id: UUID,
+    context: JwtContext,
+    session: SessionDep,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+) -> list[KnowledgeOptimizationOut]:
+    await get_owned_knowledge_base(kb_id, context.workspace.id, session)
+    rows = await list_optimizations(
+        session, workspace_id=context.workspace.id, kb_id=kb_id, limit=limit
+    )
+    return [KnowledgeOptimizationOut.model_validate(row) for row in rows]
+
+
+@router.get(
+    "/{kb_id}/optimizations/{optimization_id}",
+    response_model=KnowledgeOptimizationDetailOut,
+)
+async def get_kb_optimization(
+    kb_id: UUID,
+    optimization_id: UUID,
+    context: JwtContext,
+    session: SessionDep,
+) -> KnowledgeOptimizationDetailOut:
+    await get_owned_knowledge_base(kb_id, context.workspace.id, session)
+    try:
+        row = await get_optimization(
+            session,
+            workspace_id=context.workspace.id,
+            kb_id=kb_id,
+            optimization_id=optimization_id,
+        )
+    except KnowledgeOptimizerError as exc:
+        _raise_optimizer_error(exc)
+    return _optimization_detail(row)
+
+
+@router.post(
+    "/{kb_id}/optimizations/{optimization_id}/apply",
+    response_model=KnowledgeOptimizationDetailOut,
+)
+async def apply_kb_optimization(
+    kb_id: UUID,
+    optimization_id: UUID,
+    context: JwtContext,
+    session: SessionDep,
+) -> KnowledgeOptimizationDetailOut:
+    kb = await get_owned_knowledge_base(kb_id, context.workspace.id, session)
+    try:
+        row = await get_optimization(
+            session,
+            workspace_id=context.workspace.id,
+            kb_id=kb_id,
+            optimization_id=optimization_id,
+        )
+        await apply_optimization(
+            session, optimization=row, kb=kb, user_id=context.user.id
+        )
+    except KnowledgeOptimizerError as exc:
+        _raise_optimizer_error(exc)
+    return _optimization_detail(row)
+
+
+@router.post(
+    "/{kb_id}/optimizations/{optimization_id}/rollback",
+    response_model=KnowledgeOptimizationDetailOut,
+)
+async def rollback_kb_optimization(
+    kb_id: UUID,
+    optimization_id: UUID,
+    context: JwtContext,
+    session: SessionDep,
+) -> KnowledgeOptimizationDetailOut:
+    kb = await get_owned_knowledge_base(kb_id, context.workspace.id, session)
+    try:
+        row = await get_optimization(
+            session,
+            workspace_id=context.workspace.id,
+            kb_id=kb_id,
+            optimization_id=optimization_id,
+        )
+        await rollback_optimization(session, optimization=row, kb=kb)
+    except KnowledgeOptimizerError as exc:
+        _raise_optimizer_error(exc)
+    return _optimization_detail(row)
+
+
+@router.post(
+    "/{kb_id}/optimizations/{optimization_id}/dismiss",
+    response_model=KnowledgeOptimizationDetailOut,
+)
+async def dismiss_kb_optimization(
+    kb_id: UUID,
+    optimization_id: UUID,
+    context: JwtContext,
+    session: SessionDep,
+) -> KnowledgeOptimizationDetailOut:
+    await get_owned_knowledge_base(kb_id, context.workspace.id, session)
+    try:
+        row = await get_optimization(
+            session,
+            workspace_id=context.workspace.id,
+            kb_id=kb_id,
+            optimization_id=optimization_id,
+        )
+        await dismiss_optimization(session, optimization=row)
+    except KnowledgeOptimizerError as exc:
+        _raise_optimizer_error(exc)
+    return _optimization_detail(row)
