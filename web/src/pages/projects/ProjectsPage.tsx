@@ -11,6 +11,7 @@ import { errorTextKey } from '../../lib/errorText'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
 import type {
+  CustomAgent,
   KnowledgeBase,
   ModelEntry,
   PersonalModel,
@@ -23,6 +24,7 @@ interface Draft {
   instructions: string
   modelChoice: string
   defaultAgent: boolean
+  customAgentId: string
   kbId: string
 }
 
@@ -34,6 +36,7 @@ function draftFrom(project: Project | null): Draft {
       instructions: '',
       modelChoice: 'auto',
       defaultAgent: false,
+      customAgentId: '',
       kbId: '',
     }
   }
@@ -47,6 +50,7 @@ function draftFrom(project: Project | null): Draft {
     instructions: project.instructions,
     modelChoice,
     defaultAgent: project.default_agent,
+    customAgentId: project.default_custom_agent_id ?? '',
     kbId: project.default_kb_id ?? '',
   }
 }
@@ -125,6 +129,9 @@ export function ProjectsPage() {
                   {project.default_model !== null ? ` · ${project.default_model}` : ''}
                 </span>
                 {project.default_agent && <Badge tone="accent">{t('chat.agentMode')}</Badge>}
+                {project.default_custom_agent_id && (
+                  <Badge tone="accent">{t('projects.customAgentBadge')}</Badge>
+                )}
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
                 <Button
@@ -201,6 +208,11 @@ function ProjectForm({
     queryFn: () => apiRequest<KnowledgeBase[]>('/knowledge-bases'),
     staleTime: 60_000,
   })
+  const agents = useQuery({
+    queryKey: ['agents', 'project-options'],
+    queryFn: () => apiRequest<CustomAgent[]>('/agents?scope=mine'),
+    staleTime: 60_000,
+  })
 
   const platform = (models.data ?? []).filter((model) => model.available)
   const personal = personalModels.data ?? []
@@ -219,6 +231,8 @@ function ProjectForm({
       default_provider_id: choice.provider,
       default_model: choice.model,
       default_agent: draft.defaultAgent,
+      default_custom_agent_id:
+        draft.customAgentId === '' ? null : draft.customAgentId,
       default_kb_id: draft.kbId === '' ? null : draft.kbId,
     }
     try {
@@ -323,6 +337,22 @@ function ProjectForm({
               </select>
             </Field>
           </div>
+          <Field label={t('projects.defaultCustomAgent')}>
+            <select
+              className="h-10 w-full rounded-lg border border-border bg-surface px-2 text-sm text-ink"
+              value={draft.customAgentId}
+              onChange={(event) => update('customAgentId', event.target.value)}
+            >
+              <option value="">{t('projects.noDefaultCustomAgent')}</option>
+              {(agents.data ?? [])
+                .filter((agent) => !agent.builtin)
+                .map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.icon} {agent.name}
+                  </option>
+                ))}
+            </select>
+          </Field>
           <label className="flex items-center gap-2 text-sm text-ink">
             <input
               type="checkbox"

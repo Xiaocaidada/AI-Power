@@ -113,6 +113,9 @@ async function mockBase(page: import('@playwright/test').Page) {
   await page.route('**/api/plugins', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/agents', (route) => route.fulfill({ json: [agent] }))
   await page.route('**/api/agents/agent-1', (route) => route.fulfill({ json: agent }))
+  await page.route('**/api/agents/agent-1/runs**', (route) =>
+    route.fulfill({ json: [] }),
+  )
   await page.route('**/api/agent-builder/sessions**', (route) =>
     route.fulfill({ json: [] }),
   )
@@ -240,6 +243,18 @@ test('Agent builder shows a diff and applies it to the canvas', async ({ page })
   await expect(page.getByRole('button', { name: '保存画布' })).toBeVisible()
 })
 
+test('Agent experience page renders chat and workflow modes', async ({ page }) => {
+  await page.addInitScript(() =>
+    localStorage.setItem('ai_power_refresh_token', 'e2e-refresh-token-0123456789'),
+  )
+  await mockBase(page)
+  await page.goto('/agents/agent-1/experience')
+  await expect(page.getByRole('heading', { name: 'Studio Agent' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '对话体验' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '工作流运行' })).toBeVisible()
+  await expect(page.getByText('最近运行')).toBeVisible()
+})
+
 test('Agent plaza lists and opens a public agent', async ({ page }) => {
   await page.addInitScript(() =>
     localStorage.setItem('ai_power_refresh_token', 'e2e-refresh-token-0123456789'),
@@ -253,6 +268,7 @@ test('Agent plaza lists and opens a public agent', async ({ page }) => {
     icon: '🌍',
     category: 'research',
     mode: 'workflow',
+    featured: true,
     usage_count: 3,
     favorite_count: 1,
     copy_count: 2,
@@ -280,6 +296,7 @@ test('Agent plaza lists and opens a public agent', async ({ page }) => {
   )
   await page.goto('/market/agents')
   await expect(page.getByRole('heading', { name: 'Agent 广场' })).toBeVisible()
+  await expect(page.getByText('精选').first()).toBeVisible()
   await page.getByText('Public Agent').click()
   await expect(page.getByRole('heading', { name: 'Public Agent' })).toBeVisible()
   await expect(page.getByRole('button', { name: '复制到我的工作区' })).toBeVisible()

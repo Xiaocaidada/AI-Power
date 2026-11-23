@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.base import AgentSpec
@@ -14,9 +14,12 @@ from app.models import (
     Conversation,
     CustomAgent,
     KnowledgeBase,
+    Message,
     ModelCatalog,
     PluginDefinition,
     Workflow,
+    WorkflowRun,
+    WorkflowRunEvent,
     WorkflowVersion,
 )
 
@@ -89,6 +92,7 @@ async def list_custom_agents(
     search: str | None = None,
     category: str | None = None,
     include_archived: bool = False,
+    scope: str = "all",
 ) -> list[CustomAgent]:
     conditions = [
         CustomAgent.workspace_id == workspace_id,
@@ -98,6 +102,38 @@ async def list_custom_agents(
         conditions.append(CustomAgent.archived_at.is_(None))
     if category:
         conditions.append(CustomAgent.category == category)
+    if scope == "mine":
+        conditions.append(CustomAgent.owner_user_id == user_id)
+    elif scope == "created":
+        conditions.extend(
+            [
+                CustomAgent.owner_user_id == user_id,
+                CustomAgent.source_agent_id.is_(None),
+            ]
+        )
+    elif scope == "copied":
+        conditions.extend(
+            [
+                CustomAgent.owner_user_id == user_id,
+                CustomAgent.source_agent_id.is_not(None),
+            ]
+        )
+    elif scope == "published":
+        conditions.extend(
+            [
+                CustomAgent.owner_user_id == user_id,
+                CustomAgent.published.is_(True),
+            ]
+        )
+    elif scope == "favorites":
+        conditions.append(
+            exists(
+                select(AgentFavorite.id).where(
+                    AgentFavorite.agent_id == CustomAgent.id,
+                    AgentFavorite.user_id == user_id,
+                )
+            )
+        )
     if search:
         term = f"%{search.strip()}%"
         conditions.append(
@@ -109,6 +145,12 @@ async def list_custom_agents(
         .order_by(CustomAgent.updated_at.desc(), CustomAgent.name)
     )
     return list(result.scalars())
+
+
+async def increment_agent_usage(session: AsyncSession, agent: CustomAgent) -> int:
+    agent.usage_count += 1
+    await session.flush()
+    return agent.usage_count
 
 
 async def get_custom_agent(
@@ -459,6 +501,7 @@ def public_agent_summary(agent: CustomAgent) -> dict[str, Any]:
         "icon": agent.icon,
         "category": agent.category,
         "mode": agent.mode,
+        "featured": agent.featured,
         "usage_count": agent.usage_count,
         "favorite_count": agent.favorite_count,
         "copy_count": agent.copy_count,
@@ -493,6 +536,7 @@ async def list_published_agents(
     search: str | None = None,
     category: str | None = None,
     sort: str = "newest",
+    featured_only: bool = False,
 ) -> list[CustomAgent]:
     conditions = [
         CustomAgent.published.is_(True),
@@ -501,16 +545,23 @@ async def list_published_agents(
     ]
     if category:
         conditions.append(CustomAgent.category == category)
+    if featured_only:
+        conditions.append(CustomAgent.featured.is_(True))
     if search and search.strip():
         term = f"%{search.strip()}%"
         conditions.append(
             or_(CustomAgent.name.ilike(term), CustomAgent.description.ilike(term))
         )
-    order = (
-        (CustomAgent.usage_count.desc(), CustomAgent.published_at.desc())
-        if sort == "popular"
-        else (CustomAgent.published_at.desc(), CustomAgent.id.desc())
-    )
+    if sort == "popular":
+        order = (CustomAgent.usage_count.desc(), CustomAgent.published_at.desc())
+    elif sort == "featured":
+        order = (
+            CustomAgent.featured.desc(),
+            CustomAgent.published_at.desc(),
+            CustomAgent.id.desc(),
+        )
+    else:
+        order = (CustomAgent.published_at.desc(), CustomAgent.id.desc())
     result = await session.execute(
         select(CustomAgent).where(*conditions).order_by(*order).limit(100)
     )
@@ -696,6 +747,129 @@ async def set_agent_favorite(
         agent.favorite_count = max(0, agent.favorite_count - 1)
     await session.flush()
     return favorite
+
+
+async def set_agent_featured(
+    session: AsyncSession, agent: CustomAgent, featured: bool
+) -> CustomAgent:
+    agent.featured = featured
+    await session.flush()
+    return agent
+
+
+def _clip(text: str, limit: int = 500) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+async def list_agent_runs(
+    session: AsyncSession,
+    agent: CustomAgent,
+    workspace_id: UUID,
+    *,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    conversations = list(
+        (
+            await session.execute(
+                select(Conversation)
+                .where(
+                    Conversation.custom_agent_id == agent.id,
+                    Conversation.workspace_id == workspace_id,
+                    Conversation.archived_at.is_(None),
+                )
+                .order_by(Conversation.updated_at.desc(), Conversation.id.desc())
+                .limit(limit)
+            )
+        ).scalars()
+    )
+    for conversation in conversations:
+        first_user = (
+            await session.execute(
+                select(Message)
+                .where(
+                    Message.conversation_id == conversation.id,
+                    Message.role == "user",
+                )
+                .order_by(Message.created_at, Message.id)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        last_assistant = (
+            await session.execute(
+                select(Message)
+                .where(
+                    Message.conversation_id == conversation.id,
+                    Message.role == "assistant",
+                )
+                .order_by(Message.created_at.desc(), Message.id.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        items.append(
+            {
+                "id": conversation.id,
+                "kind": "chat",
+                "title": conversation.title or "Chat",
+                "status": last_assistant.status if last_assistant is not None else "ready",
+                "input": _clip(first_user.content if first_user is not None else ""),
+                "output": _clip(
+                    last_assistant.content if last_assistant is not None else ""
+                ),
+                "model": conversation.model,
+                "duration_ms": None,
+                "error_code": None,
+                "created_at": conversation.updated_at or conversation.created_at,
+                "href": f"/chat/{conversation.id}",
+            }
+        )
+
+    if agent.workflow_id is not None:
+        runs = list(
+            (
+                await session.execute(
+                    select(WorkflowRun)
+                    .where(
+                        WorkflowRun.workflow_id == agent.workflow_id,
+                        WorkflowRun.workspace_id == workspace_id,
+                    )
+                    .order_by(WorkflowRun.started_at.desc(), WorkflowRun.id.desc())
+                    .limit(limit)
+                )
+            ).scalars()
+        )
+        for run in runs:
+            end_event = (
+                await session.execute(
+                    select(WorkflowRunEvent)
+                    .where(
+                        WorkflowRunEvent.run_id == run.id,
+                        WorkflowRunEvent.event == "workflow_end",
+                    )
+                    .order_by(WorkflowRunEvent.seq.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            output = ""
+            if end_event is not None and isinstance(end_event.payload, dict):
+                output = str(end_event.payload.get("output", ""))
+            items.append(
+                {
+                    "id": run.id,
+                    "kind": "workflow",
+                    "title": agent.name,
+                    "status": run.status,
+                    "input": _clip(run.input_text),
+                    "output": _clip(output),
+                    "model": agent.default_model or "",
+                    "duration_ms": run.total_ms,
+                    "error_code": run.error_code,
+                    "created_at": run.started_at,
+                    "href": f"/workflows?run={run.id}",
+                }
+            )
+    items.sort(key=lambda item: item["created_at"], reverse=True)
+    return items[:limit]
 
 
 async def favorite_agent_ids(

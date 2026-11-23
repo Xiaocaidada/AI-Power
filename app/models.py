@@ -374,6 +374,7 @@ class CustomAgent(Base):
     visibility: Mapped[str] = mapped_column(String(20), default="private", index=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     published: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    featured: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     public_slug: Mapped[str | None] = mapped_column(String(80), default=None)
     published_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), default=None
@@ -460,6 +461,9 @@ class Project(Base):
     default_model: Mapped[str | None] = mapped_column(String(200), default=None)
     default_kb_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("knowledge_bases.id", ondelete="SET NULL"), default=None
+    )
+    default_custom_agent_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("custom_agents.id", ondelete="SET NULL"), default=None
     )
     default_agent: Mapped[bool] = mapped_column(Boolean, default=False)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)

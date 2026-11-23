@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bot, Pencil, Plus, Trash2, Workflow } from 'lucide-react'
+import { Bot, Copy, Pencil, Plus, Star, Trash2, Workflow } from 'lucide-react'
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
@@ -78,15 +78,19 @@ export function AgentsPage() {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('')
+  const [scope, setScope] = useState<
+    'all' | 'mine' | 'created' | 'copied' | 'favorites' | 'published'
+  >('all')
   const [editing, setEditing] = useState<CustomAgent | null | undefined>()
 
   const agents = useQuery({
-    queryKey: ['agents', search, category],
+    queryKey: ['agents', search, category, scope],
     queryFn: () =>
       apiRequest<CustomAgent[]>(
         `/agents?${new URLSearchParams({
           ...(search.trim() !== '' ? { q: search.trim() } : {}),
           ...(category !== '' ? { category } : {}),
+          scope,
         }).toString()}`,
       ),
   })
@@ -100,8 +104,32 @@ export function AgentsPage() {
   }
 
   const experience = (agent: CustomAgent) => {
-    navigate(agent.builtin ? '/chat?agentMode=1' : `/chat?agent=${agent.id}`)
+    navigate(agent.builtin ? '/chat?agentMode=1' : `/agents/${agent.id}/experience`)
   }
+
+  const toggleFavorite = async (agent: CustomAgent) => {
+    await apiRequest(`/agents/${agent.id}/favorite`, {
+      method: agent.favorite ? 'DELETE' : 'PUT',
+    })
+    await refresh()
+  }
+
+  const copyAgent = async (agent: CustomAgent) => {
+    const created = await apiRequest<CustomAgent>(`/agents/${agent.id}/copy`, {
+      method: 'POST',
+    })
+    await refresh()
+    navigate(`/studio/${created.id}`)
+  }
+
+  const scopes = [
+    { key: 'all', label: t('agents.scopeAll') },
+    { key: 'mine', label: t('agents.scopeMine') },
+    { key: 'created', label: t('agents.scopeCreated') },
+    { key: 'copied', label: t('agents.scopeCopied') },
+    { key: 'favorites', label: t('agents.scopeFavorites') },
+    { key: 'published', label: t('agents.scopePublished') },
+  ] as const
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -117,6 +145,22 @@ export function AgentsPage() {
       </header>
 
       <div className="space-y-5 px-6 py-6">
+        <div className="flex flex-wrap gap-1 rounded-lg border border-border bg-surface p-1">
+          {scopes.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => setScope(item.key)}
+              className={`rounded-md px-3 py-1.5 text-xs ${
+                scope === item.key
+                  ? 'bg-accent-soft text-accent'
+                  : 'text-ink-muted hover:bg-surface-muted hover:text-ink'
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
         <div className="flex flex-wrap gap-2">
           <input
             value={search}
@@ -154,6 +198,8 @@ export function AgentsPage() {
                   {agent.visibility === 'shared' && (
                     <Badge tone="accent">{t('agents.shared')}</Badge>
                   )}
+                  {agent.published && <Badge tone="success">{t('agents.published')}</Badge>}
+                  {agent.featured && <Badge tone="accent">{t('agents.featured')}</Badge>}
                   {agent.archived && <Badge tone="warning">{t('agents.archived')}</Badge>}
                 </div>
               </div>
@@ -183,6 +229,28 @@ export function AgentsPage() {
                 <Button size="sm" onClick={() => experience(agent)}>
                   {t('agents.experience')}
                 </Button>
+                {!agent.builtin && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant={agent.favorite ? 'primary' : 'secondary'}
+                      aria-label={t('agents.favorite')}
+                      onClick={() => void toggleFavorite(agent)}
+                    >
+                      <Star className="h-3 w-3" />
+                      {agent.favorite ? t('agents.favorited') : t('agents.favorite')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      aria-label={t('agents.copy')}
+                      onClick={() => void copyAgent(agent)}
+                    >
+                      <Copy className="h-3 w-3" />
+                      {t('agents.copy')}
+                    </Button>
+                  </>
+                )}
                 {!agent.builtin && agent.owned && (
                   <>
                     <Button

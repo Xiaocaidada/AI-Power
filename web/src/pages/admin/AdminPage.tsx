@@ -15,6 +15,7 @@ import type {
   AdminRunSummary,
   AdminUsage,
   AdminWorkspace,
+  AgentMarketSummary,
   Announcement,
   AuditLog,
   HomePlacement,
@@ -23,9 +24,9 @@ import type {
 import { cn } from '../../lib/utils'
 import { useAuthStore } from '../../store/auth'
 
-type Tab = 'overview' | 'users' | 'workspaces' | 'models' | 'audit'
+type Tab = 'overview' | 'users' | 'workspaces' | 'models' | 'agents' | 'audit'
 
-const TABS: Tab[] = ['overview', 'users', 'workspaces', 'models', 'audit']
+const TABS: Tab[] = ['overview', 'users', 'workspaces', 'models', 'agents', 'audit']
 
 export function AdminPage() {
   const { t, language } = useI18n()
@@ -34,6 +35,7 @@ export function AdminPage() {
   const [tab, setTab] = useState<Tab>('overview')
   const [workspaceId, setWorkspaceId] = useState<string | null>(null)
   const [busyModel, setBusyModel] = useState<string | null>(null)
+  const [busyAgent, setBusyAgent] = useState<string | null>(null)
 
   const isAdmin = user?.role === 'admin'
   const users = useQuery({
@@ -66,6 +68,11 @@ export function AdminPage() {
     queryFn: () => apiRequest<AdminRunSummary>('/admin/runs/summary'),
     enabled: isAdmin,
   })
+  const agentCatalog = useQuery({
+    queryKey: ['admin-agents'],
+    queryFn: () => apiRequest<AgentMarketSummary[]>('/admin/agents'),
+    enabled: isAdmin && tab === 'agents',
+  })
   const audit = useQuery({
     queryKey: ['admin-audit'],
     queryFn: () => apiRequest<AuditLog[]>('/admin/audit-logs'),
@@ -92,6 +99,21 @@ export function AdminPage() {
     maximumFractionDigits: 6,
   })
   const numberFormat = new Intl.NumberFormat(language === 'zh' ? 'zh-CN' : 'en')
+
+  const toggleAgentFeatured = async (agent: AgentMarketSummary) => {
+    setBusyAgent(agent.id)
+    try {
+      await apiRequest(`/admin/agents/${agent.id}/feature`, {
+        method: 'POST',
+        body: { featured: !agent.featured },
+      })
+      await queryClient.invalidateQueries({ queryKey: ['admin-agents'] })
+      await queryClient.invalidateQueries({ queryKey: ['market-agents'] })
+      await queryClient.invalidateQueries({ queryKey: ['admin-audit'] })
+    } finally {
+      setBusyAgent(null)
+    }
+  }
 
   const toggleModel = async (model: AdminModel) => {
     setBusyModel(model.id)
@@ -364,6 +386,57 @@ export function AdminPage() {
                   <tr>
                     <td colSpan={3} className="px-3 py-4 text-center text-sm text-ink-muted">
                       {t('admin.noModels')}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </section>
+        )}
+
+        {tab === 'agents' && (
+          <section className="overflow-x-auto rounded-card border border-border bg-surface">
+            <table className="w-full min-w-[640px] text-left text-sm">
+              <thead className="border-b border-border text-xs uppercase tracking-wide text-ink-muted">
+                <tr>
+                  <th className="px-3 py-2 font-medium">{t('admin.agent')}</th>
+                  <th className="px-3 py-2 font-medium">{t('admin.category')}</th>
+                  <th className="px-3 py-2 font-medium">{t('admin.usage')}</th>
+                  <th className="px-3 py-2 text-right font-medium">{t('admin.featured')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(agentCatalog.data ?? []).map((agent) => (
+                  <tr key={agent.id} className="border-b border-border last:border-0">
+                    <td className="px-3 py-2">
+                      <span className="mr-2">{agent.icon}</span>
+                      {agent.name}
+                      <span className="ml-2 font-mono text-[10px] text-ink-muted">
+                        {agent.slug}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-xs text-ink-muted">
+                      {agent.category}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-ink-muted">
+                      {agent.usage_count}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <Button
+                        size="sm"
+                        variant={agent.featured ? 'primary' : 'secondary'}
+                        disabled={busyAgent === agent.id}
+                        onClick={() => void toggleAgentFeatured(agent)}
+                      >
+                        {agent.featured ? t('admin.unfeature') : t('admin.feature')}
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+                {(agentCatalog.data ?? []).length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-3 py-4 text-center text-sm text-ink-muted">
+                      {t('admin.noAgents')}
                     </td>
                   </tr>
                 )}
