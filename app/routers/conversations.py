@@ -38,6 +38,7 @@ from app.models import (
     Message,
     MessageCitation,
     MessageFeedback,
+    Project,
     Trace,
 )
 from app.observability import request_id_var
@@ -85,6 +86,12 @@ from app.services.memories import (
     get_memory_settings,
     record_memory_usage,
     select_memories,
+)
+from app.services.memory_permissions import (
+    MemoryAccess,
+    agent_memory_access,
+    project_allows_global,
+    project_memory_allowed,
 )
 from app.services.plugins import (
     PluginError,
@@ -582,6 +589,9 @@ async def _stream_agent_reply(
     started: float | None = None,
     generation_opts: dict[str, object] | None = None,
     root_agent: str = SUPERVISOR_AGENT,
+    agent_id: UUID | None = None,
+    project_id: UUID | None = None,
+    memory_access: MemoryAccess | None = None,
 ) -> AsyncIterator[str]:
     tool_citations: list[Citation] = []
     runner = AgentRunner(
@@ -596,6 +606,9 @@ async def _stream_agent_reply(
             kb_id=kb_id,
             kb_ids=list(kb_ids) if kb_ids is not None else None,
             conversation_id=conversation_id,
+            agent_id=agent_id,
+            project_id=project_id,
+            memory_access=memory_access,
             redis=redis,
             citations=tool_citations,
         ),
@@ -1846,6 +1859,15 @@ async def _start_chat_turn(
     memory_settings = await get_memory_settings(
         session, context.workspace.id, context.user.id
     )
+    conversation_project: Project | None = None
+    if conversation.project_id is not None:
+        candidate_project = await session.get(Project, conversation.project_id)
+        if (
+            candidate_project is not None
+            and candidate_project.workspace_id == context.workspace.id
+            and candidate_project.archived_at is None
+        ):
+            conversation_project = candidate_project
     memory_allowed = (
         conversation.memory_enabled
         if conversation.memory_enabled is not None
@@ -1853,8 +1875,16 @@ async def _start_chat_turn(
     )
     if not memory_settings.enabled:
         memory_allowed = False
-    if custom_agent is not None and not custom_agent.memory_enabled:
+    if (
+        conversation_project is not None
+        and project_memory_allowed(conversation_project) is False
+    ):
         memory_allowed = False
+    agent_access: MemoryAccess | None = None
+    if custom_agent is not None:
+        agent_access = agent_memory_access(custom_agent)
+        if not custom_agent.memory_enabled:
+            memory_allowed = False
     memory_block = ""
     memory_items = []
     if memory_allowed:
@@ -1864,6 +1894,17 @@ async def _start_chat_turn(
                 excluded.append(UUID(str(item)))
             except ValueError:
                 continue
+        if agent_access is None:
+            read_scopes = {"global", "project"}
+        else:
+            read_scopes = set(agent_access.read_scopes)
+            if conversation_project is None:
+                read_scopes.discard("project")
+        if (
+            conversation_project is not None
+            and not project_allows_global(conversation_project)
+        ):
+            read_scopes.discard("global")
         selection = await select_memories(
             session,
             workspace_id=context.workspace.id,
@@ -1877,6 +1918,7 @@ async def _start_chat_turn(
             provider_id=provider.id if provider is not None else None,
             model=routed_model,
             allow_cross_model=memory_settings.allow_cross_model,
+            allowed_scopes=read_scopes,
         )
         memory_block = selection.block
         memory_items = selection.items
@@ -2034,6 +2076,9 @@ async def _start_chat_turn(
             trace_id=trace.id,
             started=started,
             generation_opts=opts,
+            agent_id=custom_agent.id if custom_agent is not None else None,
+            project_id=conversation.project_id,
+            memory_access=agent_access,
         )
     else:
         response_stream = _stream_reply(

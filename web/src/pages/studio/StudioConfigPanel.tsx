@@ -207,6 +207,96 @@ export function StudioConfigPanel({
             {t('studio.memoryEnabled')}
           </label>
           <p className="mt-1 text-[10px] text-ink-muted">{t('studio.memoryHint')}</p>
+          {draft.memoryEnabled && (
+            <div className="mt-2 rounded-lg border border-border bg-surface-muted/40 p-3">
+              <p className="text-[11px] font-medium text-ink">
+                {t('studio.memoryPermissions')}
+              </p>
+              <p className="mt-0.5 text-[10px] text-ink-muted">
+                {t('studio.memoryPermissionsHint')}
+              </p>
+              <div className="mt-2 flex flex-wrap gap-3 text-xs text-ink">
+                <label className="flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={draft.memoryReadGlobal}
+                    onChange={(event) =>
+                      onChange({ memoryReadGlobal: event.target.checked })
+                    }
+                  />
+                  {t('memory.scopeType.global')}
+                </label>
+                <label className="flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={draft.memoryReadProject}
+                    onChange={(event) =>
+                      onChange({ memoryReadProject: event.target.checked })
+                    }
+                  />
+                  {t('memory.scopeType.project')}
+                </label>
+                <label className="flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={draft.memoryReadAgent}
+                    onChange={(event) =>
+                      onChange({ memoryReadAgent: event.target.checked })
+                    }
+                  />
+                  {t('memory.scopeType.agent')}
+                </label>
+              </div>
+              <label className="mt-2 flex items-center gap-2 text-xs text-ink">
+                <input
+                  type="checkbox"
+                  checked={draft.memoryWrite}
+                  onChange={(event) =>
+                    onChange({ memoryWrite: event.target.checked })
+                  }
+                />
+                {t('studio.memoryWrite')}
+              </label>
+              {draft.memoryWrite && (
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <div className="text-xs text-ink-muted">
+                    {t('studio.memoryWriteScope')}
+                    <PopoverSelect
+                      label={t('studio.memoryWriteScope')}
+                      value={draft.memoryWriteScope}
+                      options={[
+                        { value: 'agent', label: t('memory.scopeType.agent') },
+                        { value: 'project', label: t('memory.scopeType.project') },
+                        { value: 'global', label: t('memory.scopeType.global') },
+                      ]}
+                      onChange={(value) =>
+                        onChange({
+                          memoryWriteScope: value as StudioAgentDraft['memoryWriteScope'],
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="text-xs text-ink-muted">
+                    {t('studio.memoryWriteMode')}
+                    <PopoverSelect
+                      label={t('studio.memoryWriteMode')}
+                      value={draft.memoryWriteMode}
+                      options={[
+                        { value: 'candidate', label: t('studio.memoryModeCandidate') },
+                        { value: 'create', label: t('studio.memoryModeCreate') },
+                        { value: 'upsert', label: t('studio.memoryModeUpsert') },
+                      ]}
+                      onChange={(value) =>
+                        onChange({
+                          memoryWriteMode: value as StudioAgentDraft['memoryWriteMode'],
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           <div className="mt-3">
             <MultiPopoverSelect
               label={t('studio.plugins')}

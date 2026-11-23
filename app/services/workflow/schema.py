@@ -64,6 +64,7 @@ class AgentNodeConfig(BaseModel):
     kb_ids: list[UUID] = Field(default_factory=list, max_length=10)
     tools: list[str] = Field(default_factory=list, max_length=20)
     max_steps: int | None = Field(default=None, ge=1, le=32)
+    project_id: UUID | None = None
 
     @model_validator(mode="after")
     def _validate_target(self) -> "AgentNodeConfig":
@@ -158,6 +159,17 @@ class MemoryReadNodeConfig(BaseModel):
     query: str = Field(default="", max_length=2000)
     limit: int = Field(default=5, ge=1, le=20)
     scope: MemoryScope = "user"
+    scope_type: Literal["all", "global", "project", "agent"] = "all"
+    project_id: UUID | None = None
+    agent_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def _validate_read_scope(self) -> "MemoryReadNodeConfig":
+        if self.scope_type == "project" and self.project_id is None:
+            raise ValueError("project memory read requires project_id")
+        if self.scope_type == "agent" and self.agent_id is None:
+            raise ValueError("agent memory read requires agent_id")
+        return self
 
 
 class MemoryWriteNodeConfig(BaseModel):
@@ -165,6 +177,19 @@ class MemoryWriteNodeConfig(BaseModel):
     content: str = Field(min_length=1, max_length=10000)
     scope: MemoryScope = "user"
     kind: Literal["fact", "preference", "summary"] = "fact"
+    scope_type: Literal["global", "project", "agent"] = "global"
+    project_id: UUID | None = None
+    agent_id: UUID | None = None
+    status: Literal["active", "candidate"] = "active"
+    upsert: bool = False
+
+    @model_validator(mode="after")
+    def _validate_write_scope(self) -> "MemoryWriteNodeConfig":
+        if self.scope_type == "project" and self.project_id is None:
+            raise ValueError("project memory write requires project_id")
+        if self.scope_type == "agent" and self.agent_id is None:
+            raise ValueError("agent memory write requires agent_id")
+        return self
 
 
 class CodeNodeConfig(BaseModel):

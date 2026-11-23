@@ -866,6 +866,9 @@ class ProjectCreate(BaseModel):
     kb_ids: list[UUID] = Field(default_factory=list, max_length=10)
     default_custom_agent_id: UUID | None = None
     default_agent: bool = False
+    memory_enabled: bool | None = None
+    allow_global_memory: bool = True
+    allow_agent_writes: bool = False
 
     @field_validator(
         "name", "description", "instructions", "default_provider_id", "default_model",
@@ -886,6 +889,9 @@ class ProjectUpdate(BaseModel):
     kb_ids: list[UUID] | None = Field(default=None, max_length=10)
     default_custom_agent_id: UUID | None = None
     default_agent: bool | None = None
+    memory_enabled: bool | None = None
+    allow_global_memory: bool | None = None
+    allow_agent_writes: bool | None = None
     archived: bool | None = None
 
     @field_validator(
@@ -908,6 +914,9 @@ class ProjectOut(BaseModel):
     kb_ids: list[UUID] = Field(default_factory=list)
     default_custom_agent_id: UUID | None = None
     default_agent: bool
+    memory_enabled: bool | None = None
+    allow_global_memory: bool = True
+    allow_agent_writes: bool = False
     archived: bool
     conversation_count: int
     owned: bool
@@ -937,6 +946,12 @@ class CustomAgentCreate(BaseModel):
     allow_copy: bool = True
     show_structure: bool = True
     memory_enabled: bool = False
+    memory_read_global: bool = True
+    memory_read_project: bool = True
+    memory_read_agent: bool = True
+    memory_write: bool = False
+    memory_write_scope: Literal["global", "project", "agent"] = "agent"
+    memory_write_mode: Literal["candidate", "create", "upsert"] = "candidate"
 
     @field_validator(
         "name", "description", "instructions", "category", "default_provider_id",
@@ -970,6 +985,12 @@ class CustomAgentUpdate(BaseModel):
     allow_copy: bool | None = None
     show_structure: bool | None = None
     memory_enabled: bool | None = None
+    memory_read_global: bool | None = None
+    memory_read_project: bool | None = None
+    memory_read_agent: bool | None = None
+    memory_write: bool | None = None
+    memory_write_scope: Literal["global", "project", "agent"] | None = None
+    memory_write_mode: Literal["candidate", "create", "upsert"] | None = None
 
     @field_validator(
         "name", "description", "instructions", "category", "default_provider_id",
@@ -1002,6 +1023,12 @@ class CustomAgentOut(BaseModel):
     visibility: str
     enabled: bool
     memory_enabled: bool = False
+    memory_read_global: bool = True
+    memory_read_project: bool = True
+    memory_read_agent: bool = True
+    memory_write: bool = False
+    memory_write_scope: Literal["global", "project", "agent"] = "agent"
+    memory_write_mode: Literal["candidate", "create", "upsert"] = "candidate"
     rating_avg: float = 0.0
     rating_count: int = 0
     archived: bool

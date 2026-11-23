@@ -401,6 +401,9 @@ export interface Project {
   kb_ids: string[]
   default_custom_agent_id: string | null
   default_agent: boolean
+  memory_enabled: boolean | null
+  allow_global_memory: boolean
+  allow_agent_writes: boolean
   archived: boolean
   conversation_count: number
   owned: boolean
@@ -452,6 +455,12 @@ export interface CustomAgent {
   visibility: 'private' | 'shared'
   enabled: boolean
   memory_enabled: boolean
+  memory_read_global: boolean
+  memory_read_project: boolean
+  memory_read_agent: boolean
+  memory_write: boolean
+  memory_write_scope: MemoryScopeType
+  memory_write_mode: 'candidate' | 'create' | 'upsert'
   rating_avg: number
   rating_count: number
   archived: boolean
@@ -772,6 +781,8 @@ export interface WorkflowCatalogField {
     | 'kb_multi'
     | 'mcp_server'
     | 'db_connection'
+    | 'project'
+    | 'boolean'
   required?: boolean
   hint?: string
   options?: string[]

@@ -9,6 +9,7 @@ from pydantic import BaseModel, ValidationError
 
 from app.clients import RedisLike
 from app.config import get_settings
+from app.services.memory_permissions import MemoryAccess
 from app.services.retrieval import Citation
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,9 @@ class ToolContext:
     kb_id: UUID | None = None
     kb_ids: list[UUID] | None = None
     conversation_id: UUID | None = None
+    agent_id: UUID | None = None
+    project_id: UUID | None = None
+    memory_access: MemoryAccess | None = None
     redis: RedisLike | None = None
     citations: list[Citation] | None = None
 

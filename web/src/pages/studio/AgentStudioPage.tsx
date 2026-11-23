@@ -24,6 +24,7 @@ import type {
   ModelEntry,
   PersonalModel,
   Plugin,
+  Project,
   Workflow,
   WorkflowCatalog,
   WorkflowDefinition,
@@ -95,6 +96,11 @@ export function AgentStudioPage() {
   const pluginsQuery = useQuery({
     queryKey: ['plugins'],
     queryFn: () => apiRequest<Plugin[]>('/plugins'),
+    staleTime: 60_000,
+  })
+  const projectsQuery = useQuery({
+    queryKey: ['projects'],
+    queryFn: () => apiRequest<Project[]>('/projects'),
     staleTime: 60_000,
   })
   const agentsQuery = useQuery({
@@ -217,6 +223,12 @@ export function AgentStudioPage() {
           allow_copy: draft.allowCopy,
           show_structure: draft.showStructure,
           memory_enabled: draft.memoryEnabled,
+          memory_read_global: draft.memoryReadGlobal,
+          memory_read_project: draft.memoryReadProject,
+          memory_read_agent: draft.memoryReadAgent,
+          memory_write: draft.memoryWrite,
+          memory_write_scope: draft.memoryWriteScope,
+          memory_write_mode: draft.memoryWriteMode,
         },
       })
       await queryClient.invalidateQueries({ queryKey: ['studio-agent', id] })
@@ -373,6 +385,7 @@ export function AgentStudioPage() {
               knowledgeBases: knowledgeQuery.data ?? [],
               agents: (agentsQuery.data ?? []).filter((item) => !item.builtin),
               plugins: pluginsQuery.data ?? [],
+              projects: projectsQuery.data ?? [],
               mcpServers: mcpServersQuery.data ?? [],
               databaseConnections: databaseConnectionsQuery.data ?? [],
             }}

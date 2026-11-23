@@ -22,8 +22,11 @@ from app.models import (
     WorkflowRunEvent,
     WorkflowVersion,
 )
+from app.services.memory_permissions import normalize_agent_permissions
 
-AGENT_TOOL_NAMES = frozenset({"kb_search", "current_time", "calculator"})
+AGENT_TOOL_NAMES = frozenset(
+    {"kb_search", "current_time", "calculator", "memory_search", "memory_save"}
+)
 AGENT_MODES = frozenset({"autonomous", "workflow", "hybrid"})
 BUILTIN_AGENT_IDS = frozenset({"builtin:supervisor", "builtin:retrieval", "builtin:math"})
 SLUG_PATTERN = re.compile(r"[^a-z0-9]+")
@@ -76,6 +79,13 @@ def build_agent_spec(agent: CustomAgent, extra_tools: tuple[str, ...] = ()) -> A
     tools = list(agent.tools)
     if (agent.default_kb_id is not None or agent.kb_ids) and "kb_search" not in tools:
         tools.append("kb_search")
+    permissions = normalize_agent_permissions(
+        agent.memory_permissions, agent.memory_enabled
+    )
+    if agent.memory_enabled and "memory_search" not in tools:
+        tools.append("memory_search")
+    if permissions["write"] and "memory_save" not in tools:
+        tools.append("memory_save")
     tools = list(dict.fromkeys([*tools, *extra_tools]))
     return AgentSpec(
         name=custom_agent_name(agent.id),
@@ -338,6 +348,7 @@ def _sanitize_workflow_definition(definition: dict[str, Any]) -> dict[str, Any]:
             config["kb_ids"] = []
         elif node_type == "agent":
             config.pop("agent_id", None)
+            config.pop("project_id", None)
             config["kb_ids"] = []
         elif node_type == "http":
             # Never publish outbound credentials or request payloads; copies must
@@ -350,9 +361,13 @@ def _sanitize_workflow_definition(definition: dict[str, Any]) -> dict[str, Any]:
             config["arguments"] = {}
         elif node_type == "memory_read":
             config["query"] = ""
+            config.pop("project_id", None)
+            config.pop("agent_id", None)
         elif node_type == "memory_write":
             config["title"] = ""
             config["content"] = ""
+            config.pop("project_id", None)
+            config.pop("agent_id", None)
     return copied
 
 
@@ -731,6 +746,8 @@ async def copy_published_agent(
         plugin_ids=[],
         workflow_id=workflow_id,
         visibility="private",
+        memory_enabled=source.memory_enabled,
+        memory_permissions=dict(source.memory_permissions or {}),
         source_agent_id=source.id,
         allow_copy=True,
         show_structure=source.show_structure,

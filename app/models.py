@@ -424,6 +424,7 @@ class CustomAgent(Base):
     visibility: Mapped[str] = mapped_column(String(20), default="private", index=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     memory_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    memory_permissions: Mapped[dict] = mapped_column(JSON, default=dict)
     rating_avg: Mapped[float] = mapped_column(Float, default=0.0)
     rating_count: Mapped[int] = mapped_column(Integer, default=0)
     published: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
@@ -813,6 +814,7 @@ class Project(Base):
         ForeignKey("custom_agents.id", ondelete="SET NULL"), default=None
     )
     default_agent: Mapped[bool] = mapped_column(Boolean, default=False)
+    memory_permissions: Mapped[dict] = mapped_column(JSON, default=dict)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(

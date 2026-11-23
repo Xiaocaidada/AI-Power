@@ -345,6 +345,7 @@ export function KnowledgeStudioPage() {
                   knowledgeBases: [],
                   agents: [],
                   plugins: [],
+                  projects: [],
                   mcpServers: [],
                   databaseConnections: [],
                 }}

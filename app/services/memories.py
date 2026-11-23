@@ -265,6 +265,47 @@ async def _validate_agent(
         raise MemoryError("agent_not_found", "Agent not found")
 
 
+async def validate_memory_targets(
+    session: AsyncSession,
+    workspace_id: UUID,
+    *,
+    project_id: UUID | None = None,
+    agent_id: UUID | None = None,
+) -> None:
+    await _validate_project(session, workspace_id, project_id)
+    await _validate_agent(session, workspace_id, agent_id)
+
+
+async def find_memory_by_title(
+    session: AsyncSession,
+    *,
+    workspace_id: UUID,
+    user_id: UUID,
+    title: str,
+    scope_type: str,
+    project_id: UUID | None = None,
+    agent_id: UUID | None = None,
+) -> AgentMemory | None:
+    clean_title = title.strip()[:120]
+    if not clean_title:
+        return None
+    return (
+        await session.execute(
+            select(AgentMemory)
+            .where(
+                *_personal_filters(workspace_id, user_id),
+                AgentMemory.title == clean_title,
+                AgentMemory.scope_type == scope_type,
+                AgentMemory.project_id == project_id,
+                AgentMemory.agent_id == agent_id,
+                AgentMemory.status.notin_(["archived", "rejected"]),
+            )
+            .order_by(AgentMemory.updated_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+
 async def get_memory_settings(
     session: AsyncSession, workspace_id: UUID, user_id: UUID
 ) -> MemorySettings:
@@ -983,8 +1024,11 @@ async def select_memories(
     provider_id: str | None = None,
     model: str | None = None,
     allow_cross_model: bool = True,
+    allowed_scopes: frozenset[str] | set[str] | None = None,
 ) -> MemorySelection:
     now = datetime.now(UTC)
+    if allowed_scopes is not None and not allowed_scopes:
+        return MemorySelection(block="", items=[])
     conditions = [
         *_personal_filters(workspace_id, user_id),
         AgentMemory.status == "active",
@@ -1014,6 +1058,8 @@ async def select_memories(
             ),
         ),
     ]
+    if allowed_scopes is not None:
+        conditions.append(AgentMemory.scope_type.in_(sorted(allowed_scopes)))
     if excluded_ids:
         conditions.append(AgentMemory.id.notin_(excluded_ids[:50]))
     settings = get_settings()
@@ -1095,6 +1141,7 @@ async def memory_context(
     provider_id: str | None = None,
     model: str | None = None,
     allow_cross_model: bool = True,
+    allowed_scopes: frozenset[str] | set[str] | None = None,
 ) -> str:
     selection = await select_memories(
         session,
@@ -1110,5 +1157,6 @@ async def memory_context(
         provider_id=provider_id,
         model=model,
         allow_cross_model=allow_cross_model,
+        allowed_scopes=allowed_scopes,
     )
     return selection.block
