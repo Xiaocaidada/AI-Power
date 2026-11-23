@@ -163,12 +163,18 @@ async def test_memory_relations_and_batch_updates(client, api):
     assert relation.status_code == 200, relation.text
     relation_id = relation.json()["id"]
     listed = await client.get(f"/memories/{first_id}/relations", headers=headers)
-    assert [row["id"] for row in listed.json()] == [relation_id]
+    listed_ids = {row["id"] for row in listed.json()}
+    assert relation_id in listed_ids
+    assert any(row["source"] == "auto" for row in listed.json())
 
     deleted = await client.delete(
         f"/memories/{first_id}/relations/{relation_id}", headers=headers
     )
     assert deleted.status_code == 204
+    after_delete = await client.get(
+        f"/memories/{first_id}/relations", headers=headers
+    )
+    assert relation_id not in {row["id"] for row in after_delete.json()}
 
     batch = await client.post(
         "/memories/batch",

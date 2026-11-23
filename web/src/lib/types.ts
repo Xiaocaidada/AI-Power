@@ -686,6 +686,42 @@ export interface MemoryRelation {
   created_at: string
 }
 
+export interface MemoryGraphNode {
+  id: string
+  type: 'memory' | 'project' | 'agent' | 'document'
+  label: string
+  memory_id: string | null
+  ref_id: string | null
+  category: MemoryCategory | null
+  scope_type: MemoryScopeType | null
+  status: MemoryStatus | null
+  pinned: boolean
+  importance: number | null
+}
+
+export interface MemoryGraphEdge {
+  id: string
+  source: string
+  target: string
+  relation_type: string
+  confidence: number
+  basis: string
+  source_kind: string
+}
+
+export interface MemoryGraphStats {
+  memories: number
+  external: number
+  relations: number
+  orphans: number
+}
+
+export interface MemoryGraph {
+  nodes: MemoryGraphNode[]
+  edges: MemoryGraphEdge[]
+  stats: MemoryGraphStats
+}
+
 export interface MemoryUsage {
   id: string
   memory_id: string

@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Pencil, RotateCcw } from 'lucide-react'
+import { Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react'
+import { useState } from 'react'
 
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
@@ -26,6 +27,10 @@ export function MemoryDetailDialog({
   const { t } = useI18n()
   const queryClient = useQueryClient()
   const memoryId = memory?.id ?? ''
+  const [targetId, setTargetId] = useState('')
+  const [relationType, setRelationType] = useState('related')
+  const [basis, setBasis] = useState('')
+  const [savingRelation, setSavingRelation] = useState(false)
   const versions = useQuery({
     queryKey: ['memory-versions', memoryId],
     queryFn: () => apiRequest<MemoryVersion[]>(`/memories/${memoryId}/versions`),
@@ -34,6 +39,11 @@ export function MemoryDetailDialog({
   const relations = useQuery({
     queryKey: ['memory-relations', memoryId],
     queryFn: () => apiRequest<MemoryRelation[]>(`/memories/${memoryId}/relations`),
+    enabled: memoryId !== '',
+  })
+  const targets = useQuery({
+    queryKey: ['memories', 'relation-targets'],
+    queryFn: () => apiRequest<AgentMemory[]>('/memories?status=active&limit=100'),
     enabled: memoryId !== '',
   })
 
@@ -53,6 +63,40 @@ export function MemoryDetailDialog({
     } catch (caught) {
       window.alert(t(errorTextKey(caught)))
     }
+  }
+
+  const addRelation = async () => {
+    if (targetId === '') return
+    setSavingRelation(true)
+    try {
+      await apiRequest(`/memories/${memory.id}/relations`, {
+        method: 'POST',
+        body: {
+          to_type: 'memory',
+          to_id: targetId,
+          relation_type: relationType,
+          basis: basis.trim(),
+        },
+      })
+      setTargetId('')
+      setBasis('')
+      await queryClient.invalidateQueries({
+        queryKey: ['memory-relations', memoryId],
+      })
+      await queryClient.invalidateQueries({ queryKey: ['memory-graph'] })
+    } catch (caught) {
+      window.alert(t(errorTextKey(caught)))
+    } finally {
+      setSavingRelation(false)
+    }
+  }
+
+  const removeRelation = async (relationId: string) => {
+    await apiRequest(`/memories/relations/${relationId}`, { method: 'DELETE' })
+    await queryClient.invalidateQueries({
+      queryKey: ['memory-relations', memoryId],
+    })
+    await queryClient.invalidateQueries({ queryKey: ['memory-graph'] })
   }
 
   return (
@@ -141,18 +185,96 @@ export function MemoryDetailDialog({
             </p>
           ) : (
             <ul className="mt-1 space-y-1">
-              {(relations.data ?? []).map((relation) => (
-                <li
-                  key={relation.id}
-                  className="rounded-md bg-surface-muted px-2 py-1 text-[11px] text-ink-muted"
-                >
-                  {relation.relation_type} → {relation.to_type} ·{' '}
-                  {relation.to_id.slice(0, 8)}
-                  {relation.basis !== '' ? ` · ${relation.basis}` : ''}
-                </li>
-              ))}
+              {(relations.data ?? []).map((relation) => {
+                const outgoing =
+                  relation.from_type === 'memory' &&
+                  relation.from_id === memory.id
+                const otherType = outgoing ? relation.to_type : relation.from_type
+                const otherId = outgoing ? relation.to_id : relation.from_id
+                const otherLabel =
+                  targets.data?.find((item) => item.id === otherId)?.title ||
+                  otherId.slice(0, 8)
+                return (
+                  <li
+                    key={relation.id}
+                    className="flex flex-wrap items-center gap-1.5 rounded-md bg-surface-muted px-2 py-1 text-[11px] text-ink-muted"
+                  >
+                    <Badge tone={relation.source === 'auto' ? 'neutral' : 'accent'}>
+                      {relation.source === 'auto'
+                        ? t('memory.relations.auto')
+                        : t('memory.relations.manual')}
+                    </Badge>
+                    <span className="text-ink">
+                      {outgoing ? '→' : '←'}{' '}
+                      {t(`memory.relationType.${relation.relation_type}`)}
+                    </span>
+                    <span>
+                      {otherType} · {otherLabel}
+                    </span>
+                    {relation.basis !== '' && <span>· {relation.basis}</span>}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="ml-auto"
+                      aria-label={t('common.delete')}
+                      onClick={() => void removeRelation(relation.id)}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </li>
+                )
+              })}
             </ul>
           )}
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <select
+              value={targetId}
+              onChange={(event) => setTargetId(event.target.value)}
+              className="h-8 min-w-40 flex-1 rounded-lg border border-border bg-surface px-2 text-[11px] text-ink"
+            >
+              <option value="">{t('memory.relations.selectTarget')}</option>
+              {(targets.data ?? [])
+                .filter((item) => item.id !== memory.id)
+                .map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.title || item.content.slice(0, 40)}
+                  </option>
+                ))}
+            </select>
+            <select
+              value={relationType}
+              onChange={(event) => setRelationType(event.target.value)}
+              className="h-8 rounded-lg border border-border bg-surface px-2 text-[11px] text-ink"
+            >
+              {(
+                [
+                  'related',
+                  'supports',
+                  'contradicts',
+                  'supersedes',
+                  'derived_from',
+                ] as const
+              ).map((item) => (
+                <option key={item} value={item}>
+                  {t(`memory.relationType.${item}`)}
+                </option>
+              ))}
+            </select>
+            <input
+              value={basis}
+              onChange={(event) => setBasis(event.target.value)}
+              placeholder={t('memory.relations.basis')}
+              className="h-8 min-w-40 flex-1 rounded-lg border border-border bg-surface px-2 text-[11px] text-ink"
+            />
+            <Button
+              size="sm"
+              disabled={savingRelation || targetId === ''}
+              onClick={() => void addRelation()}
+            >
+              <Plus className="h-3 w-3" />
+              {t('memory.relations.add')}
+            </Button>
+          </div>
         </section>
 
         <section>

@@ -166,6 +166,50 @@ test('Memory hub renders overview, list, detail and settings', async ({ page }) 
     }),
   )
   await page.route('**/api/memories?*', (route) => route.fulfill({ json: [memory] }))
+  await page.route('**/api/memories/graph?*', (route) =>
+    route.fulfill({
+      json: {
+        nodes: [
+          {
+            id: `memory:${memory.id}`,
+            type: 'memory',
+            label: memory.title,
+            memory_id: memory.id,
+            ref_id: memory.id,
+            category: 'preference',
+            scope_type: 'global',
+            status: 'active',
+            pinned: true,
+            importance: 4,
+          },
+          {
+            id: 'project:p1',
+            type: 'project',
+            label: '示例项目',
+            memory_id: null,
+            ref_id: 'p1',
+            category: null,
+            scope_type: null,
+            status: null,
+            pinned: false,
+            importance: null,
+          },
+        ],
+        edges: [
+          {
+            id: 'rel-1',
+            source: `memory:${memory.id}`,
+            target: 'project:p1',
+            relation_type: 'related',
+            confidence: 1,
+            basis: 'scope: project',
+            source_kind: 'auto',
+          },
+        ],
+        stats: { memories: 1, external: 1, relations: 1, orphans: 0 },
+      },
+    }),
+  )
   await page.route('**/api/projects', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/agents?scope=mine', (route) =>
     route.fulfill({ json: [] }),
@@ -182,6 +226,9 @@ test('Memory hub renders overview, list, detail and settings', async ({ page }) 
     page.getByRole('dialog').getByText('v2', { exact: true }),
   ).toBeVisible()
   await page.getByRole('button', { name: '关闭' }).click()
+  await page.getByRole('button', { name: '关系图谱' }).click()
+  await expect(page.getByText('记忆节点: 1')).toBeVisible()
+  await expect(page.getByText('外部节点: 1')).toBeVisible()
   await page.getByRole('button', { name: '规则设置' }).click()
   await expect(page.getByText('记忆规则')).toBeVisible()
   await expect(page.getByText('未开启').last()).toBeVisible()
