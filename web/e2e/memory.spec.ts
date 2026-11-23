@@ -166,6 +166,30 @@ test('Memory hub renders overview, list, detail and settings', async ({ page }) 
     }),
   )
   await page.route('**/api/memories?*', (route) => route.fulfill({ json: [memory] }))
+  await page.route('**/api/memories/quality', (route) =>
+    route.fulfill({
+      json: {
+        analysis: {
+          total: 1,
+          duplicates: 0,
+          duplicate_groups: [],
+          conflicts: 0,
+          expired: 0,
+          unused: 0,
+          missing_source: 0,
+          incomplete: 0,
+          orphans: 0,
+        },
+        suggestions: [],
+      },
+    }),
+  )
+  await page.route('**/api/memories/eval/cases', (route) =>
+    route.fulfill({ json: [] }),
+  )
+  await page.route('**/api/memories/eval/runs?*', (route) =>
+    route.fulfill({ json: [] }),
+  )
   await page.route('**/api/memories/graph?*', (route) =>
     route.fulfill({
       json: {
@@ -229,6 +253,9 @@ test('Memory hub renders overview, list, detail and settings', async ({ page }) 
   await page.getByRole('button', { name: '关系图谱' }).click()
   await expect(page.getByText('记忆节点: 1')).toBeVisible()
   await expect(page.getByText('外部节点: 1')).toBeVisible()
+  await page.getByRole('button', { name: '质量分析' }).click()
+  await expect(page.getByText('记忆质量分析')).toBeVisible()
+  await expect(page.getByText('有效记忆')).toBeVisible()
   await page.getByRole('button', { name: '规则设置' }).click()
   await expect(page.getByText('记忆规则')).toBeVisible()
   await expect(page.getByText('未开启').last()).toBeVisible()

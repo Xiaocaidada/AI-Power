@@ -172,6 +172,14 @@ metrics.describe(
     "ai_power_memory_candidates_total",
     "Memory candidate review actions",
 )
+metrics.describe(
+    "ai_power_memory_quality_actions_total",
+    "Memory quality suggestions generated/applied/rolled back/dismissed",
+)
+metrics.describe(
+    "ai_power_memory_eval_runs_total",
+    "Memory evaluation runs by status",
+)
 
 
 class MetricsMiddleware(BaseHTTPMiddleware):

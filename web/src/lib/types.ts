@@ -722,6 +722,76 @@ export interface MemoryGraph {
   stats: MemoryGraphStats
 }
 
+export interface MemoryQualityAnalysis {
+  total: number
+  duplicates: number
+  duplicate_groups: string[][]
+  conflicts: number
+  expired: number
+  unused: number
+  missing_source: number
+  incomplete: number
+  orphans: number
+}
+
+export type MemoryOptimizationKind =
+  | 'merge_duplicates'
+  | 'resolve_conflict'
+  | 'expire_memory'
+  | 'archive_memory'
+  | 'recategorize'
+
+export interface MemoryOptimization {
+  id: string
+  kind: string
+  status: 'pending' | 'applied' | 'dismissed' | 'rolled_back'
+  title: string
+  reason: string
+  expected_effect: string
+  memory_ids: string[]
+  payload: Record<string, unknown>
+  applied_at: string | null
+  rolled_back_at: string | null
+  created_at: string
+}
+
+export interface MemoryQuality {
+  analysis: MemoryQualityAnalysis
+  suggestions: MemoryOptimization[]
+}
+
+export interface MemoryEvalCase {
+  id: string
+  name: string
+  query: string
+  expected_memory_ids: string[]
+  project_id: string | null
+  agent_id: string | null
+  notes: string
+  created_at: string
+  updated_at: string
+}
+
+export interface MemoryEvalRun {
+  id: string
+  status: string
+  cases_count: number
+  metrics: Record<string, number>
+  results: {
+    case_id: string
+    name: string
+    query: string
+    expected_ids: string[]
+    retrieved_ids: string[]
+    hits: string[]
+    precision: number
+    recall: number
+    mrr: number
+  }[]
+  duration_ms: number
+  created_at: string
+}
+
 export interface MemoryUsage {
   id: string
   memory_id: string
@@ -1455,6 +1525,11 @@ export interface QuotaKnowledge {
   kb_bytes: number
 }
 
+export interface QuotaMemory {
+  max_memories: number
+  memory_count: number
+}
+
 export interface QuotaSummary {
   plan: string
   requests: QuotaWindow
@@ -1462,6 +1537,7 @@ export interface QuotaSummary {
   max_keys: number
   active_keys: number
   knowledge: QuotaKnowledge
+  memory: QuotaMemory
 }
 
 export interface TraceRecord {

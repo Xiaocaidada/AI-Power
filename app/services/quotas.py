@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import logging
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -10,8 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients import RedisLike
 from app.config import get_settings
-from app.deps import AuthContext
-from app.models import ApiKey, Document, KnowledgeBase
+from app.models import AgentMemory, ApiKey, Document, KnowledgeBase, Workspace
+
+if TYPE_CHECKING:
+    from app.deps import AuthContext
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +33,7 @@ class PlanLimits:
     max_kbs: int
     max_documents_per_kb: int
     max_kb_bytes: int
+    max_memories: int
 
 
 def plan_limits(plan: str) -> PlanLimits:
@@ -41,6 +47,7 @@ def plan_limits(plan: str) -> PlanLimits:
             max_kbs=settings.quota_pro_max_kbs,
             max_documents_per_kb=settings.quota_pro_max_documents_per_kb,
             max_kb_bytes=settings.quota_pro_max_kb_bytes,
+            max_memories=settings.quota_pro_max_memories,
         )
     return PlanLimits(
         requests_per_minute=settings.quota_free_requests_per_minute,
@@ -50,6 +57,7 @@ def plan_limits(plan: str) -> PlanLimits:
         max_kbs=settings.quota_free_max_kbs,
         max_documents_per_kb=settings.quota_free_max_documents_per_kb,
         max_kb_bytes=settings.quota_free_max_kb_bytes,
+        max_memories=settings.quota_free_max_memories,
     )
 
 
@@ -169,6 +177,8 @@ class QuotaSnapshot:
     max_documents_per_kb: int
     max_kb_bytes: int
     kb_bytes: int
+    max_memories: int
+    memory_count: int
 
 
 async def quota_snapshot(
@@ -213,6 +223,16 @@ async def quota_snapshot(
             )
         )
     ).scalar_one()
+    memory_count = (
+        await session.execute(
+            select(func.count())
+            .select_from(AgentMemory)
+            .where(
+                AgentMemory.workspace_id == context.workspace.id,
+                AgentMemory.status.notin_(("archived", "rejected")),
+            )
+        )
+    ).scalar_one()
 
     return QuotaSnapshot(
         plan=context.workspace.plan,
@@ -229,7 +249,28 @@ async def quota_snapshot(
         max_documents_per_kb=limits.max_documents_per_kb,
         max_kb_bytes=limits.max_kb_bytes,
         kb_bytes=int(kb_bytes),
+        max_memories=limits.max_memories,
+        memory_count=int(memory_count),
     )
+
+
+async def enforce_memory_quota(
+    session: AsyncSession, workspace_id: UUID
+) -> None:
+    workspace = await session.get(Workspace, workspace_id)
+    limits = plan_limits(workspace.plan if workspace is not None else "free")
+    count = (
+        await session.execute(
+            select(func.count())
+            .select_from(AgentMemory)
+            .where(
+                AgentMemory.workspace_id == workspace_id,
+                AgentMemory.status.notin_(("archived", "rejected")),
+            )
+        )
+    ).scalar_one()
+    if count >= limits.max_memories:
+        raise _quota_error("workspace", "memories", limits.max_memories, 0, 3600)
 
 
 async def enforce_knowledge_base_creation(

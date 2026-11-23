@@ -741,6 +741,89 @@ class MemorySettings(Base):
     )
 
 
+class MemoryOptimization(Base):
+    __tablename__ = "memory_optimizations"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    kind: Mapped[str] = mapped_column(String(40), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    title: Mapped[str] = mapped_column(String(200), default="")
+    reason: Mapped[str] = mapped_column(Text, default="")
+    expected_effect: Mapped[str] = mapped_column(String(500), default="")
+    memory_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    payload: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
+    before_snapshot: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
+    applied_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+    rolled_back_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_memory_optimizations_user_status",
+            "user_id",
+            "status",
+            "created_at",
+        ),
+    )
+
+
+class MemoryEvalCase(Base):
+    __tablename__ = "memory_eval_cases"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(120), default="")
+    query: Mapped[str] = mapped_column(Text)
+    expected_memory_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    project_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"), default=None
+    )
+    agent_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("custom_agents.id", ondelete="SET NULL"), default=None
+    )
+    notes: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class MemoryEvalRun(Base):
+    __tablename__ = "memory_eval_runs"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    status: Mapped[str] = mapped_column(String(20), default="completed", index=True)
+    cases_count: Mapped[int] = mapped_column(Integer, default=0)
+    metrics: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
+    results: Mapped[list[dict[str, object]]] = mapped_column(JSON, default=list)
+    duration_ms: Mapped[float] = mapped_column(Float, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class AgentReview(Base):
     __tablename__ = "agent_reviews"
 
