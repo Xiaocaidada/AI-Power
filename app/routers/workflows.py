@@ -46,6 +46,7 @@ from app.services.run_events import (
     format_sse,
     list_workflow_events,
 )
+from app.services.workflow.catalog import build_node_catalog
 from app.services.workflow.schema import (
     WorkflowDefinition,
     WorkflowValidationError,
@@ -198,6 +199,13 @@ async def get_workflow_run(
         **WorkflowRunOut.model_validate(run).model_dump(exclude={"nodes"}),
         nodes=[WorkflowNodeRunOut.model_validate(node) for node in nodes],
     )
+
+
+@router.get("/catalog")
+async def get_workflow_catalog(
+    context: Annotated[AuthContext, Depends(get_jwt_context)],
+) -> dict[str, object]:
+    return build_node_catalog()
 
 
 @router.get("/{workflow_id}", response_model=WorkflowOut)

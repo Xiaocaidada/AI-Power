@@ -354,15 +354,39 @@ class CustomAgent(Base):
     description: Mapped[str] = mapped_column(String(500), default="")
     instructions: Mapped[str] = mapped_column(Text)
     category: Mapped[str] = mapped_column(String(40), default="general", index=True)
+    mode: Mapped[str] = mapped_column(String(20), default="autonomous", index=True)
+    icon: Mapped[str] = mapped_column(String(32), default="🤖")
+    welcome_message: Mapped[str] = mapped_column(String(1000), default="")
+    examples: Mapped[list[str]] = mapped_column(JSON, default=list)
+    usage_instructions: Mapped[str] = mapped_column(Text, default="")
+    generation_settings: Mapped[dict] = mapped_column(JSON, default=dict)
     default_provider_id: Mapped[str | None] = mapped_column(String(50), default=None)
     default_model: Mapped[str | None] = mapped_column(String(200), default=None)
     default_kb_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("knowledge_bases.id", ondelete="SET NULL"), default=None
     )
+    kb_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     tools: Mapped[list[str]] = mapped_column(JSON, default=list)
     plugin_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    workflow_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("workflows.id", ondelete="SET NULL"), default=None, index=True
+    )
     visibility: Mapped[str] = mapped_column(String(20), default="private", index=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    published: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    public_slug: Mapped[str | None] = mapped_column(String(80), default=None)
+    published_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+    allow_copy: Mapped[bool] = mapped_column(Boolean, default=True)
+    show_structure: Mapped[bool] = mapped_column(Boolean, default=True)
+    published_snapshot: Mapped[dict | None] = mapped_column(JSON, default=None)
+    usage_count: Mapped[int] = mapped_column(Integer, default=0)
+    copy_count: Mapped[int] = mapped_column(Integer, default=0)
+    favorite_count: Mapped[int] = mapped_column(Integer, default=0)
+    source_agent_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("custom_agents.id", ondelete="SET NULL"), default=None
+    )
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
@@ -372,6 +396,22 @@ class CustomAgent(Base):
     __table_args__ = (
         UniqueConstraint("workspace_id", "name", name="uq_custom_agents_workspace_name"),
         Index("ix_custom_agents_workspace_archived", "workspace_id", "archived_at"),
+        UniqueConstraint("public_slug", name="uq_custom_agents_public_slug"),
+    )
+
+
+class AgentFavorite(Base):
+    __tablename__ = "agent_favorites"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("custom_agents.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("agent_id", "user_id", name="uq_agent_favorites_agent_user"),
     )
 
 

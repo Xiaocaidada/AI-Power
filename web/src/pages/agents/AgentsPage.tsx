@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bot, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Bot, Pencil, Plus, Trash2, Workflow } from 'lucide-react'
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
@@ -185,6 +185,13 @@ export function AgentsPage() {
                 </Button>
                 {!agent.builtin && agent.owned && (
                   <>
+                    <Button
+                      size="sm"
+                      onClick={() => navigate(`/studio/${agent.id}`)}
+                    >
+                      <Workflow className="h-3 w-3" />
+                      {t('studio.openStudio')}
+                    </Button>
                     <Button size="sm" variant="secondary" onClick={() => setEditing(agent)}>
                       <Pencil className="h-3 w-3" />
                       {t('common.edit')}

@@ -348,25 +348,107 @@ export interface GenerationSettings {
   top_p?: number | null
 }
 
+export type AgentMode = 'autonomous' | 'workflow' | 'hybrid'
+
 export interface CustomAgent {
   id: string
   name: string
   description: string
   instructions: string
   category: string
+  mode: AgentMode
+  icon: string
+  welcome_message: string
+  examples: string[]
+  usage_instructions: string
+  generation_settings: GenerationSettings
   default_provider_id: string | null
   default_model: string | null
   default_kb_id: string | null
+  kb_ids: string[]
   tools: string[]
   plugin_ids: string[]
+  workflow_id: string | null
   visibility: 'private' | 'shared'
   enabled: boolean
   archived: boolean
   owned: boolean
   builtin: boolean
+  published: boolean
+  public_slug: string | null
+  allow_copy: boolean
+  show_structure: boolean
+  favorite: boolean
+  favorite_count: number
+  usage_count: number
+  copy_count: number
   conversation_count: number
   created_at: string | null
   updated_at: string | null
+}
+
+export interface AgentPublishIn {
+  slug: string
+  allow_copy: boolean
+  show_structure: boolean
+}
+
+export interface AgentMarketSummary {
+  id: string
+  slug: string
+  name: string
+  description: string
+  icon: string
+  category: string
+  mode: AgentMode
+  usage_count: number
+  favorite_count: number
+  copy_count: number
+  allow_copy: boolean
+  published_at: string | null
+}
+
+export interface AgentMarketDetail extends AgentMarketSummary {
+  welcome_message: string
+  examples: string[]
+  usage_instructions: string
+  tools: string[]
+  model_hint: string
+  kb_requirements: string[]
+  plugin_requirements: string[]
+  instructions?: string | null
+  workflow?: WorkflowDefinition | null
+}
+
+export interface WorkflowCatalogField {
+  name: string
+  label: string
+  kind: 'text' | 'textarea' | 'number' | 'select' | 'json' | 'provider' | 'model' | 'agent' | 'kb_multi'
+  required?: boolean
+  hint?: string
+  options?: string[]
+}
+
+export interface WorkflowCatalogNode {
+  type: WorkflowNodeDefinition['type']
+  label: string
+  description: string
+  icon: string
+  config_fields: WorkflowCatalogField[]
+}
+
+export interface WorkflowCatalog {
+  nodes: WorkflowCatalogNode[]
+  limits: { max_nodes: number; max_kbs: number }
+  variables: Record<string, string>
+}
+
+export interface AgentBuilderResult {
+  definition: WorkflowDefinition
+  summary: string
+  missing_resources: string[]
+  provider_id: string
+  model: string
 }
 
 export interface Plugin {
@@ -502,8 +584,18 @@ export interface CollaborationRun {
 
 export interface WorkflowNodeDefinition {
   id: string
-  type: 'llm' | 'kb_search' | 'tool' | 'agent' | 'condition' | 'parallel' | 'join'
+  type:
+    | 'start'
+    | 'llm'
+    | 'kb_search'
+    | 'tool'
+    | 'agent'
+    | 'condition'
+    | 'parallel'
+    | 'join'
+    | 'output'
   config: Record<string, unknown>
+  ui?: { x: number; y: number } | null
 }
 
 export interface WorkflowEdgeDefinition {

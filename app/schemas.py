@@ -775,12 +775,22 @@ class CustomAgentCreate(BaseModel):
     description: str = Field(default="", max_length=500)
     instructions: str = Field(min_length=1, max_length=20000)
     category: str = Field(default="general", max_length=40)
+    mode: Literal["autonomous", "workflow", "hybrid"] = "autonomous"
+    icon: str = Field(default="🤖", max_length=32)
+    welcome_message: str = Field(default="", max_length=1000)
+    examples: list[str] = Field(default_factory=list, max_length=10)
+    usage_instructions: str = Field(default="", max_length=5000)
+    generation_settings: dict = Field(default_factory=dict)
     default_provider_id: str | None = Field(default=None, max_length=50)
     default_model: str | None = Field(default=None, max_length=200)
     default_kb_id: UUID | None = None
+    kb_ids: list[UUID] = Field(default_factory=list, max_length=10)
     tools: list[str] = Field(default_factory=list, max_length=20)
     plugin_ids: list[UUID] = Field(default_factory=list, max_length=20)
+    workflow_id: UUID | None = None
     visibility: Literal["private", "shared"] = "private"
+    allow_copy: bool = True
+    show_structure: bool = True
 
     @field_validator(
         "name", "description", "instructions", "category", "default_provider_id",
@@ -796,13 +806,23 @@ class CustomAgentUpdate(BaseModel):
     description: str | None = Field(default=None, max_length=500)
     instructions: str | None = Field(default=None, min_length=1, max_length=20000)
     category: str | None = Field(default=None, max_length=40)
+    mode: Literal["autonomous", "workflow", "hybrid"] | None = None
+    icon: str | None = Field(default=None, max_length=32)
+    welcome_message: str | None = Field(default=None, max_length=1000)
+    examples: list[str] | None = Field(default=None, max_length=10)
+    usage_instructions: str | None = Field(default=None, max_length=5000)
+    generation_settings: dict | None = None
     default_provider_id: str | None = Field(default=None, max_length=50)
     default_model: str | None = Field(default=None, max_length=200)
     default_kb_id: UUID | None = None
+    kb_ids: list[UUID] | None = Field(default=None, max_length=10)
     tools: list[str] | None = Field(default=None, max_length=20)
     plugin_ids: list[UUID] | None = Field(default=None, max_length=20)
+    workflow_id: UUID | None = None
     visibility: Literal["private", "shared"] | None = None
     enabled: bool | None = None
+    allow_copy: bool | None = None
+    show_structure: bool | None = None
 
     @field_validator(
         "name", "description", "instructions", "category", "default_provider_id",
@@ -819,19 +839,88 @@ class CustomAgentOut(BaseModel):
     description: str
     instructions: str
     category: str
+    mode: str = "autonomous"
+    icon: str = "🤖"
+    welcome_message: str = ""
+    examples: list[str] = Field(default_factory=list)
+    usage_instructions: str = ""
+    generation_settings: dict = Field(default_factory=dict)
     default_provider_id: str | None
     default_model: str | None
     default_kb_id: UUID | None
+    kb_ids: list[UUID] = Field(default_factory=list)
     tools: list[str]
     plugin_ids: list[UUID]
+    workflow_id: UUID | None = None
     visibility: str
     enabled: bool
     archived: bool
     owned: bool
     builtin: bool
+    published: bool = False
+    public_slug: str | None = None
+    allow_copy: bool = True
+    show_structure: bool = True
+    favorite: bool = False
+    favorite_count: int = 0
+    usage_count: int = 0
+    copy_count: int = 0
     conversation_count: int
     created_at: datetime | None
     updated_at: datetime | None
+
+
+class AgentPublishIn(BaseModel):
+    slug: str = Field(default="", max_length=80)
+    allow_copy: bool = True
+    show_structure: bool = True
+
+
+class AgentFavoriteOut(BaseModel):
+    favorite: bool
+
+
+class AgentMarketOut(BaseModel):
+    id: UUID
+    slug: str
+    name: str
+    description: str
+    icon: str
+    category: str
+    mode: str
+    usage_count: int = 0
+    favorite_count: int = 0
+    copy_count: int = 0
+    allow_copy: bool = True
+    published_at: datetime | None = None
+
+
+class AgentMarketDetail(AgentMarketOut):
+    welcome_message: str = ""
+    examples: list[str] = Field(default_factory=list)
+    usage_instructions: str = ""
+    tools: list[str] = Field(default_factory=list)
+    model_hint: str = ""
+    kb_requirements: list[str] = Field(default_factory=list)
+    plugin_requirements: list[str] = Field(default_factory=list)
+    instructions: str | None = None
+    workflow: dict | None = None
+
+
+class AgentBuilderIn(BaseModel):
+    prompt: str = Field(min_length=1, max_length=20000)
+    provider_id: str = Field(min_length=1, max_length=50)
+    model: str = Field(min_length=1, max_length=200)
+    current_definition: dict | None = None
+    agent_id: UUID | None = None
+
+
+class AgentBuilderOut(BaseModel):
+    definition: dict
+    summary: str = ""
+    missing_resources: list[str] = Field(default_factory=list)
+    provider_id: str
+    model: str
 
 
 class PluginCreate(BaseModel):

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, Bot, MessageSquare } from 'lucide-react'
+import { ArrowLeft, Bot, MessageSquare, Workflow } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { Badge } from '../../components/ui/badge'
@@ -92,10 +92,21 @@ export function AgentDetailPage() {
               </div>
             </div>
           </div>
-          <Button onClick={experience}>
-            <MessageSquare className="h-4 w-4" />
-            {t('agents.experience')}
-          </Button>
+          <div className="flex items-center gap-2">
+            {detail.owned && !detail.builtin && (
+              <Button
+                variant="secondary"
+                onClick={() => navigate(`/studio/${detail.id}`)}
+              >
+                <Workflow className="h-4 w-4" />
+                {t('studio.openStudio')}
+              </Button>
+            )}
+            <Button onClick={experience}>
+              <MessageSquare className="h-4 w-4" />
+              {t('agents.experience')}
+            </Button>
+          </div>
         </div>
       </header>
 

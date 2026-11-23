@@ -1,10 +1,21 @@
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from app.config import get_settings
 
-NodeType = Literal["llm", "kb_search", "tool", "agent", "condition", "parallel", "join"]
+NodeType = Literal[
+    "start",
+    "llm",
+    "kb_search",
+    "tool",
+    "agent",
+    "condition",
+    "parallel",
+    "join",
+    "output",
+]
 ConditionOperator = Literal[
     "equals", "not_equals", "contains", "not_contains", "not_empty", "is_empty"
 ]
@@ -19,6 +30,7 @@ class LLMNodeConfig(BaseModel):
 
 class KbSearchNodeConfig(BaseModel):
     query: str = Field(min_length=1, max_length=2000)
+    kb_ids: list[UUID] = Field(default_factory=list, max_length=10)
 
 
 class ToolNodeConfig(BaseModel):
@@ -27,9 +39,19 @@ class ToolNodeConfig(BaseModel):
 
 
 class AgentNodeConfig(BaseModel):
-    provider_id: str = Field(min_length=1, max_length=50)
-    model: str = Field(min_length=1, max_length=200)
+    provider_id: str | None = Field(default=None, max_length=50)
+    model: str | None = Field(default=None, max_length=200)
     task: str = Field(min_length=1, max_length=20000)
+    agent_id: UUID | None = None
+    kb_ids: list[UUID] = Field(default_factory=list, max_length=10)
+    tools: list[str] = Field(default_factory=list, max_length=20)
+    max_steps: int | None = Field(default=None, ge=1, le=32)
+
+    @model_validator(mode="after")
+    def _validate_target(self) -> "AgentNodeConfig":
+        if self.agent_id is None and (not self.provider_id or not self.model):
+            raise ValueError("agent node needs agent_id or provider_id + model")
+        return self
 
 
 class ConditionNodeConfig(BaseModel):
@@ -43,6 +65,7 @@ class EmptyNodeConfig(BaseModel):
 
 
 NODE_CONFIGS: dict[str, type[BaseModel]] = {
+    "start": EmptyNodeConfig,
     "llm": LLMNodeConfig,
     "kb_search": KbSearchNodeConfig,
     "tool": ToolNodeConfig,
@@ -50,6 +73,7 @@ NODE_CONFIGS: dict[str, type[BaseModel]] = {
     "condition": ConditionNodeConfig,
     "parallel": EmptyNodeConfig,
     "join": EmptyNodeConfig,
+    "output": EmptyNodeConfig,
 }
 
 
@@ -57,6 +81,7 @@ class WorkflowNode(BaseModel):
     id: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,49}$")
     type: NodeType
     config: dict[str, object]
+    ui: dict[str, float] | None = None
 
 
 class WorkflowEdge(BaseModel):
@@ -124,6 +149,14 @@ class WorkflowDefinition(BaseModel):
             elif node.type == "join":
                 if len(incoming[node.id]) < 2:
                     raise ValueError(f"Join node {node.id} needs at least two incoming edges")
+            elif node.type == "start":
+                if incoming[node.id]:
+                    raise ValueError(f"Start node {node.id} cannot have incoming edges")
+                if len(out_edges) > 1:
+                    raise ValueError(f"Start node {node.id} can have at most one outgoing edge")
+            elif node.type == "output":
+                if out_edges:
+                    raise ValueError(f"Output node {node.id} cannot have outgoing edges")
             elif len(out_edges) > 1:
                 raise ValueError(f"Node {node.id} can have at most one outgoing edge")
 

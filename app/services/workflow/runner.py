@@ -11,7 +11,7 @@ from uuid import UUID
 from fastapi import HTTPException
 from sqlalchemy import select
 
-from app.agents.registry import AgentRegistry
+from app.agents.registry import SUPERVISOR_AGENT, AgentRegistry
 from app.clients import RedisLike
 from app.config import get_settings
 from app.db import SessionLocal
@@ -21,6 +21,12 @@ from app.providers.base import ChatMessage, ProviderError, Usage
 from app.providers.registry import ProviderRegistry
 from app.services.agent import AgentFailure, AgentRunner
 from app.services.budget import check_workspace_budget
+from app.services.custom_agents import (
+    CustomAgentError,
+    build_agent_spec,
+    get_custom_agent,
+)
+from app.services.plugins import build_plugin_tools_for_ids, plugin_tool_names
 from app.services.usage_ledger import SOURCE_WORKFLOW, write_usage_event
 from app.services.webhooks import enqueue_event
 from app.services.workflow.schema import (
@@ -345,10 +351,14 @@ class WorkflowRunner:
             output, usage = await self._call_llm(config, prompt, system_prompt)
             await self._record_usage(config.provider_id, config.model, usage, node_run_id)
             return output, prompt
+        if node.type == "start":
+            return self._input, "start"
+        if node.type == "output":
+            return self._join_outputs(node) or self._input, "output"
         if node.type == "kb_search":
             config = KbSearchNodeConfig.model_validate(node.config)
             query = self._render(config.query)
-            return await self._search_knowledge(query), query
+            return await self._search_knowledge(query, config.kb_ids), query
         if node.type == "tool":
             config = ToolNodeConfig.model_validate(node.config)
             arguments = {key: self._render(value) for key, value in config.arguments.items()}
@@ -393,19 +403,59 @@ class WorkflowRunner:
         )
 
     async def _call_agent(self, config: AgentNodeConfig, task: str, node_run_id: UUID) -> str:
-        provider = self._providers.get(config.provider_id)
+        provider_id = config.provider_id
+        model = config.model
+        kb_ids = list(config.kb_ids)
+        plugin_tools = []
+        agent_registry = self._agents
+        root_agent = None
+        extra_tools = list(config.tools)
+        if config.agent_id is not None:
+            async with SessionLocal() as session:
+                try:
+                    agent = await get_custom_agent(
+                        session,
+                        self._workspace_id,
+                        config.agent_id,
+                        self._user_id,
+                    )
+                except CustomAgentError as exc:
+                    raise NodeFailure(exc.code, exc.message) from None
+                plugin_tools = await build_plugin_tools_for_ids(
+                    session, self._workspace_id, list(agent.plugin_ids)
+                )
+                provider_id = provider_id or agent.default_provider_id
+                model = model or agent.default_model
+                if not kb_ids:
+                    kb_ids = [UUID(item) for item in agent.kb_ids]
+                    if not kb_ids and agent.default_kb_id is not None:
+                        kb_ids = [agent.default_kb_id]
+                spec = build_agent_spec(
+                    agent, tuple([*extra_tools, *plugin_tool_names(plugin_tools)])
+                )
+                agent_registry = AgentRegistry([spec])
+                root_agent = spec.name
+        if not provider_id or not model or provider_id == "auto":
+            raise NodeFailure(
+                "agent_model_required", "Agent node requires an explicit provider and model"
+            )
+        provider = self._providers.get(provider_id)
+        tool_registry = self._tools.with_tools(plugin_tools) if plugin_tools else self._tools
         runner = AgentRunner(
             provider=provider,
-            model=config.model,
-            tool_registry=self._tools,
-            agent_registry=self._agents,
+            model=model,
+            tool_registry=tool_registry,
+            agent_registry=agent_registry,
             context=ToolContext(
                 workspace_id=self._workspace_id,
                 user_id=self._user_id,
                 kb_id=self._kb_id,
+                kb_ids=kb_ids or None,
                 redis=self._redis,
             ),
             quota_guard=self._quota_guard,
+            root_agent=root_agent or SUPERVISOR_AGENT,
+            max_steps=config.max_steps,
         )
         parts: list[str] = []
         try:
@@ -414,10 +464,15 @@ class WorkflowRunner:
                     parts.append(str(event.data.get("text", "")))
         except AgentFailure as exc:
             raise NodeFailure(exc.code, exc.message) from None
-        await self._record_usage(config.provider_id, config.model, runner.usage, node_run_id)
+        await self._record_usage(provider_id, model, runner.usage, node_run_id)
         return "".join(parts)
 
-    async def _call_tool(self, tool: str, arguments: dict[str, str]) -> str:
+    async def _call_tool(
+        self,
+        tool: str,
+        arguments: dict[str, str],
+        kb_ids: list[UUID] | None = None,
+    ) -> str:
         result = await self._tools.execute(
             tool,
             arguments,
@@ -425,6 +480,7 @@ class WorkflowRunner:
                 workspace_id=self._workspace_id,
                 user_id=self._user_id,
                 kb_id=self._kb_id,
+                kb_ids=kb_ids,
                 redis=self._redis,
             ),
         )
@@ -432,10 +488,15 @@ class WorkflowRunner:
             raise NodeFailure(result.error_code or "tool_error", result.error or "Tool failed")
         return result.output
 
-    async def _search_knowledge(self, query: str) -> str:
-        if self._kb_id is None:
-            raise NodeFailure("no_knowledge_base", "A kb_search node requires a kb_id on the run")
-        return await self._call_tool("kb_search", {"query": query})
+    async def _search_knowledge(self, query: str, kb_ids: list[UUID] | None = None) -> str:
+        resolved = kb_ids or ([self._kb_id] if self._kb_id is not None else [])
+        if not resolved:
+            raise NodeFailure("no_knowledge_base", "A kb_search node requires a knowledge base")
+        return await self._call_tool(
+            "kb_search",
+            {"query": query},
+            kb_ids=resolved,
+        )
 
     async def _guard_quota(self) -> None:
         if self._quota_guard is None:

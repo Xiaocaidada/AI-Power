@@ -388,6 +388,50 @@ async def build_plugin_tools(
     return tools
 
 
+async def build_plugin_tools_for_ids(
+    session: AsyncSession, workspace_id: UUID, plugin_ids: list[str]
+) -> list[ToolSpec]:
+    parsed: list[UUID] = []
+    for item in plugin_ids:
+        try:
+            value = UUID(str(item))
+        except ValueError:
+            continue
+        if value not in parsed:
+            parsed.append(value)
+    if not parsed:
+        return []
+    definitions = list(
+        (
+            await session.execute(
+                select(PluginDefinition)
+                .join(
+                    PluginConfig,
+                    (PluginConfig.plugin_id == PluginDefinition.id)
+                    & (PluginConfig.workspace_id == workspace_id)
+                    & (PluginConfig.enabled.is_(True)),
+                )
+                .where(
+                    PluginDefinition.id.in_(parsed),
+                    PluginDefinition.enabled.is_(True),
+                )
+            )
+        ).scalars()
+    )
+    return [
+        ToolSpec(
+            name=plugin_tool_name(definition),
+            description=(
+                f"{definition.description} "
+                + ("Sensitive: requires explicit confirmation." if definition.sensitive else "")
+            ).strip(),
+            args_model=build_arguments_model(definition),
+            handler=_plugin_handler(definition.id),
+        )
+        for definition in definitions
+    ]
+
+
 def plugin_tool_names(tools: list[ToolSpec]) -> tuple[str, ...]:
     return tuple(tool.name for tool in tools)
 
