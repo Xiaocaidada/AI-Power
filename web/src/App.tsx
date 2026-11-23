@@ -32,6 +32,7 @@ import { NewChatPage } from './pages/chat/NewChatPage'
 import { EvaluationPage } from './pages/evaluation/EvaluationPage'
 import { KnowledgeDetailPage } from './pages/knowledge/KnowledgeDetailPage'
 import { KnowledgePage } from './pages/knowledge/KnowledgePage'
+import { KnowledgeStudioPage } from './pages/knowledge/KnowledgeStudioPage'
 import { LoginPage } from './pages/LoginPage'
 import { MemoryPage } from './pages/memory/MemoryPage'
 import { ModelsPage } from './pages/models/ModelsPage'
@@ -140,6 +141,7 @@ export function App() {
           <Route path="admin/prompts" element={<AdminPromptsPage />} />
           <Route path="knowledge" element={<KnowledgePage />} />
           <Route path="knowledge/:id" element={<KnowledgeDetailPage />} />
+          <Route path="knowledge/:id/studio" element={<KnowledgeStudioPage />} />
           <Route path="evaluation" element={<EvaluationPage />} />
           <Route
             path="usage"

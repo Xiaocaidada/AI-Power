@@ -18,8 +18,11 @@ import {
   Bot,
   BookOpen,
   Brain,
+  Boxes,
   Code,
   Database,
+  Eraser,
+  Scissors,
   FileText,
   Flag,
   GitBranch,
@@ -65,6 +68,11 @@ const ICONS = {
   database: Database,
   mcp_resource: FileText,
   mcp_prompt: MessageSquare,
+  parse_document: FileText,
+  clean_text: Eraser,
+  chunk_text: Scissors,
+  embed_chunks: Boxes,
+  index_knowledge: Database,
 }
 
 function StudioNodeCard({ data, selected }: NodeProps<StudioNode>) {

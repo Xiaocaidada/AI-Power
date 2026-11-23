@@ -11,6 +11,7 @@ import {
   Settings,
   Tags,
   Trash2,
+  Workflow,
 } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -257,6 +258,13 @@ export function KnowledgeDetailPage() {
             <span className="rounded-full bg-surface-muted px-2 py-1">
               {t('knowledge.stats.chars', { count: stats.data?.char_count ?? 0 })}
             </span>
+            <Button
+              variant="secondary"
+              onClick={() => navigate(`/knowledge/${id}/studio`)}
+            >
+              <Workflow className="h-4 w-4" />
+              {t('knowledgeStudio.open')}
+            </Button>
             <Button onClick={() => fileInput.current?.click()}>
               <FileUp className="h-4 w-4" />
               {t('documents.upload')}

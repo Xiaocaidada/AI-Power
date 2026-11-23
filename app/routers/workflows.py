@@ -17,6 +17,7 @@ from app.deps import AuthContext, get_jwt_context, require_scope
 from app.metrics import track_sse_stream
 from app.models import (
     AuditLog,
+    Document,
     Workflow,
     WorkflowNodeRun,
     WorkflowReview,
@@ -36,6 +37,14 @@ from app.schemas import (
     WorkflowVersionOut,
 )
 from app.services.access import get_owned_knowledge_base
+from app.services.knowledge.catalog import (
+    build_knowledge_process_catalog,
+    build_template,
+)
+from app.services.knowledge.schema import (
+    KnowledgeValidationError,
+    validate_knowledge_process,
+)
 from app.services.queue import JobQueue, get_queue
 from app.services.quotas import enforce_quota
 from app.services.run_events import (
@@ -76,7 +85,22 @@ def _invalid_workflow(exc: WorkflowValidationError) -> HTTPException:
     )
 
 
-def _parse_definition(raw: object) -> WorkflowDefinition:
+def _parse_definition(raw: object, kind: str = "agent") -> WorkflowDefinition:
+    if kind == "knowledge_process":
+        try:
+            definition = validate_knowledge_process(raw)
+        except KnowledgeValidationError as exc:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                {
+                    "code": "invalid_workflow",
+                    "message": str(exc),
+                    "errors": exc.messages,
+                },
+            ) from None
+        return WorkflowDefinition.model_construct(
+            nodes=definition.nodes, edges=definition.edges
+        )
     try:
         return validate_definition(raw)
     except WorkflowValidationError as exc:
@@ -114,6 +138,7 @@ def _workflow_out(workflow: Workflow, versions: list[WorkflowVersion]) -> Workfl
         id=workflow.id,
         name=workflow.name,
         description=workflow.description,
+        kind=workflow.kind,
         created_at=workflow.created_at,
         versions=[WorkflowVersionOut.model_validate(version) for version in versions],
     )
@@ -121,16 +146,19 @@ def _workflow_out(workflow: Workflow, versions: list[WorkflowVersion]) -> Workfl
 
 @router.get("", response_model=list[WorkflowOut])
 async def list_workflows(
-    context: Annotated[AuthContext, Depends(get_jwt_context)], session: SessionDep
+    context: Annotated[AuthContext, Depends(get_jwt_context)],
+    session: SessionDep,
+    kind: str | None = None,
 ) -> list[WorkflowOut]:
+    statement = select(Workflow).where(
+        Workflow.workspace_id == context.workspace.id,
+        Workflow.deleted_at.is_(None),
+    )
+    if kind is not None:
+        statement = statement.where(Workflow.kind == kind)
     workflows = (
         await session.execute(
-            select(Workflow)
-            .where(
-                Workflow.workspace_id == context.workspace.id,
-                Workflow.deleted_at.is_(None),
-            )
-            .order_by(Workflow.created_at.desc(), Workflow.id.desc())
+            statement.order_by(Workflow.created_at.desc(), Workflow.id.desc())
         )
     ).scalars()
     return [
@@ -144,12 +172,13 @@ async def create_workflow(
     context: Annotated[AuthContext, Depends(get_jwt_context)],
     session: SessionDep,
 ) -> WorkflowOut:
-    definition = _parse_definition(payload.definition)
+    definition = _parse_definition(payload.definition, payload.kind)
     workflow = Workflow(
         workspace_id=context.workspace.id,
         created_by=context.user.id,
         name=payload.name,
         description=payload.description,
+        kind=payload.kind,
     )
     session.add(workflow)
     await session.flush()
@@ -206,7 +235,14 @@ async def get_workflow_run(
 @router.get("/catalog")
 async def get_workflow_catalog(
     context: Annotated[AuthContext, Depends(get_jwt_context)],
+    kind: str = "agent",
 ) -> dict[str, object]:
+    if kind == "knowledge_process":
+        catalog = build_knowledge_process_catalog()
+        catalog["templates"] = [
+            build_template(name) for name in ("general", "technical", "markdown")
+        ]
+        return catalog
     return build_node_catalog()
 
 
@@ -232,7 +268,7 @@ async def create_workflow_version(
     session: SessionDep,
 ) -> WorkflowVersionOut:
     workflow = await _get_owned_workflow(workflow_id, context.workspace.id, session)
-    definition = _parse_definition(payload.definition)
+    definition = _parse_definition(payload.definition, workflow.kind)
     latest = (
         await session.execute(
             select(func.max(WorkflowVersion.version)).where(
@@ -338,9 +374,48 @@ async def create_workflow_run(
     version = (await session.execute(version_statement)).scalar_one_or_none()
     if version is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Workflow version not found")
-    if payload.kb_id is not None:
-        await get_owned_knowledge_base(payload.kb_id, context.workspace.id, session)
-    _parse_definition(version.definition)
+    is_knowledge = workflow.kind == "knowledge_process"
+    input_payload: dict[str, object] = {}
+    input_text = payload.input.strip()
+    kb_id = payload.kb_id
+    if is_knowledge:
+        if payload.document_id is None:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                {"code": "document_required", "message": "document_id is required"},
+            )
+        document = (
+            await session.execute(
+                select(Document).where(
+                    Document.id == payload.document_id,
+                    Document.workspace_id == context.workspace.id,
+                    Document.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if document is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
+        if kb_id is not None and kb_id != document.kb_id:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                {
+                    "code": "document_kb_mismatch",
+                    "message": "Document belongs to another knowledge base",
+                },
+            )
+        kb_id = document.kb_id
+        input_text = document.filename
+        input_payload = {"document_id": str(document.id)}
+        _parse_definition(version.definition, "knowledge_process")
+    else:
+        if not input_text:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                {"code": "input_required", "message": "input is required"},
+            )
+        _parse_definition(version.definition, workflow.kind)
+    if kb_id is not None:
+        await get_owned_knowledge_base(kb_id, context.workspace.id, session)
     await enforce_quota(redis, context)
 
     run = WorkflowRun(
@@ -349,9 +424,10 @@ async def create_workflow_run(
         workspace_id=context.workspace.id,
         user_id=context.user.id,
         api_key_id=context.api_key_id,
-        kb_id=payload.kb_id,
+        kb_id=kb_id,
         status="queued",
-        input_text=payload.input,
+        input_text=input_text,
+        input_payload=input_payload,
     )
     session.add(run)
     await session.commit()

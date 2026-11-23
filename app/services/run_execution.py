@@ -12,6 +12,8 @@ from app.db import SessionLocal
 from app.deps import AuthContext
 from app.models import (
     CollaborationRun,
+    Document,
+    KnowledgeBase,
     User,
     Workflow,
     WorkflowReview,
@@ -21,6 +23,15 @@ from app.models import (
 )
 from app.providers.registry import ProviderRegistry
 from app.services.collaboration import CollaborationRunner
+from app.services.knowledge.pipeline import (
+    KnowledgeCancelled,
+    KnowledgePipelineError,
+    KnowledgeProcessRunner,
+)
+from app.services.knowledge.schema import (
+    KnowledgeValidationError,
+    validate_knowledge_process,
+)
 from app.services.provider_configs import build_user_registry
 from app.services.queue import JobQueue
 from app.services.quotas import enforce_quota
@@ -176,20 +187,23 @@ async def execute_workflow_run(
         if workflow is None or version is None or workspace is None or user is None:
             await _mark_failed(WorkflowRun, run_id, "run_context_missing")
             return
-        try:
-            definition = validate_definition(version.definition)
-        except WorkflowValidationError:
-            await _mark_failed(WorkflowRun, run_id, "invalid_workflow")
-            await _append_workflow(
-                run_id,
-                "workflow_end",
-                {
-                    "run_id": str(run_id),
-                    "status": "failed",
-                    "error_code": "invalid_workflow",
-                },
-            )
-            return
+        workflow_kind = workflow.kind
+        definition = None
+        if workflow_kind != "knowledge_process":
+            try:
+                definition = validate_definition(version.definition)
+            except WorkflowValidationError:
+                await _mark_failed(WorkflowRun, run_id, "invalid_workflow")
+                await _append_workflow(
+                    run_id,
+                    "workflow_end",
+                    {
+                        "run_id": str(run_id),
+                        "status": "failed",
+                        "error_code": "invalid_workflow",
+                    },
+                )
+                return
         context = _context(user, workspace, run.api_key_id)
         scoped_registry = provider_registry or await build_user_registry(
             session, run.workspace_id, run.user_id
@@ -199,6 +213,10 @@ async def execute_workflow_run(
         workflow_id = workflow.id
         kb_id = run.kb_id
         checkpoint = dict(run.checkpoint or {})
+
+    if workflow_kind == "knowledge_process":
+        await execute_knowledge_process_run(run_id)
+        return
 
     registry = scoped_registry
     tools = build_tool_registry()
@@ -365,3 +383,100 @@ async def requeue_waiting_reviews(
         except Exception:
             logger.exception("failed to enqueue paused run %s", run_id)
     return enqueued
+
+
+async def execute_knowledge_process_run(run_id: UUID) -> None:
+    async with SessionLocal() as session:
+        run = await session.get(WorkflowRun, run_id)
+        if run is None:
+            return
+        workflow = await session.get(Workflow, run.workflow_id)
+        version = await session.get(WorkflowVersion, run.version_id)
+        payload = dict(run.input_payload or {})
+        document_id = payload.get("document_id")
+        document = await session.get(Document, UUID(str(document_id))) if document_id else None
+        kb = await session.get(KnowledgeBase, run.kb_id) if run.kb_id else None
+        if workflow is None or version is None:
+            await _mark_failed(WorkflowRun, run_id, "run_context_missing")
+            await _append_workflow(
+                run_id,
+                "workflow_end",
+                {"run_id": str(run_id), "status": "failed", "error_code": "run_context_missing"},
+            )
+            return
+        if document is None or kb is None or document.workspace_id != run.workspace_id:
+            await _mark_failed(WorkflowRun, run_id, "document_not_found")
+            await _append_workflow(
+                run_id,
+                "workflow_end",
+                {"run_id": str(run_id), "status": "failed", "error_code": "document_not_found"},
+            )
+            return
+        try:
+            definition = validate_knowledge_process(version.definition)
+        except KnowledgeValidationError:
+            await _mark_failed(WorkflowRun, run_id, "invalid_knowledge_workflow")
+            await _append_workflow(
+                run_id,
+                "workflow_end",
+                {
+                    "run_id": str(run_id),
+                    "status": "failed",
+                    "error_code": "invalid_knowledge_workflow",
+                },
+            )
+            return
+        workflow_id = workflow.id
+        version_number = version.version
+        document_id_value = document.id
+        kb_id = kb.id
+
+    # Detach only the fields the runner needs; the runner owns its own sessions.
+    async with SessionLocal() as session:
+        document = await session.get(Document, document_id_value)
+        kb = await session.get(KnowledgeBase, kb_id)
+        if document is None or kb is None:
+            await _mark_failed(WorkflowRun, run_id, "document_not_found")
+            return
+        runner = KnowledgeProcessRunner(
+            run_id=run_id,
+            workflow_id=workflow_id,
+            version=version_number,
+            definition=definition,
+            document=document,
+            kb=kb,
+        )
+        terminal = False
+        try:
+            async for event in runner.run():
+                await _append_workflow(run_id, event.kind, event.data)
+                terminal = event.kind == "workflow_end"
+        except KnowledgeCancelled:
+            await _mark_cancelled(WorkflowRun, run_id)
+            await _append_workflow(
+                run_id,
+                "workflow_end",
+                {"run_id": str(run_id), "status": "cancelled", "error_code": "cancelled"},
+            )
+            raise
+        except KnowledgePipelineError as exc:
+            if not terminal:
+                await _mark_failed(WorkflowRun, run_id, exc.code)
+                await _append_workflow(
+                    run_id,
+                    "workflow_end",
+                    {"run_id": str(run_id), "status": "failed", "error_code": exc.code},
+                )
+        except Exception:
+            logger.exception("knowledge process execution failed for run %s", run_id)
+            if not terminal:
+                await _mark_failed(WorkflowRun, run_id, "internal_error")
+                await _append_workflow(
+                    run_id,
+                    "workflow_end",
+                    {
+                        "run_id": str(run_id),
+                        "status": "failed",
+                        "error_code": "internal_error",
+                    },
+                )
