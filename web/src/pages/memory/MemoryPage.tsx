@@ -30,9 +30,10 @@ import type {
 import { cn } from '../../lib/utils'
 import { MemoryDetailDialog } from './MemoryDetailDialog'
 import { MemoryFormDialog } from './MemoryFormDialog'
+import { MemoryGraphPanel } from './MemoryGraphPanel'
 import { MemorySettingsPanel } from './MemorySettingsPanel'
 
-type Tab = 'overview' | 'all' | 'pending' | 'usage' | 'settings'
+type Tab = 'overview' | 'all' | 'graph' | 'pending' | 'usage' | 'settings'
 
 const CATEGORIES: MemoryCategory[] = [
   'preference',
@@ -160,6 +161,11 @@ export function MemoryPage() {
     await refresh()
   }
 
+  const openMemoryById = async (memoryId: string) => {
+    const memory = await apiRequest<AgentMemory>(`/memories/${memoryId}`)
+    setDetail(memory)
+  }
+
   const rows = memories.data ?? []
   const agentOptions = (agents.data ?? []).filter((agent) => !agent.builtin)
 
@@ -185,7 +191,7 @@ export function MemoryPage() {
       </header>
 
       <nav className="flex flex-wrap gap-1 border-b border-border bg-surface px-6">
-        {(['overview', 'all', 'pending', 'usage', 'settings'] as const).map((item) => (
+        {(['overview', 'all', 'graph', 'pending', 'usage', 'settings'] as const).map((item) => (
           <button
             key={item}
             type="button"
@@ -306,6 +312,12 @@ export function MemoryPage() {
               ))}
             </div>
           </div>
+        )}
+
+        {tab === 'graph' && (
+          <MemoryGraphPanel
+            onOpenMemory={(memoryId) => void openMemoryById(memoryId)}
+          />
         )}
 
         {tab === 'pending' && (

@@ -11,6 +11,8 @@ from app.schemas import (
     MemoryBatchOut,
     MemoryCandidateAcceptIn,
     MemoryCandidateOut,
+    MemoryGraphOut,
+    MemoryGraphRebuildOut,
     MemoryIn,
     MemoryOut,
     MemoryRelationIn,
@@ -46,6 +48,12 @@ from app.services.memory_extraction import (
     list_candidates,
     reject_candidate,
 )
+from app.services.memory_graph import (
+    GraphError,
+    list_memory_graph,
+    rebuild_memory_graph,
+    validate_relation_target,
+)
 
 router = APIRouter(prefix="/memories", tags=["memories"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -64,6 +72,15 @@ def _error(exc: MemoryError) -> HTTPException:
 
 def _memory_out(memory) -> MemoryOut:
     return MemoryOut.model_validate(memory)
+
+
+def _graph_error(exc: GraphError) -> HTTPException:
+    code = (
+        status.HTTP_404_NOT_FOUND
+        if exc.code == "not_found"
+        else status.HTTP_422_UNPROCESSABLE_CONTENT
+    )
+    return HTTPException(code, {"code": exc.code, "message": exc.message})
 
 
 @router.get("", response_model=list[MemoryOut])
@@ -309,6 +326,62 @@ async def reject_memory_candidate(
     return MemoryCandidateOut.model_validate(candidate)
 
 
+@router.get("/graph", response_model=MemoryGraphOut)
+async def get_memory_graph(
+    context: JwtContext,
+    session: SessionDep,
+    q: str = "",
+    scope_type: Literal["global", "project", "agent"] | None = None,
+    project_id: UUID | None = None,
+    agent_id: UUID | None = None,
+    category: str | None = None,
+    status_filter: Annotated[str, Query(alias="status")] = "active",
+    focus_id: UUID | None = None,
+    limit: Annotated[int, Query(ge=1, le=300)] = 300,
+) -> MemoryGraphOut:
+    result = await list_memory_graph(
+        session,
+        context.workspace.id,
+        context.user.id,
+        query=q,
+        scope_type=scope_type,
+        project_id=project_id,
+        agent_id=agent_id,
+        category=category,
+        status=status_filter,
+        limit=limit,
+        focus_id=focus_id,
+    )
+    return MemoryGraphOut.model_validate(result)
+
+
+@router.post("/graph/rebuild", response_model=MemoryGraphRebuildOut)
+async def rebuild_graph(
+    context: JwtContext, session: SessionDep
+) -> MemoryGraphRebuildOut:
+    result = await rebuild_memory_graph(
+        session, context.workspace.id, context.user.id
+    )
+    await session.commit()
+    return MemoryGraphRebuildOut.model_validate(result)
+
+
+@router.delete(
+    "/relations/{relation_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+async def delete_relation_by_id(
+    relation_id: UUID, context: JwtContext, session: SessionDep
+) -> Response:
+    try:
+        await delete_memory_relation(
+            session, context.workspace.id, context.user.id, relation_id
+        )
+    except MemoryError as exc:
+        raise _error(exc) from None
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get("/{memory_id}", response_model=MemoryOut)
 async def get_memory_endpoint(
     memory_id: UUID, context: JwtContext, session: SessionDep
@@ -437,10 +510,17 @@ async def create_relation(
 ) -> MemoryRelationOut:
     try:
         await get_memory(session, context.workspace.id, context.user.id, memory_id)
-        if payload.to_type == "memory":
-            await get_memory(
-                session, context.workspace.id, context.user.id, payload.to_id
+        if payload.to_type == "memory" and payload.to_id == memory_id:
+            raise GraphError(
+                "invalid_relation", "A memory cannot relate to itself"
             )
+        await validate_relation_target(
+            session,
+            context.workspace.id,
+            context.user.id,
+            payload.to_type,
+            payload.to_id,
+        )
         relation = await create_memory_relation(
             session,
             workspace_id=context.workspace.id,
@@ -454,6 +534,8 @@ async def create_relation(
         )
     except MemoryError as exc:
         raise _error(exc) from None
+    except GraphError as exc:
+        raise _graph_error(exc) from None
     await session.commit()
     await session.refresh(relation)
     return MemoryRelationOut.model_validate(relation)

@@ -1334,6 +1334,47 @@ class MemoryRelationOut(BaseModel):
     created_at: datetime
 
 
+class MemoryGraphNode(BaseModel):
+    id: str
+    type: Literal["memory", "project", "agent", "document"]
+    label: str
+    memory_id: UUID | None = None
+    ref_id: UUID | None = None
+    category: str | None = None
+    scope_type: str | None = None
+    status: str | None = None
+    pinned: bool = False
+    importance: int | None = None
+
+
+class MemoryGraphEdge(BaseModel):
+    id: str
+    source: str
+    target: str
+    relation_type: str
+    confidence: float = 1.0
+    basis: str = ""
+    source_kind: str = "manual"
+
+
+class MemoryGraphStats(BaseModel):
+    memories: int = 0
+    external: int = 0
+    relations: int = 0
+    orphans: int = 0
+
+
+class MemoryGraphOut(BaseModel):
+    nodes: list[MemoryGraphNode] = Field(default_factory=list)
+    edges: list[MemoryGraphEdge] = Field(default_factory=list)
+    stats: MemoryGraphStats = Field(default_factory=MemoryGraphStats)
+
+
+class MemoryGraphRebuildOut(BaseModel):
+    created: int
+    memories: int
+
+
 class MemoryRelationIn(BaseModel):
     to_type: Literal["memory", "project", "document", "agent"] = "memory"
     to_id: UUID

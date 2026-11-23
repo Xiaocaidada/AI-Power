@@ -24,6 +24,7 @@ from app.models import (
     Project,
 )
 from app.services.embedding_factory import build_embedder
+from app.services.memory_linking import auto_link_memory
 
 MEMORY_SCOPES = {"user", "workspace"}
 MEMORY_KINDS = {"fact", "preference", "summary"}
@@ -517,6 +518,7 @@ async def create_memory(
         )
     )
     await session.flush()
+    await auto_link_memory(session, memory)
     return memory
 
 
@@ -626,6 +628,7 @@ async def update_memory(
         )
     )
     await session.flush()
+    await auto_link_memory(session, memory)
     return memory
 
 
@@ -709,6 +712,7 @@ async def restore_memory_version(
         )
     )
     await session.flush()
+    await auto_link_memory(session, memory)
     return memory
 
 
