@@ -1769,6 +1769,8 @@ class ConversationOut(BaseModel):
     custom_agent_id: UUID | None = None
     agent: bool = False
     pinned: bool = False
+    memory_enabled: bool | None = None
+    excluded_memory_ids: list[UUID] = Field(default_factory=list)
     generation_settings: dict = Field(default_factory=dict)
     prompt_version_id: UUID | None = None
     created_at: datetime
@@ -1783,6 +1785,8 @@ class ConversationUpdate(BaseModel):
     archived: bool | None = None
     provider_id: str | None = Field(default=None, max_length=50)
     model: str | None = Field(default=None, max_length=200)
+    memory_enabled: bool | None = None
+    excluded_memory_ids: list[UUID] | None = Field(default=None, max_length=50)
     generation_settings: GenerationSettings | None = None
 
     @field_validator("title", "provider_id", "model", mode="before")
@@ -1841,6 +1845,7 @@ class MessageOut(BaseModel):
     prompt_tokens: int | None
     completion_tokens: int | None
     request_id: str | None = None
+    memory_refs: list[dict[str, object]] = Field(default_factory=list)
     reply_to_message_id: UUID | None = None
     created_at: datetime
     citations: list[CitationOut] = Field(default_factory=list)

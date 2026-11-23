@@ -918,6 +918,8 @@ export interface Conversation {
   custom_agent_id?: string | null
   agent: boolean
   pinned?: boolean
+  memory_enabled?: boolean | null
+  excluded_memory_ids?: string[]
   generation_settings?: GenerationSettings
   prompt_version_id?: string | null
   created_at: string
@@ -1335,6 +1337,15 @@ export interface MessageFeedback {
   updated_at: string
 }
 
+export interface MessageMemoryRef {
+  id: string
+  title: string
+  category: string
+  scope_type: string
+  relevance: number
+  injected_chars: number
+}
+
 export interface Message {
   id: string
   role: 'user' | 'assistant'
@@ -1345,6 +1356,7 @@ export interface Message {
   prompt_tokens: number | null
   completion_tokens: number | null
   request_id?: string | null
+  memory_refs?: MessageMemoryRef[]
   reply_to_message_id?: string | null
   created_at: string
   citations: Citation[]

@@ -848,6 +848,8 @@ class Conversation(Base):
     system_prompt: Mapped[str | None] = mapped_column(Text, default=None)
     agent: Mapped[bool] = mapped_column(Boolean, default=False)
     pinned: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    memory_enabled: Mapped[bool | None] = mapped_column(Boolean, default=None)
+    excluded_memory_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     generation_settings: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
@@ -935,6 +937,7 @@ class Message(Base):
     prompt_tokens: Mapped[int | None] = mapped_column(default=None)
     completion_tokens: Mapped[int | None] = mapped_column(default=None)
     request_id: Mapped[str | None] = mapped_column(String(64), default=None)
+    memory_refs: Mapped[list[dict[str, object]]] = mapped_column(JSON, default=list)
     reply_to_message_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("messages.id", ondelete="SET NULL"), default=None
     )

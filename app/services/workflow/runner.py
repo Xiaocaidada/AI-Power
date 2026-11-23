@@ -40,7 +40,13 @@ from app.services.mcp import (
     get_mcp_prompt,
     read_mcp_resource,
 )
-from app.services.memories import MemoryError, create_memory, memory_context
+from app.services.memories import (
+    MemoryError,
+    create_memory,
+    get_memory_settings,
+    record_memory_usage,
+    select_memories,
+)
 from app.services.outbound import OutboundError, request_outbound
 from app.services.plugins import build_plugin_tools_for_ids, plugin_tool_names
 from app.services.sandbox import SandboxError, evaluate_expression
@@ -903,17 +909,40 @@ class WorkflowRunner:
         query = self._render(config.query) if config.query.strip() else self._input
         async with SessionLocal() as session:
             try:
-                output = await memory_context(
+                memory_settings = await get_memory_settings(
+                    session, self._workspace_id, self._user_id
+                )
+                if not memory_settings.enabled:
+                    await session.commit()
+                    return "(memory disabled)", query
+                selection = await select_memories(
                     session,
                     workspace_id=self._workspace_id,
                     user_id=self._user_id,
                     agent_id=None,
                     query=query,
-                    limit=config.limit,
-                    max_chars=self._settings.agent_memory_inject_chars,
-                    touch=True,
+                    limit=min(config.limit, memory_settings.max_inject_items),
+                    max_chars=min(
+                        self._settings.agent_memory_inject_chars,
+                        memory_settings.max_inject_chars,
+                    ),
                 )
+                if selection.items:
+                    await record_memory_usage(
+                        session,
+                        workspace_id=self._workspace_id,
+                        user_id=self._user_id,
+                        memories=[
+                            (item.memory, item.score, item.injected_chars)
+                            for item in selection.items
+                        ],
+                        context_type="workflow",
+                        context_id=str(self._run_id),
+                        provider_id=None,
+                        model=None,
+                    )
                 await session.commit()
+                output = selection.block
             except MemoryError as exc:
                 raise NodeFailure(exc.code, exc.message) from None
         return output or "(no matching memories)", query
@@ -925,6 +954,13 @@ class WorkflowRunner:
         content = self._render(config.content)
         async with SessionLocal() as session:
             try:
+                memory_settings = await get_memory_settings(
+                    session, self._workspace_id, self._user_id
+                )
+                if not memory_settings.enabled:
+                    raise MemoryError(
+                        "memory_disabled", "Memory hub is disabled for this user"
+                    )
                 memory = await create_memory(
                     session,
                     workspace_id=self._workspace_id,
