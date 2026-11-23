@@ -25,10 +25,23 @@ from app.models import (
 )
 from app.providers.base import ChatMessage
 from app.providers.registry import ProviderRegistry
+from app.services.knowledge.catalog import knowledge_builder_manifest
+from app.services.knowledge.retrieval_catalog import retrieval_builder_manifest
+from app.services.knowledge.retrieval_schema import (
+    RetrievalValidationError,
+    validate_knowledge_retrieval,
+)
+from app.services.knowledge.schema import (
+    KnowledgeValidationError,
+    validate_knowledge_process,
+)
 from app.services.model_stream import ModelCompletion
 from app.services.usage_ledger import SOURCE_AGENT_BUILDER
 from app.services.workflow.catalog import builder_manifest
 from app.services.workflow.schema import WorkflowValidationError, validate_definition
+
+KNOWLEDGE_SCOPES = {"knowledge_process", "knowledge_retrieval"}
+BUILDER_SCOPES = {"agent", *KNOWLEDGE_SCOPES}
 
 
 class AgentBuilderError(Exception):
@@ -181,11 +194,43 @@ def _parse_json(text: str) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
-def _prompt_catalog(catalog: dict[str, Any]) -> dict[str, Any]:
+def _prompt_catalog(catalog: dict[str, Any], scope: str) -> dict[str, Any]:
+    if scope == "knowledge_process":
+        return {"knowledge_bases": catalog["knowledge_bases"]}
+    if scope == "knowledge_retrieval":
+        return {
+            "models": catalog["models"],
+            "knowledge_bases": catalog["knowledge_bases"],
+        }
     return {
         key: catalog[key]
         for key in ("models", "knowledge_bases", "agents", "plugins", "mcp_servers")
     }
+
+
+def _manifest_for_scope(scope: str) -> str:
+    if scope == "knowledge_process":
+        return knowledge_builder_manifest()
+    if scope == "knowledge_retrieval":
+        return retrieval_builder_manifest()
+    return builder_manifest()
+
+
+def _validate_for_scope(scope: str, raw: dict[str, Any]) -> dict[str, Any]:
+    if scope == "knowledge_process":
+        try:
+            return validate_knowledge_process(raw).model_dump(by_alias=True)
+        except KnowledgeValidationError as exc:
+            raise ValueError(str(exc)) from None
+    if scope == "knowledge_retrieval":
+        try:
+            return validate_knowledge_retrieval(raw).model_dump(by_alias=True)
+        except RetrievalValidationError as exc:
+            raise ValueError(str(exc)) from None
+    try:
+        return validate_definition(raw).model_dump(by_alias=True)
+    except WorkflowValidationError as exc:
+        raise ValueError(str(exc)) from None
 
 
 def _missing_resources(
@@ -366,6 +411,7 @@ async def run_builder_turn(
     current_definition: dict | None = None,
     raw_agent_id: str | None = None,
     run_context: dict[str, Any] | None = None,
+    scope: str = "agent",
 ) -> AgentBuilderResult:
     try:
         provider = registry.get(provider_id)
@@ -373,8 +419,14 @@ async def run_builder_turn(
         raise AgentBuilderError(
             "provider_not_found", "Builder provider is not available"
         ) from None
+    if scope not in BUILDER_SCOPES:
+        raise AgentBuilderError("invalid_scope", "Invalid builder scope")
     catalog = await _resource_catalog(session, workspace_id, user_id)
-    agent_context = await _agent_context(session, workspace_id, raw_agent_id)
+    agent_context = (
+        await _agent_context(session, workspace_id, raw_agent_id)
+        if scope == "agent"
+        else ""
+    )
     system = (
         "You are the AI Power workflow architect. Work only with the AI Power node "
         "manifest and resource catalog below.\n"
@@ -388,7 +440,7 @@ async def run_builder_turn(
         f"{_mode_instruction(kind)}\n"
         f"{builder_manifest()}\n"
         "Resource catalog:\n"
-        f"{json.dumps(_prompt_catalog(catalog), ensure_ascii=False)}"
+        f"{json.dumps(_prompt_catalog(catalog, scope), ensure_ascii=False)}"
         f"{agent_context}"
     )
     user_content = f"Task ({kind}):\n{prompt}"
@@ -431,11 +483,9 @@ async def run_builder_turn(
                 last_error = "Model response is missing definition."
             elif isinstance(raw_definition, dict):
                 try:
-                    validated = validate_definition(raw_definition)
-                except WorkflowValidationError as exc:
+                    definition = _validate_for_scope(scope, raw_definition)
+                except ValueError as exc:
                     last_error = str(exc)
-                else:
-                    definition = validated.model_dump(by_alias=True)
             if last_error:
                 pass
             else:
@@ -499,6 +549,7 @@ async def generate_agent_workflow(
     model: str,
     current_definition: dict | None = None,
     raw_agent_id: str | None = None,
+    scope: str = "agent",
 ) -> AgentBuilderResult:
     result = await run_builder_turn(
         session,
@@ -511,6 +562,7 @@ async def generate_agent_workflow(
         model=model,
         current_definition=current_definition,
         raw_agent_id=raw_agent_id,
+        scope=scope,
     )
     if result.definition is None:
         raise AgentBuilderError("invalid_generation", "Model returned no definition")
@@ -522,6 +574,7 @@ async def _validate_session_targets(
     workspace_id: UUID,
     agent_id: UUID | None,
     workflow_id: UUID | None,
+    scope: str = "agent",
 ) -> None:
     if agent_id is not None:
         agent = await session.get(CustomAgent, agent_id)
@@ -535,6 +588,11 @@ async def _validate_session_targets(
             or workflow.deleted_at is not None
         ):
             raise AgentBuilderError("workflow_not_found", "Workflow not found")
+        expected_kind = "agent" if scope == "agent" else scope
+        if workflow.kind != expected_kind:
+            raise AgentBuilderError(
+                "workflow_scope_mismatch", "Workflow kind does not match builder scope"
+            )
 
 
 async def create_builder_session(
@@ -547,11 +605,17 @@ async def create_builder_session(
     provider_id: str,
     model: str,
     draft_definition: dict | None,
+    scope: str = "agent",
 ) -> AgentBuilderSession:
-    await _validate_session_targets(session, workspace_id, agent_id, workflow_id)
+    if scope not in BUILDER_SCOPES:
+        raise AgentBuilderError("invalid_scope", "Invalid builder scope")
+    await _validate_session_targets(
+        session, workspace_id, agent_id, workflow_id, scope
+    )
     row = AgentBuilderSession(
         workspace_id=workspace_id,
         user_id=user_id,
+        scope=scope,
         agent_id=agent_id,
         workflow_id=workflow_id,
         provider_id=provider_id,
@@ -583,6 +647,8 @@ async def list_builder_sessions(
     user_id: UUID,
     *,
     agent_id: UUID | None = None,
+    workflow_id: UUID | None = None,
+    scope: str | None = None,
 ) -> list[AgentBuilderSession]:
     conditions = [
         AgentBuilderSession.workspace_id == workspace_id,
@@ -590,6 +656,10 @@ async def list_builder_sessions(
     ]
     if agent_id is not None:
         conditions.append(AgentBuilderSession.agent_id == agent_id)
+    if workflow_id is not None:
+        conditions.append(AgentBuilderSession.workflow_id == workflow_id)
+    if scope is not None:
+        conditions.append(AgentBuilderSession.scope == scope)
     rows = (
         await session.execute(
             select(AgentBuilderSession)
@@ -613,10 +683,9 @@ async def apply_builder_definition(
     session: AsyncSession, row: AgentBuilderSession, definition: dict
 ) -> dict[str, Any]:
     try:
-        validated = validate_definition(definition)
-    except WorkflowValidationError as exc:
+        applied = _validate_for_scope(row.scope, definition)
+    except ValueError as exc:
         raise AgentBuilderError("invalid_definition", str(exc)) from None
-    applied = validated.model_dump(by_alias=True)
     row.draft_definition = applied
     append_builder_message(
         row,

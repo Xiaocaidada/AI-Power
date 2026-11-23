@@ -1224,6 +1224,7 @@ class AgentBuilderOut(BaseModel):
 
 
 class AgentBuilderSessionCreate(BaseModel):
+    scope: Literal["agent", "knowledge_process", "knowledge_retrieval"] = "agent"
     agent_id: UUID | None = None
     workflow_id: UUID | None = None
     provider_id: str = Field(min_length=1, max_length=50)
@@ -1233,6 +1234,7 @@ class AgentBuilderSessionCreate(BaseModel):
 
 class AgentBuilderSessionOut(BaseModel):
     id: UUID
+    scope: str = "agent"
     agent_id: UUID | None = None
     workflow_id: UUID | None = None
     provider_id: str

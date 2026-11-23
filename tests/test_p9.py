@@ -428,3 +428,129 @@ async def test_broken_retrieval_workflow_falls_back_to_builtin(
     assert searched.status_code == 200, searched.text
     assert searched.json()["mode"] != "workflow"
     assert searched.json()["results"]
+
+
+async def test_scoped_ai_builder_for_knowledge_canvases(client, api, registry):
+    import json
+
+    headers = await api.headers("p9-builder@example.com")
+    workflow = await client.post(
+        "/workflows",
+        json={
+            "name": "Builder process",
+            "kind": "knowledge_process",
+            "definition": _pipeline_definition(),
+        },
+        headers=headers,
+    )
+    assert workflow.status_code == 201
+    process_flow_id = workflow.json()["id"]
+
+    session = await client.post(
+        "/agent-builder/sessions",
+        json={
+            "scope": "knowledge_process",
+            "workflow_id": process_flow_id,
+            "provider_id": "fake",
+            "model": "fake-model",
+        },
+        headers=headers,
+    )
+    assert session.status_code == 201, session.text
+    assert session.json()["scope"] == "knowledge_process"
+    session_id = session.json()["id"]
+
+    generated = {
+        "nodes": [
+            {"id": "start", "type": "start", "config": {}},
+            {"id": "parse", "type": "parse_document", "config": {}},
+            {
+                "id": "chunk",
+                "type": "chunk_text",
+                "config": {"strategy": "markdown", "chunk_size": 800},
+            },
+            {"id": "out", "type": "output", "config": {}},
+        ],
+        "edges": [
+            {"from": "start", "to": "parse"},
+            {"from": "parse", "to": "chunk"},
+            {"from": "chunk", "to": "out"},
+        ],
+    }
+    registry.get("fake").complete_content = json.dumps(
+        {
+            "message": "Created a markdown pipeline.",
+            "summary": "Markdown pipeline",
+            "definition": generated,
+            "missing_resources": [],
+            "suggestions": [],
+        }
+    )
+    turn = await client.post(
+        f"/agent-builder/sessions/{session_id}/messages",
+        json={"kind": "generate", "prompt": "Create a markdown pipeline"},
+        headers=headers,
+    )
+    assert turn.status_code == 200, turn.text
+    assert turn.json()["definition"]["nodes"][2]["type"] == "chunk_text"
+    applied = await client.post(
+        f"/agent-builder/sessions/{session_id}/apply",
+        json={"definition": turn.json()["definition"]},
+        headers=headers,
+    )
+    assert applied.status_code == 200, applied.text
+
+    retrieval = await client.post(
+        "/workflows",
+        json={
+            "name": "Builder retrieval",
+            "kind": "knowledge_retrieval",
+            "definition": _retrieval_definition(),
+        },
+        headers=headers,
+    )
+    assert retrieval.status_code == 201
+    retrieval_id = retrieval.json()["id"]
+    retrieval_session = await client.post(
+        "/agent-builder/sessions",
+        json={
+            "scope": "knowledge_retrieval",
+            "workflow_id": retrieval_id,
+            "provider_id": "fake",
+            "model": "fake-model",
+        },
+        headers=headers,
+    )
+    assert retrieval_session.status_code == 201, retrieval_session.text
+    registry.get("fake").complete_content = json.dumps(
+        {
+            "message": "Explain",
+            "summary": "Explain",
+            "missing_resources": [],
+            "suggestions": ["Add rerank."],
+        }
+    )
+    explain = await client.post(
+        f"/agent-builder/sessions/{retrieval_session.json()['id']}/messages",
+        json={
+            "kind": "explain",
+            "prompt": "Explain",
+            "current_definition": _retrieval_definition(),
+        },
+        headers=headers,
+    )
+    assert explain.status_code == 200, explain.text
+    assert explain.json()["definition"] is None
+    assert explain.json()["suggestions"] == ["Add rerank."]
+
+    mismatch = await client.post(
+        "/agent-builder/sessions",
+        json={
+            "scope": "knowledge_retrieval",
+            "workflow_id": process_flow_id,
+            "provider_id": "fake",
+            "model": "fake-model",
+        },
+        headers=headers,
+    )
+    assert mismatch.status_code == 422

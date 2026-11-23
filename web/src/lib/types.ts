@@ -652,6 +652,7 @@ export interface AgentBuilderMessage {
 
 export interface AgentBuilderSession {
   id: string
+  scope: 'agent' | 'knowledge_process' | 'knowledge_retrieval'
   agent_id: string | null
   workflow_id: string | null
   provider_id: string

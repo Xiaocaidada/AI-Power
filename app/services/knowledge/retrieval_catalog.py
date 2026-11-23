@@ -145,3 +145,20 @@ def build_knowledge_retrieval_catalog() -> dict[str, Any]:
         "variables": {"query": "用户问题", "kb_ids": "目标知识库"},
         "templates": templates,
     }
+
+
+def retrieval_builder_manifest() -> str:
+    lines = ["Knowledge retrieval nodes (linear pipeline):"]
+    for item in KNOWLEDGE_RETRIEVAL_CATALOG:
+        fields = ", ".join(
+            f"{field['name']}{'*' if field.get('required') else ''}"
+            for field in item["config_fields"]
+        )
+        lines.append(f"- {item['type']}: {item['description']} fields: {fields or '(none)'}")
+    lines.append(
+        "Rules: exactly one start and one output; every other node has exactly "
+        "one incoming and one outgoing edge; no branches, conditions or cycles. "
+        "rewrite_query needs an allowed provider_id + model. Search nodes operate "
+        "on the knowledge bases passed at execution time; never invent KB IDs."
+    )
+    return "\n".join(lines)

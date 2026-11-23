@@ -12,6 +12,7 @@ import {
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
+import { KnowledgeBuilderPanel } from './KnowledgeBuilderPanel'
 import { StudioCanvas } from '../studio/StudioCanvas'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
@@ -32,7 +33,7 @@ import type {
 } from '../../lib/types'
 import { cn } from '../../lib/utils'
 
-type Tab = 'canvas' | 'run'
+type Tab = 'canvas' | 'run' | 'builder'
 
 const EMPTY_DEFINITION: WorkflowDefinition = {
   nodes: [
@@ -288,7 +289,7 @@ export function KnowledgeStudioPage() {
           </div>
         </div>
         <div className="mt-3 flex gap-1">
-          {(['canvas', 'run'] as const).map((item) => (
+          {(['canvas', 'run', 'builder'] as const).map((item) => (
             <button
               key={item}
               type="button"
@@ -354,6 +355,21 @@ export function KnowledgeStudioPage() {
             </div>
           )}
         </div>
+      )}
+
+      {tab === 'builder' && (
+        <KnowledgeBuilderPanel
+          scope="knowledge_process"
+          workflowId={workflowId}
+          definition={definition}
+          lastRunId={runId === '' ? null : runId}
+          onApply={(next) => {
+            setDefinition(next)
+            setSeed((value) => value + 1)
+            setTab('canvas')
+            void saveCanvas(next)
+          }}
+        />
       )}
 
       {tab === 'run' && (
