@@ -87,6 +87,7 @@ class RetrievalSettingsUpdate(BaseModel):
     candidate_k: int | None = Field(default=None, ge=1, le=100)
     hybrid_enabled: bool | None = None
     rerank_enabled: bool | None = None
+    metadata_filter: dict[str, str] | None = None
 
 
 class EmbeddingSettingsUpdate(BaseModel):
@@ -117,6 +118,7 @@ class RetrievalSettingsOut(BaseModel):
     candidate_k: int
     hybrid_enabled: bool
     rerank_enabled: bool
+    metadata_filter: dict[str, str] = Field(default_factory=dict)
 
 
 class EmbeddingSettingsOut(BaseModel):
@@ -1984,31 +1986,163 @@ class DocumentOut(BaseModel):
     error_code: str | None
     page_count: int | None
     tags: list[str] = Field(default_factory=list)
+    folder: str = ""
+    doc_metadata: dict[str, str] = Field(default_factory=dict)
+    source_url: str | None = None
     created_at: datetime
 
 
+def clean_document_tags(value: object) -> object:
+    if not isinstance(value, list):
+        return value
+    cleaned: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        tag = item.strip()
+        if tag and tag not in cleaned and len(tag) <= 30:
+            cleaned.append(tag)
+    return cleaned[:20]
+
+
+def clean_document_folder(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    segments = [
+        segment.strip()
+        for segment in value.replace("\\", "/").split("/")
+        if segment.strip()
+    ]
+    return "/".join(segments)[:255]
+
+
+def clean_document_metadata(value: object) -> object:
+    if not isinstance(value, dict):
+        return value
+    cleaned: dict[str, str] = {}
+    for key, item in value.items():
+        if not isinstance(key, str) or not isinstance(item, str):
+            continue
+        name = key.strip()[:50]
+        text = item.strip()[:500]
+        if not name or not text:
+            continue
+        cleaned[name] = text
+        if len(cleaned) >= 20:
+            break
+    return cleaned
+
+
 class DocumentUpdate(BaseModel):
-    tags: list[str] = Field(default_factory=list, max_length=20)
+    tags: list[str] | None = Field(default=None, max_length=20)
+    folder: str | None = Field(default=None, max_length=255)
+    doc_metadata: dict[str, str] | None = None
 
     @field_validator("tags", mode="before")
     @classmethod
     def clean_tags(cls, value: object) -> object:
-        if not isinstance(value, list):
+        return clean_document_tags(value)
+
+    @field_validator("folder", mode="before")
+    @classmethod
+    def clean_folder(cls, value: object) -> object:
+        return clean_document_folder(value)
+
+    @field_validator("doc_metadata", mode="before")
+    @classmethod
+    def clean_metadata(cls, value: object) -> object:
+        return clean_document_metadata(value)
+
+
+class UrlImportIn(BaseModel):
+    url: str = Field(min_length=8, max_length=2000)
+    folder: str = Field(default="", max_length=255)
+    tags: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("url", mode="before")
+    @classmethod
+    def clean_url(cls, value: object) -> object:
+        if not isinstance(value, str):
             return value
-        cleaned: list[str] = []
-        for item in value:
-            if not isinstance(item, str):
-                continue
-            tag = item.strip()
-            if tag and tag not in cleaned and len(tag) <= 30:
-                cleaned.append(tag)
-        return cleaned[:20]
+        cleaned = value.strip()
+        if not cleaned.startswith(("http://", "https://")):
+            raise ValueError("url must start with http:// or https://")
+        return cleaned
+
+    @field_validator("folder", mode="before")
+    @classmethod
+    def clean_folder(cls, value: object) -> object:
+        return clean_document_folder(value)
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def clean_tags(cls, value: object) -> object:
+        return clean_document_tags(value)
+
+
+class DocumentFolderOut(BaseModel):
+    folder: str
+    count: int
+
+
+class FolderRenameIn(BaseModel):
+    from_folder: str = Field(min_length=1, max_length=255)
+    to_folder: str = Field(min_length=1, max_length=255)
+
+    @field_validator("from_folder", "to_folder", mode="before")
+    @classmethod
+    def clean_folder(cls, value: object) -> object:
+        return clean_document_folder(value)
+
+
+class FolderRenameOut(BaseModel):
+    updated: int
+
+
+class SiteImportIn(BaseModel):
+    url: str = Field(min_length=8, max_length=2000)
+    folder: str = Field(default="", max_length=255)
+    tags: list[str] = Field(default_factory=list, max_length=20)
+    max_pages: int = Field(default=10, ge=1, le=20)
+    same_origin: bool = True
+
+    @field_validator("url", mode="before")
+    @classmethod
+    def clean_url(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        cleaned = value.strip()
+        if not cleaned.startswith(("http://", "https://")):
+            raise ValueError("url must start with http:// or https://")
+        return cleaned
+
+    @field_validator("folder", mode="before")
+    @classmethod
+    def clean_folder(cls, value: object) -> object:
+        return clean_document_folder(value)
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def clean_tags(cls, value: object) -> object:
+        return clean_document_tags(value)
 
 
 class DocumentUploadOut(BaseModel):
     id: UUID
     status: str
     duplicate: bool = False
+
+
+class SiteImportFailureOut(BaseModel):
+    url: str
+    code: str
+
+
+class SiteImportOut(BaseModel):
+    pages: int
+    created: list[DocumentUploadOut] = Field(default_factory=list)
+    duplicates: list[DocumentUploadOut] = Field(default_factory=list)
+    failed: list[SiteImportFailureOut] = Field(default_factory=list)
 
 
 class UsageBucketOut(BaseModel):

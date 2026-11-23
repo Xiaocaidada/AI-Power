@@ -4,7 +4,9 @@ import {
   BarChart3,
   FileText,
   FileUp,
+  Folder,
   Layers,
+  Link2,
   Loader2,
   RefreshCw,
   RotateCw,
@@ -35,6 +37,7 @@ import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
 import { PAGE_SIZE, mergePages, pageFromItems } from '../../lib/pagination'
 import type {
+  DocumentFolder,
   DocumentItem,
   KnowledgeBase,
   KnowledgeBaseSettings,
@@ -63,9 +66,23 @@ export function KnowledgeDetailPage() {
   const [deleteTarget, setDeleteTarget] = useState<DocumentItem | null>(null)
   const [docQuery, setDocQuery] = useState('')
   const [docTag, setDocTag] = useState('')
+  const [docFolder, setDocFolder] = useState('__all__')
   const [tagTarget, setTagTarget] = useState<DocumentItem | null>(null)
   const [tagDraft, setTagDraft] = useState('')
   const [reprocessTarget, setReprocessTarget] = useState<DocumentItem | null>(null)
+  const [urlOpen, setUrlOpen] = useState(false)
+  const [urlDraft, setUrlDraft] = useState('')
+  const [urlFolder, setUrlFolder] = useState('')
+  const [urlTags, setUrlTags] = useState('')
+  const [urlCrawl, setUrlCrawl] = useState(false)
+  const [urlMaxPages, setUrlMaxPages] = useState(5)
+  const [importingUrl, setImportingUrl] = useState(false)
+  const [metadataTarget, setMetadataTarget] = useState<DocumentItem | null>(null)
+  const [metadataFolder, setMetadataFolder] = useState('')
+  const [metadataTags, setMetadataTags] = useState('')
+  const [metadataJson, setMetadataJson] = useState('{}')
+  const [folderRenameOpen, setFolderRenameOpen] = useState(false)
+  const [folderRenameValue, setFolderRenameValue] = useState('')
 
   const kb = useQuery({
     queryKey: ['kb', id],
@@ -83,13 +100,20 @@ export function KnowledgeDetailPage() {
     enabled: id !== '',
     refetchInterval: (query) => (query.state.data?.processing_count ? 2000 : false),
   })
+  const folders = useQuery({
+    queryKey: ['document-folders', id],
+    queryFn: () =>
+      apiRequest<DocumentFolder[]>(`/knowledge-bases/${id}/folders`),
+    enabled: id !== '',
+  })
   const documents = useInfiniteQuery({
-    queryKey: ['documents', id, docQuery, docTag],
+    queryKey: ['documents', id, docQuery, docTag, docFolder],
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams({ limit: String(PAGE_SIZE) })
       if (pageParam) params.set('before', pageParam)
       if (docQuery.trim()) params.set('q', docQuery.trim())
       if (docTag.trim()) params.set('tag', docTag.trim())
+      if (docFolder !== '__all__') params.set('folder', docFolder)
       return pageFromItems(
         await apiRequest<DocumentItem[]>(
           `/knowledge-bases/${id}/documents?${params.toString()}`,
@@ -107,6 +131,7 @@ export function KnowledgeDetailPage() {
   const refreshKnowledgeBase = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['documents', id] }),
+      queryClient.invalidateQueries({ queryKey: ['document-folders', id] }),
       queryClient.invalidateQueries({ queryKey: ['kb-chunks', id] }),
       queryClient.invalidateQueries({ queryKey: ['kb-stats', id] }),
     ])
@@ -203,6 +228,109 @@ export function KnowledgeDetailPage() {
     }
   }
 
+  const importUrl = async () => {
+    if (urlDraft.trim() === '') return
+    setImportingUrl(true)
+    setActionError(null)
+    try {
+      const tags = urlTags
+        .split(',')
+        .map((item) => item.trim())
+        .filter((item) => item !== '')
+      if (urlCrawl) {
+        await apiRequest(`/knowledge-bases/${id}/documents/import-site`, {
+          method: 'POST',
+          body: {
+            url: urlDraft.trim(),
+            folder: urlFolder,
+            tags,
+            max_pages: urlMaxPages,
+            same_origin: true,
+          },
+        })
+      } else {
+        await apiRequest(`/knowledge-bases/${id}/documents/import-url`, {
+          method: 'POST',
+          body: {
+            url: urlDraft.trim(),
+            folder: urlFolder,
+            tags,
+          },
+        })
+      }
+      await refreshKnowledgeBase()
+      setUrlOpen(false)
+      setUrlDraft('')
+      setUrlTags('')
+    } catch (caught) {
+      setActionError(t(errorTextKey(caught)))
+    } finally {
+      setImportingUrl(false)
+    }
+  }
+
+  const openMetadata = (document: DocumentItem) => {
+    setMetadataTarget(document)
+    setMetadataFolder(document.folder ?? '')
+    setMetadataTags((document.tags ?? []).join(', '))
+    setMetadataJson(JSON.stringify(document.doc_metadata ?? {}, null, 2))
+  }
+
+  const saveMetadata = async () => {
+    if (metadataTarget === null) return
+    let parsed: Record<string, string>
+    try {
+      const raw = JSON.parse(metadataJson || '{}') as unknown
+      if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+        throw new Error('metadata must be an object')
+      }
+      parsed = Object.fromEntries(
+        Object.entries(raw as Record<string, unknown>)
+          .filter(([, value]) => typeof value === 'string')
+          .map(([key, value]) => [key, String(value)]),
+      )
+    } catch {
+      setActionError(t('documents.metadataInvalid'))
+      return
+    }
+    setActionError(null)
+    try {
+      await apiRequest(`/documents/${metadataTarget.id}`, {
+        method: 'PATCH',
+        body: {
+          folder: metadataFolder,
+          tags: metadataTags
+            .split(',')
+            .map((item) => item.trim())
+            .filter((item) => item !== ''),
+          doc_metadata: parsed,
+        },
+      })
+      await refreshKnowledgeBase()
+      setMetadataTarget(null)
+    } catch (caught) {
+      setActionError(t(errorTextKey(caught)))
+    }
+  }
+
+  const renameFolder = async () => {
+    if (docFolder === '__all__' || docFolder === '' || folderRenameValue.trim() === '') {
+      return
+    }
+    setActionError(null)
+    try {
+      await apiRequest(`/knowledge-bases/${id}/folders/rename`, {
+        method: 'POST',
+        body: { from_folder: docFolder, to_folder: folderRenameValue.trim() },
+      })
+      setDocFolder(folderRenameValue.trim())
+      setFolderRenameOpen(false)
+      await refreshKnowledgeBase()
+    } catch (caught) {
+      setActionError(t(errorTextKey(caught)))
+    }
+  }
+
   if (kb.isLoading) {
     return (
       <div className="flex flex-1 items-center justify-center">
@@ -279,6 +407,10 @@ export function KnowledgeDetailPage() {
             >
               <BarChart3 className="h-4 w-4" />
               {t('knowledgeEval.open')}
+            </Button>
+            <Button variant="secondary" onClick={() => setUrlOpen(true)}>
+              <Link2 className="h-4 w-4" />
+              {t('documents.importUrl')}
             </Button>
             <Button onClick={() => fileInput.current?.click()}>
               <FileUp className="h-4 w-4" />
@@ -359,6 +491,34 @@ export function KnowledgeDetailPage() {
                 placeholder={t('documents.tagFilter')}
                 className="h-9 w-40 rounded-lg border border-border bg-surface px-3 text-sm text-ink focus:border-accent focus:outline-none"
               />
+              <select
+                value={docFolder}
+                onChange={(event) => setDocFolder(event.target.value)}
+                className="h-9 max-w-52 rounded-lg border border-border bg-surface px-3 text-sm text-ink focus:border-accent focus:outline-none"
+              >
+                <option value="__all__">{t('documents.allFolders')}</option>
+                <option value="">{t('documents.rootFolder')}</option>
+                {(folders.data ?? [])
+                  .filter((item) => item.folder !== '')
+                  .map((item) => (
+                    <option key={item.folder} value={item.folder}>
+                      {item.folder} ({item.count})
+                    </option>
+                  ))}
+              </select>
+              {docFolder !== '__all__' && docFolder !== '' && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setFolderRenameValue(docFolder)
+                    setFolderRenameOpen(true)
+                  }}
+                >
+                  <Folder className="h-3.5 w-3.5" />
+                  {t('documents.renameFolder')}
+                </Button>
+              )}
             </div>
 
             {uploads.length > 0 && (
@@ -443,8 +603,21 @@ export function KnowledgeDetailPage() {
                           <span className="block max-w-[280px] truncate font-medium text-ink">
                             {document.filename}
                           </span>
-                          <span className="text-xs text-ink-muted">
+                          <span className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
                             {formatDate(document.created_at, language)}
+                            {document.folder !== undefined &&
+                              document.folder !== '' && (
+                                <span className="inline-flex items-center gap-1">
+                                  <Folder className="h-3 w-3" />
+                                  {document.folder}
+                                </span>
+                              )}
+                            {document.source_url ? (
+                              <span className="inline-flex items-center gap-1">
+                                <Link2 className="h-3 w-3" />
+                                {t('documents.fromUrl')}
+                              </span>
+                            ) : null}
                           </span>
                         </td>
                         <td className="px-3 py-3">
@@ -488,6 +661,15 @@ export function KnowledgeDetailPage() {
                               }}
                             >
                               <Tags className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              aria-label={t('documents.editMetadata')}
+                              title={t('documents.editMetadata')}
+                              onClick={() => openMetadata(document)}
+                            >
+                              <Folder className="h-4 w-4" />
                             </Button>
                             {document.status === 'failed' && (
                               <Button
@@ -581,6 +763,137 @@ export function KnowledgeDetailPage() {
           value={tagDraft}
           onChange={(event) => setTagDraft(event.target.value)}
           placeholder={t('documents.tagPlaceholder')}
+          className="h-9 w-full rounded-lg border border-border bg-surface px-3 text-sm text-ink focus:border-accent focus:outline-none"
+        />
+      </Dialog>
+
+      <Dialog
+        open={urlOpen}
+        onClose={() => setUrlOpen(false)}
+        title={t('documents.importUrlTitle')}
+        footer={
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setUrlOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              size="sm"
+              disabled={importingUrl || urlDraft.trim() === ''}
+              onClick={() => void importUrl()}
+            >
+              {importingUrl ? t('common.loading') : t('documents.import')}
+            </Button>
+          </>
+        }
+      >
+        <p className="mb-2 text-xs text-ink-muted">{t('documents.urlHint')}</p>
+        <input
+          value={urlDraft}
+          onChange={(event) => setUrlDraft(event.target.value)}
+          placeholder={t('documents.urlPlaceholder')}
+          className="h-9 w-full rounded-lg border border-border bg-surface px-3 text-sm text-ink focus:border-accent focus:outline-none"
+        />
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          <input
+            value={urlFolder}
+            onChange={(event) => setUrlFolder(event.target.value)}
+            placeholder={t('documents.folderPlaceholder')}
+            className="h-9 w-full rounded-lg border border-border bg-surface px-3 text-sm text-ink focus:border-accent focus:outline-none"
+          />
+          <input
+            value={urlTags}
+            onChange={(event) => setUrlTags(event.target.value)}
+            placeholder={t('documents.tagPlaceholder')}
+            className="h-9 w-full rounded-lg border border-border bg-surface px-3 text-sm text-ink focus:border-accent focus:outline-none"
+          />
+        </div>
+        <label className="mt-3 flex items-center gap-2 text-xs text-ink">
+          <input
+            type="checkbox"
+            checked={urlCrawl}
+            onChange={(event) => setUrlCrawl(event.target.checked)}
+          />
+          {t('documents.crawl')}
+        </label>
+        {urlCrawl && (
+          <label className="mt-2 flex items-center gap-2 text-xs text-ink-muted">
+            {t('documents.crawlPages')}
+            <input
+              type="number"
+              min={1}
+              max={20}
+              value={urlMaxPages}
+              onChange={(event) => setUrlMaxPages(Number(event.target.value) || 1)}
+              className="h-8 w-20 rounded-lg border border-border bg-surface px-2 text-xs text-ink"
+            />
+          </label>
+        )}
+      </Dialog>
+
+      <Dialog
+        open={metadataTarget !== null}
+        onClose={() => setMetadataTarget(null)}
+        title={t('documents.metadataTitle')}
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setMetadataTarget(null)}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button size="sm" onClick={() => void saveMetadata()}>
+              {t('common.save')}
+            </Button>
+          </>
+        }
+      >
+        <p className="mb-2 text-xs text-ink-muted">{t('documents.metadataHint')}</p>
+        <input
+          value={metadataFolder}
+          onChange={(event) => setMetadataFolder(event.target.value)}
+          placeholder={t('documents.folderPlaceholder')}
+          className="h-9 w-full rounded-lg border border-border bg-surface px-3 text-sm text-ink focus:border-accent focus:outline-none"
+        />
+        <input
+          value={metadataTags}
+          onChange={(event) => setMetadataTags(event.target.value)}
+          placeholder={t('documents.tagPlaceholder')}
+          className="mt-2 h-9 w-full rounded-lg border border-border bg-surface px-3 text-sm text-ink focus:border-accent focus:outline-none"
+        />
+        <textarea
+          value={metadataJson}
+          onChange={(event) => setMetadataJson(event.target.value)}
+          placeholder='{"owner": "team"}'
+          className="mt-2 min-h-28 w-full rounded-lg border border-border bg-surface px-3 py-2 font-mono text-xs text-ink focus:border-accent focus:outline-none"
+        />
+      </Dialog>
+
+      <Dialog
+        open={folderRenameOpen}
+        onClose={() => setFolderRenameOpen(false)}
+        title={t('documents.renameFolder')}
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setFolderRenameOpen(false)}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button size="sm" onClick={() => void renameFolder()}>
+              {t('common.save')}
+            </Button>
+          </>
+        }
+      >
+        <p className="mb-2 text-xs text-ink-muted">{t('documents.renameFolderHint')}</p>
+        <input
+          value={folderRenameValue}
+          onChange={(event) => setFolderRenameValue(event.target.value)}
+          placeholder={t('documents.folderPlaceholder')}
           className="h-9 w-full rounded-lg border border-border bg-surface px-3 text-sm text-ink focus:border-accent focus:outline-none"
         />
       </Dialog>

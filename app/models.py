@@ -1006,6 +1006,9 @@ class Document(Base):
     error_code: Mapped[str | None] = mapped_column(String(50), default=None)
     page_count: Mapped[int | None] = mapped_column(Integer, default=None)
     tags: Mapped[list[str]] = mapped_column(JSON, default=list)
+    folder: Mapped[str] = mapped_column(String(255), default="", index=True)
+    doc_metadata: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
+    source_url: Mapped[str | None] = mapped_column(String(1000), default=None)
     process_version_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("workflow_versions.id", ondelete="SET NULL"), default=None
     )

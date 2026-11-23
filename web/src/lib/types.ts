@@ -169,6 +169,7 @@ export interface KnowledgeBaseSettings {
     candidate_k: number
     hybrid_enabled: boolean
     rerank_enabled: boolean
+    metadata_filter: Record<string, string>
   }
   embedding: {
     provider_config_id: string | null
@@ -1306,7 +1307,15 @@ export interface DocumentItem {
   error_code: string | null
   page_count: number | null
   tags?: string[]
+  folder?: string
+  doc_metadata?: Record<string, string>
+  source_url?: string | null
   created_at: string
+}
+
+export interface DocumentFolder {
+  folder: string
+  count: number
 }
 
 export interface DocumentUpload {

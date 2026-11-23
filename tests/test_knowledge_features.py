@@ -30,6 +30,7 @@ async def test_knowledge_base_settings_defaults_and_partial_update(client, api):
             "candidate_k": 20,
             "hybrid_enabled": True,
             "rerank_enabled": False,
+            "metadata_filter": {},
         },
         "embedding": {
             "provider_config_id": None,

@@ -22,6 +22,9 @@ export function KnowledgeSettingsTab({ kbId, settings, onSaved }: KnowledgeSetti
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [metadataText, setMetadataText] = useState(
+    JSON.stringify(settings.retrieval.metadata_filter ?? {}, null, 2),
+  )
   const providerModels = useQuery({
     queryKey: ['provider-configs', 'models'],
     queryFn: () => apiRequest<PersonalModel[]>('/provider-configs/models'),
@@ -30,6 +33,7 @@ export function KnowledgeSettingsTab({ kbId, settings, onSaved }: KnowledgeSetti
 
   useEffect(() => {
     setForm(settings)
+    setMetadataText(JSON.stringify(settings.retrieval.metadata_filter ?? {}, null, 2))
   }, [settings])
 
   const embeddingModels = (providerModels.data ?? []).filter((model) =>
@@ -43,15 +47,37 @@ export function KnowledgeSettingsTab({ kbId, settings, onSaved }: KnowledgeSetti
 
   const save = async () => {
     if (invalidChunking || invalidCandidates || saving) return
-    setSaving(true)
     setError(null)
     setMessage(null)
+    let metadataFilter: Record<string, string>
+    try {
+      const parsed = JSON.parse(metadataText || '{}') as unknown
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('metadata filter must be an object')
+      }
+      metadataFilter = Object.fromEntries(
+        Object.entries(parsed as Record<string, unknown>)
+          .filter(([, value]) => typeof value === 'string')
+          .map(([key, value]) => [key, String(value)]),
+      )
+    } catch {
+      setError(t('knowledge.settings.invalidMetadata'))
+      return
+    }
+    setSaving(true)
     try {
       const saved = await apiRequest<KnowledgeBaseSettings>(
         `/knowledge-bases/${kbId}/settings`,
-        { method: 'PATCH', body: form },
+        {
+          method: 'PATCH',
+          body: {
+            ...form,
+            retrieval: { ...form.retrieval, metadata_filter: metadataFilter },
+          },
+        },
       )
       setForm(saved)
+      setMetadataText(JSON.stringify(saved.retrieval.metadata_filter ?? {}, null, 2))
       onSaved(saved)
       setMessage(t('knowledge.settings.saved'))
     } catch (caught) {
@@ -172,6 +198,18 @@ export function KnowledgeSettingsTab({ kbId, settings, onSaved }: KnowledgeSetti
             </span>
           </label>
         </div>
+        <label className="mt-3 block text-xs text-ink-muted">
+          <span className="mb-1 block font-medium text-ink">
+            {t('knowledge.settings.metadataFilter')}
+          </span>
+          <span className="mb-2 block">{t('knowledge.settings.metadataFilterLead')}</span>
+          <textarea
+            value={metadataText}
+            onChange={(event) => setMetadataText(event.target.value)}
+            placeholder='{"department": "finance"}'
+            className="min-h-24 w-full rounded-lg border border-border bg-surface px-3 py-2 font-mono text-xs text-ink focus:border-accent focus:outline-none"
+          />
+        </label>
         <p className="mt-3 text-xs text-ink-muted">{t('knowledge.settings.note')}</p>
       </section>
 

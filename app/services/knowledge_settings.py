@@ -1,10 +1,19 @@
 import logging
+import re
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from app.config import Settings, get_settings
+
+METADATA_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,50}$")
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +34,25 @@ class RetrievalSettings(BaseModel):
     candidate_k: int = Field(default=20, ge=1, le=100)
     hybrid_enabled: bool = True
     rerank_enabled: bool = True
+    metadata_filter: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("metadata_filter", mode="before")
+    @classmethod
+    def _clean_metadata_filter(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        cleaned: dict[str, str] = {}
+        for key, item in value.items():
+            if not isinstance(key, str) or not isinstance(item, str):
+                continue
+            name = key.strip()
+            text = item.strip()[:200]
+            if not METADATA_KEY_PATTERN.fullmatch(name) or not text:
+                continue
+            cleaned[name] = text
+            if len(cleaned) >= 10:
+                break
+        return cleaned
 
     @model_validator(mode="after")
     def _candidates_cover_top_k(self) -> "RetrievalSettings":

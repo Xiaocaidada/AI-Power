@@ -242,6 +242,89 @@ test('Knowledge retrieval studio renders canvas and test tab', async ({ page }) 
 })
 
 
+test('Knowledge documents page supports URL import and folder filters', async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    localStorage.setItem('ai_power_refresh_token', 'e2e-refresh-token-0123456789'),
+  )
+  await mockBase(page)
+  await page.route('**/api/knowledge-bases/kb-1', (route) =>
+    route.fulfill({
+      json: {
+        id: 'kb-1',
+        name: '技术知识库',
+        description: '',
+        created_at: '2026-11-23T00:00:00Z',
+      },
+    }),
+  )
+  await page.route('**/api/knowledge-bases/kb-1/settings', (route) =>
+    route.fulfill({
+      json: {
+        chunking: { chunk_size: 800, chunk_overlap: 120 },
+        retrieval: {
+          top_k: 5,
+          candidate_k: 20,
+          hybrid_enabled: true,
+          rerank_enabled: false,
+        },
+        embedding: { provider_config_id: null, model: null, dimensions: 1024 },
+        rerank: { provider_config_id: null, model: null },
+      },
+    }),
+  )
+  await page.route('**/api/knowledge-bases/kb-1/stats', (route) =>
+    route.fulfill({
+      json: {
+        document_count: 1,
+        ready_count: 1,
+        processing_count: 0,
+        failed_count: 0,
+        chunk_count: 2,
+        char_count: 20,
+      },
+    }),
+  )
+  await page.route('**/api/knowledge-bases/kb-1/documents**', (route) =>
+    route.fulfill({
+      json: [
+        {
+          id: 'doc-1',
+          filename: 'handbook.html',
+          mime: 'text/html',
+          size_bytes: 20,
+          status: 'ready',
+          error_code: null,
+          page_count: 1,
+          tags: ['web'],
+          folder: 'handbook/policies',
+          doc_metadata: { owner: 'HR' },
+          source_url: 'https://example.com/handbook',
+          created_at: '2026-11-23T00:00:00Z',
+        },
+      ],
+    }),
+  )
+  await page.route('**/api/knowledge-bases/kb-1/folders', (route) =>
+    route.fulfill({
+      json: [
+        { folder: '', count: 0 },
+        { folder: 'handbook/policies', count: 1 },
+      ],
+    }),
+  )
+
+  await page.goto('/knowledge/kb-1')
+  await expect(page.getByText('handbook.html')).toBeVisible()
+  await expect(page.locator('tbody').getByText('handbook/policies')).toBeVisible()
+  await page.getByRole('button', { name: '从 URL 导入' }).click()
+  await expect(page.getByPlaceholder('https://example.com/handbook')).toBeVisible()
+  await page.getByRole('button', { name: '取消' }).click()
+  await expect(page.locator('select').filter({ hasText: '全部文件夹' })).toBeVisible()
+})
+
+
 test('Knowledge evaluation page renders metrics, analysis and optimization', async ({
   page,
 }) => {
