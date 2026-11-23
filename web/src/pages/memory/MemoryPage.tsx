@@ -1,75 +1,149 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Brain, Pencil, Plus, Trash2 } from 'lucide-react'
-import { useState, type FormEvent, type ReactNode } from 'react'
+import {
+  Brain,
+  ListChecks,
+  Pencil,
+  Pin,
+  Plus,
+  Star,
+  Trash2,
+} from 'lucide-react'
+import { useState } from 'react'
 
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
-import { Dialog } from '../../components/ui/dialog'
-import { Input, Textarea } from '../../components/ui/input'
+import { EmptyState } from '../../components/ui/empty-state'
 import { Spinner } from '../../components/ui/spinner'
-import { errorTextKey } from '../../lib/errorText'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
-import type { AgentMemory, CustomAgent } from '../../lib/types'
+import type {
+  AgentMemory,
+  CustomAgent,
+  MemoryCategory,
+  MemorySettings,
+  MemoryStats,
+  MemoryStatus,
+  MemoryUsage,
+  Project,
+} from '../../lib/types'
+import { cn } from '../../lib/utils'
+import { MemoryDetailDialog } from './MemoryDetailDialog'
+import { MemoryFormDialog } from './MemoryFormDialog'
+import { MemorySettingsPanel } from './MemorySettingsPanel'
 
-type Scope = 'user' | 'workspace'
-type Kind = 'fact' | 'preference' | 'summary'
+type Tab = 'overview' | 'all' | 'pending' | 'usage' | 'settings'
 
-interface Draft {
-  title: string
-  content: string
-  scope: Scope
-  kind: Kind
-  agentId: string
-  importance: number
-}
+const CATEGORIES: MemoryCategory[] = [
+  'preference',
+  'profile',
+  'project',
+  'technical',
+  'experience',
+  'decision',
+  'relation',
+  'fact',
+]
 
-function draftFrom(memory: AgentMemory | null): Draft {
-  return {
-    title: memory?.title ?? '',
-    content: memory?.content ?? '',
-    scope: memory?.scope ?? 'user',
-    kind: memory?.kind ?? 'fact',
-    agentId: memory?.agent_id ?? '',
-    importance: memory?.importance ?? 3,
-  }
-}
+const STATUSES: MemoryStatus[] = [
+  'active',
+  'candidate',
+  'conflict',
+  'expired',
+  'archived',
+  'rejected',
+]
 
 export function MemoryPage() {
   const { t } = useI18n()
   const queryClient = useQueryClient()
+  const [tab, setTab] = useState<Tab>('overview')
   const [search, setSearch] = useState('')
-  const [scope, setScope] = useState<'' | Scope>('')
+  const [category, setCategory] = useState('')
+  const [status, setStatus] = useState('')
+  const [scopeType, setScopeType] = useState('')
+  const [projectFilter, setProjectFilter] = useState('')
   const [agentFilter, setAgentFilter] = useState('')
+  const [favoriteOnly, setFavoriteOnly] = useState(false)
   const [editing, setEditing] = useState<AgentMemory | null | undefined>()
+  const [detail, setDetail] = useState<AgentMemory | null>(null)
 
-  const memories = useQuery({
-    queryKey: ['memories', search, scope, agentFilter],
-    queryFn: () =>
-      apiRequest<AgentMemory[]>(
-        `/memories?${new URLSearchParams({
-          ...(search.trim() !== '' ? { q: search.trim() } : {}),
-          ...(scope !== '' ? { scope } : {}),
-          ...(agentFilter !== '' ? { agent_id: agentFilter } : {}),
-        }).toString()}`,
-      ),
+  const stats = useQuery({
+    queryKey: ['memory-stats'],
+    queryFn: () => apiRequest<MemoryStats>('/memories/stats'),
+  })
+  const settings = useQuery({
+    queryKey: ['memory-settings'],
+    queryFn: () => apiRequest<MemorySettings>('/memories/settings'),
+  })
+  const projects = useQuery({
+    queryKey: ['projects'],
+    queryFn: () => apiRequest<Project[]>('/projects'),
   })
   const agents = useQuery({
     queryKey: ['agents', 'memory-options'],
     queryFn: () => apiRequest<CustomAgent[]>('/agents?scope=mine'),
     staleTime: 60_000,
   })
+  const usage = useQuery({
+    queryKey: ['memory-usage'],
+    queryFn: () => apiRequest<MemoryUsage[]>('/memories/usage?limit=100'),
+    enabled: tab === 'usage',
+  })
+  const effectiveStatus = tab === 'pending' ? 'candidate' : status
+  const memories = useQuery({
+    queryKey: [
+      'memories',
+      search,
+      category,
+      effectiveStatus,
+      scopeType,
+      projectFilter,
+      agentFilter,
+      favoriteOnly,
+    ],
+    queryFn: () =>
+      apiRequest<AgentMemory[]>(
+        `/memories?${new URLSearchParams({
+          ...(search.trim() !== '' ? { q: search.trim() } : {}),
+          ...(category !== '' ? { category } : {}),
+          ...(effectiveStatus !== '' ? { status: effectiveStatus } : {}),
+          ...(scopeType !== '' ? { scope_type: scopeType } : {}),
+          ...(projectFilter !== '' ? { project_id: projectFilter } : {}),
+          ...(agentFilter !== '' ? { agent_id: agentFilter } : {}),
+          ...(favoriteOnly ? { favorite: 'true' } : {}),
+        }).toString()}`,
+      ),
+    enabled: tab === 'all' || tab === 'pending',
+  })
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ['memories'] })
+  const refresh = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['memories'] }),
+      queryClient.invalidateQueries({ queryKey: ['memory-stats'] }),
+      queryClient.invalidateQueries({ queryKey: ['memory-usage'] }),
+    ])
+  }
+
+  const toggleFlag = async (memory: AgentMemory, key: 'pinned' | 'favorite') => {
+    await apiRequest(`/memories/${memory.id}`, {
+      method: 'PATCH',
+      body: { [key]: !memory[key] },
+    })
+    await refresh()
+  }
 
   const remove = async (memory: AgentMemory) => {
     if (!window.confirm(t('memory.deleteConfirm'))) return
     await apiRequest(`/memories/${memory.id}`, { method: 'DELETE' })
+    if (detail?.id === memory.id) setDetail(null)
     await refresh()
   }
 
+  const rows = memories.data ?? []
+  const agentOptions = (agents.data ?? []).filter((agent) => !agent.builtin)
+
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface px-6 py-4">
         <div>
           <h1 className="flex items-center gap-2 text-lg font-semibold">
@@ -78,254 +152,435 @@ export function MemoryPage() {
           </h1>
           <p className="mt-1 text-sm text-ink-muted">{t('memory.lead')}</p>
         </div>
-        <Button size="sm" onClick={() => setEditing(null)}>
-          <Plus className="h-3.5 w-3.5" />
-          {t('memory.new')}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {settings.data !== undefined && !settings.data.enabled && (
+            <Badge tone="warning">{t('memory.settings.off')}</Badge>
+          )}
+          <Button size="sm" onClick={() => setEditing(null)}>
+            <Plus className="h-3.5 w-3.5" />
+            {t('memory.new')}
+          </Button>
+        </div>
       </header>
 
-      <div className="space-y-4 px-6 py-6">
-        <div className="flex flex-wrap gap-2">
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder={t('memory.search')}
-            className="h-9 w-full max-w-sm rounded-lg border border-border bg-surface px-3 text-sm text-ink focus:border-accent focus:outline-none"
-          />
-          <select
-            value={scope}
-            onChange={(event) => setScope(event.target.value as '' | Scope)}
-            className="h-9 rounded-lg border border-border bg-surface px-2 text-sm text-ink"
+      <nav className="flex flex-wrap gap-1 border-b border-border bg-surface px-6">
+        {(['overview', 'all', 'pending', 'usage', 'settings'] as const).map((item) => (
+          <button
+            key={item}
+            type="button"
+            onClick={() => setTab(item)}
+            className={cn(
+              'rounded-t-md px-3 py-2 text-xs',
+              tab === item
+                ? 'border-b-2 border-accent text-accent'
+                : 'text-ink-muted hover:text-ink',
+            )}
           >
-            <option value="">{t('memory.allScopes')}</option>
-            <option value="user">{t('memory.scope.user')}</option>
-            <option value="workspace">{t('memory.scope.workspace')}</option>
-          </select>
-          <select
-            value={agentFilter}
-            onChange={(event) => setAgentFilter(event.target.value)}
-            className="h-9 rounded-lg border border-border bg-surface px-2 text-sm text-ink"
-          >
-            <option value="">{t('memory.allAgents')}</option>
-            {(agents.data ?? [])
-              .filter((agent) => !agent.builtin)
-              .map((agent) => (
-                <option key={agent.id} value={agent.id}>
-                  {agent.icon} {agent.name}
-                </option>
-              ))}
-          </select>
-        </div>
+            {t(`memory.tab.${item}`)}
+          </button>
+        ))}
+      </nav>
 
-        {memories.isLoading && <Spinner />}
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {(memories.data ?? []).map((memory) => (
-            <article
-              key={memory.id}
-              className="flex flex-col rounded-2xl border border-border bg-surface p-4"
-            >
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge tone="accent">{t(`memory.kind.${memory.kind}`)}</Badge>
-                <Badge tone="neutral">{t(`memory.scope.${memory.scope}`)}</Badge>
-                <span className="ml-auto text-[10px] text-ink-muted">
-                  {'★'.repeat(memory.importance)}
-                </span>
-              </div>
-              <p className="mt-2 text-sm font-medium text-ink">
-                {memory.title || memory.content.slice(0, 40)}
-              </p>
-              <p className="mt-1 line-clamp-4 whitespace-pre-wrap text-xs text-ink-muted">
-                {memory.content}
-              </p>
-              <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] text-ink-muted">
-                <span>{memory.source}</span>
-                <span>{new Date(memory.updated_at).toLocaleString()}</span>
-                <div className="ml-auto flex gap-1">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    aria-label={t('common.edit')}
-                    onClick={() => setEditing(memory)}
-                  >
-                    <Pencil className="h-3 w-3" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    aria-label={t('common.delete')}
-                    onClick={() => void remove(memory)}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
-                </div>
-              </div>
-            </article>
-          ))}
-        </div>
-        {memories.data !== undefined && memories.data.length === 0 && (
-          <p className="rounded-2xl border border-dashed border-border px-6 py-16 text-center text-sm text-ink-muted">
-            {t('memory.empty')}
-          </p>
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+        {tab === 'overview' && (
+          <Overview stats={stats.data} loading={stats.isLoading} onOpen={setDetail} />
         )}
+
+        {(tab === 'all' || tab === 'pending') && (
+          <div className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder={t('memory.search')}
+                className="h-9 w-full max-w-sm rounded-lg border border-border bg-surface px-3 text-sm text-ink focus:border-accent focus:outline-none"
+              />
+              <select
+                value={category}
+                onChange={(event) => setCategory(event.target.value)}
+                className="h-9 rounded-lg border border-border bg-surface px-2 text-sm text-ink"
+              >
+                <option value="">{t('memory.allCategories')}</option>
+                {CATEGORIES.map((item) => (
+                  <option key={item} value={item}>
+                    {t(`memory.category.${item}`)}
+                  </option>
+                ))}
+              </select>
+              {tab === 'all' && (
+                <>
+                  <select
+                    value={status}
+                    onChange={(event) => setStatus(event.target.value)}
+                    className="h-9 rounded-lg border border-border bg-surface px-2 text-sm text-ink"
+                  >
+                    <option value="">{t('memory.allStatuses')}</option>
+                    {STATUSES.map((item) => (
+                      <option key={item} value={item}>
+                        {t(`memory.status.${item}`)}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={projectFilter}
+                    onChange={(event) => setProjectFilter(event.target.value)}
+                    className="h-9 rounded-lg border border-border bg-surface px-2 text-sm text-ink"
+                  >
+                    <option value="">{t('memory.allProjects')}</option>
+                    {(projects.data ?? []).map((project) => (
+                      <option key={project.id} value={project.id}>
+                        {project.name}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
+              <select
+                value={scopeType}
+                onChange={(event) => setScopeType(event.target.value)}
+                className="h-9 rounded-lg border border-border bg-surface px-2 text-sm text-ink"
+              >
+                <option value="">{t('memory.allScopes')}</option>
+                <option value="global">{t('memory.scopeType.global')}</option>
+                <option value="project">{t('memory.scopeType.project')}</option>
+                <option value="agent">{t('memory.scopeType.agent')}</option>
+              </select>
+              <select
+                value={agentFilter}
+                onChange={(event) => setAgentFilter(event.target.value)}
+                className="h-9 rounded-lg border border-border bg-surface px-2 text-sm text-ink"
+              >
+                <option value="">{t('memory.allAgents')}</option>
+                {agentOptions.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.icon} {agent.name}
+                  </option>
+                ))}
+              </select>
+              <label className="flex items-center gap-2 text-xs text-ink-muted">
+                <input
+                  type="checkbox"
+                  checked={favoriteOnly}
+                  onChange={(event) => setFavoriteOnly(event.target.checked)}
+                />
+                {t('memory.favoriteOnly')}
+              </label>
+            </div>
+
+            {memories.isLoading && <Spinner />}
+            {!memories.isLoading && rows.length === 0 && (
+              <EmptyState
+                title={
+                  tab === 'pending'
+                    ? t('memory.pendingEmpty')
+                    : t('memory.empty')
+                }
+                description={
+                  tab === 'pending'
+                    ? t('memory.pendingEmptyLead')
+                    : t('memory.emptyLead')
+                }
+              />
+            )}
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {rows.map((memory) => (
+                <MemoryCard
+                  key={memory.id}
+                  memory={memory}
+                  onOpen={() => setDetail(memory)}
+                  onEdit={() => setEditing(memory)}
+                  onDelete={() => void remove(memory)}
+                  onToggle={(key) => void toggleFlag(memory, key)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {tab === 'usage' && (
+          <div className="rounded-card border border-border bg-surface">
+            {usage.isLoading ? (
+              <div className="flex justify-center py-10">
+                <Spinner />
+              </div>
+            ) : (usage.data ?? []).length === 0 ? (
+              <EmptyState
+                title={t('memory.usageEmpty')}
+                description={t('memory.usageEmptyLead')}
+              />
+            ) : (
+              <table className="w-full text-left text-xs">
+                <thead className="text-ink-muted">
+                  <tr>
+                    <th className="px-4 py-2 font-medium">{t('memory.memoryTitle')}</th>
+                    <th className="px-4 py-2 font-medium">{t('memory.usageContext')}</th>
+                    <th className="px-4 py-2 font-medium">{t('memory.usageModel')}</th>
+                    <th className="px-4 py-2 font-medium">{t('memory.usageChars')}</th>
+                    <th className="px-4 py-2 font-medium">{t('memory.usageTime')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(usage.data ?? []).map((item) => (
+                    <tr key={item.id} className="border-t border-border">
+                      <td className="px-4 py-2 text-ink">
+                        {item.memory_title || item.memory_id.slice(0, 8)}
+                      </td>
+                      <td className="px-4 py-2 text-ink-muted">
+                        {item.context_type}
+                        {item.context_id ? ` · ${item.context_id.slice(0, 8)}` : ''}
+                      </td>
+                      <td className="px-4 py-2 text-ink-muted">
+                        {item.provider_id ?? '—'} / {item.model ?? '—'}
+                      </td>
+                      <td className="px-4 py-2 text-ink-muted">
+                        {item.injected_chars}
+                      </td>
+                      <td className="px-4 py-2 text-ink-muted">
+                        {new Date(item.created_at).toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        {tab === 'settings' && <MemorySettingsPanel />}
       </div>
 
-      <MemoryForm
-        key={editing === null ? 'new-memory' : (editing?.id ?? 'closed')}
+      <MemoryFormDialog
+        key={editing === null ? 'new' : (editing?.id ?? 'closed')}
         open={editing !== undefined}
         initial={editing ?? null}
-        agents={(agents.data ?? []).filter((agent) => !agent.builtin)}
+        projects={projects.data ?? []}
+        agents={agentOptions}
         onClose={() => setEditing(undefined)}
         onSaved={() => {
           setEditing(undefined)
           void refresh()
         }}
       />
+
+      <MemoryDetailDialog
+        memory={detail}
+        onClose={() => setDetail(null)}
+        onEdit={(memory) => {
+          setDetail(null)
+          setEditing(memory)
+        }}
+        onChanged={() => void refresh()}
+      />
     </div>
   )
 }
 
-function MemoryForm({
-  open,
-  initial,
-  agents,
-  onClose,
-  onSaved,
+function Overview({
+  stats,
+  loading,
+  onOpen,
 }: {
-  open: boolean
-  initial: AgentMemory | null
-  agents: CustomAgent[]
-  onClose: () => void
-  onSaved: () => void
+  stats: MemoryStats | undefined
+  loading: boolean
+  onOpen: (memory: AgentMemory) => void
 }) {
   const { t } = useI18n()
-  const [draft, setDraft] = useState<Draft>(() => draftFrom(initial))
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const update = <K extends keyof Draft>(key: K, value: Draft[K]) =>
-    setDraft((current) => ({ ...current, [key]: value }))
-
-  const submit = async (event: FormEvent) => {
-    event.preventDefault()
-    setSaving(true)
-    setError(null)
-    const body = {
-      title: draft.title,
-      content: draft.content,
-      scope: draft.scope,
-      kind: draft.kind,
-      agent_id: draft.agentId === '' ? null : draft.agentId,
-      importance: draft.importance,
-    }
-    try {
-      if (initial === null) {
-        await apiRequest('/memories', { method: 'POST', body })
-      } else {
-        await apiRequest(`/memories/${initial.id}`, { method: 'PATCH', body })
-      }
-      onSaved()
-    } catch (caught) {
-      setError(t(errorTextKey(caught)))
-    } finally {
-      setSaving(false)
-    }
+  if (loading || stats === undefined) {
+    return (
+      <div className="flex justify-center py-10">
+        <Spinner />
+      </div>
+    )
   }
-
+  const cards = [
+    { label: t('memory.stats.total'), value: stats.total, tone: 'accent' },
+    { label: t('memory.stats.active'), value: stats.active, tone: 'success' },
+    { label: t('memory.stats.pending'), value: stats.pending, tone: 'warning' },
+    { label: t('memory.stats.conflict'), value: stats.conflict, tone: 'danger' },
+  ] as const
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      title={initial === null ? t('memory.new') : t('memory.edit')}
-      footer={
-        <>
-          <Button size="sm" variant="secondary" onClick={onClose}>
-            {t('common.cancel')}
-          </Button>
-          <Button size="sm" disabled={saving} form="memory-form" type="submit">
-            {t('common.save')}
-          </Button>
-        </>
-      }
-    >
-      <form id="memory-form" className="space-y-3" onSubmit={(event) => void submit(event)}>
-        <Field label={t('memory.memoryTitle')}>
-          <Input
-            value={draft.title}
-            onChange={(event) => update('title', event.target.value)}
-          />
-        </Field>
-        <Field label={t('memory.content')}>
-          <Textarea
-            required
-            className="min-h-28"
-            value={draft.content}
-            onChange={(event) => update('content', event.target.value)}
-          />
-        </Field>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label={t('memory.kindLabel')}>
-            <select
-              className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm text-ink"
-              value={draft.kind}
-              onChange={(event) => update('kind', event.target.value as Kind)}
+    <div className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {cards.map((card) => (
+          <div
+            key={card.label}
+            className="rounded-card border border-border bg-surface p-4"
+          >
+            <p className="text-[11px] uppercase tracking-wide text-ink-muted">
+              {card.label}
+            </p>
+            <p className="mt-1 text-2xl font-semibold text-ink">{card.value}</p>
+            <Badge tone={card.tone} className="mt-2">
+              {t('memory.stats.card')}
+            </Badge>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        <section className="rounded-card border border-border bg-surface p-4">
+          <h2 className="flex items-center gap-2 text-sm font-medium text-ink">
+            <ListChecks className="h-4 w-4" />
+            {t('memory.stats.byCategory')}
+          </h2>
+          <div className="mt-2 space-y-1">
+            {Object.entries(stats.by_category).length === 0 && (
+              <p className="text-xs text-ink-muted">—</p>
+            )}
+            {Object.entries(stats.by_category).map(([key, value]) => (
+              <div key={key} className="flex items-center gap-2 text-xs">
+                <span className="w-24 text-ink-muted">
+                  {t(`memory.category.${key}` as 'memory.category.fact')}
+                </span>
+                <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-muted">
+                  <div
+                    className="h-full bg-accent"
+                    style={{
+                      width: `${Math.min(
+                        (value / Math.max(stats.total, 1)) * 100,
+                        100,
+                      )}%`,
+                    }}
+                  />
+                </div>
+                <span className="text-ink-muted">{value}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="rounded-card border border-border bg-surface p-4">
+          <h2 className="flex items-center gap-2 text-sm font-medium text-ink">
+            <Star className="h-4 w-4" />
+            {t('memory.stats.topUsed')}
+          </h2>
+          <div className="mt-2 space-y-1">
+            {stats.top_used.length === 0 && (
+              <p className="text-xs text-ink-muted">—</p>
+            )}
+            {stats.top_used.map((memory) => (
+              <button
+                key={memory.id}
+                type="button"
+                onClick={() => onOpen(memory)}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-surface-muted"
+              >
+                <span className="min-w-0 flex-1 truncate text-ink">
+                  {memory.title || memory.content.slice(0, 40)}
+                </span>
+                <span className="text-ink-muted">{memory.use_count}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      <section className="rounded-card border border-border bg-surface p-4">
+        <h2 className="text-sm font-medium text-ink">{t('memory.stats.recent')}</h2>
+        <div className="mt-2 grid gap-2 md:grid-cols-2">
+          {stats.recent.map((memory) => (
+            <button
+              key={memory.id}
+              type="button"
+              onClick={() => onOpen(memory)}
+              className="rounded-lg bg-surface-muted px-3 py-2 text-left hover:bg-surface"
             >
-              {(['fact', 'preference', 'summary'] as const).map((item) => (
-                <option key={item} value={item}>
-                  {t(`memory.kind.${item}`)}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label={t('memory.scopeLabel')}>
-            <select
-              className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm text-ink"
-              value={draft.scope}
-              onChange={(event) => update('scope', event.target.value as Scope)}
-            >
-              {(['user', 'workspace'] as const).map((item) => (
-                <option key={item} value={item}>
-                  {t(`memory.scope.${item}`)}
-                </option>
-              ))}
-            </select>
-          </Field>
+              <p className="truncate text-xs font-medium text-ink">
+                {memory.title || memory.content.slice(0, 40)}
+              </p>
+              <p className="mt-0.5 truncate text-[11px] text-ink-muted">
+                {memory.content}
+              </p>
+            </button>
+          ))}
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label={t('memory.agent')}>
-            <select
-              className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm text-ink"
-              value={draft.agentId}
-              onChange={(event) => update('agentId', event.target.value)}
-            >
-              <option value="">{t('memory.allAgents')}</option>
-              {agents.map((agent) => (
-                <option key={agent.id} value={agent.id}>
-                  {agent.icon} {agent.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label={t('memory.importance')}>
-            <Input
-              type="number"
-              min={1}
-              max={5}
-              value={draft.importance}
-              onChange={(event) => update('importance', Number(event.target.value))}
-            />
-          </Field>
-        </div>
-        {error !== null && <p className="text-xs text-danger">{error}</p>}
-      </form>
-    </Dialog>
+      </section>
+    </div>
   )
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function MemoryCard({
+  memory,
+  onOpen,
+  onEdit,
+  onDelete,
+  onToggle,
+}: {
+  memory: AgentMemory
+  onOpen: () => void
+  onEdit: () => void
+  onDelete: () => void
+  onToggle: (key: 'pinned' | 'favorite') => void
+}) {
+  const { t } = useI18n()
   return (
-    <label className="block text-xs text-ink-muted">
-      <span className="mb-1 block">{label}</span>
-      {children}
-    </label>
+    <article className="flex flex-col rounded-2xl border border-border bg-surface p-4">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Badge tone="accent">{t(`memory.category.${memory.category}`)}</Badge>
+        <Badge tone="neutral">{t(`memory.scopeType.${memory.scope_type}`)}</Badge>
+        {memory.status !== 'active' && (
+          <Badge tone={memory.status === 'conflict' ? 'danger' : 'neutral'}>
+            {t(`memory.status.${memory.status}`)}
+          </Badge>
+        )}
+        <div className="ml-auto flex gap-0.5">
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-label={t('memory.pinned')}
+            onClick={() => onToggle('pinned')}
+          >
+            <Pin
+              className={cn(
+                'h-3 w-3',
+                memory.pinned ? 'text-accent' : 'text-ink-muted',
+              )}
+            />
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-label={t('memory.favorite')}
+            onClick={() => onToggle('favorite')}
+          >
+            <Star
+              className={cn(
+                'h-3 w-3',
+                memory.favorite ? 'text-warning' : 'text-ink-muted',
+              )}
+            />
+          </Button>
+        </div>
+      </div>
+      <button type="button" onClick={onOpen} className="mt-2 text-left">
+        <p className="text-sm font-medium text-ink">
+          {memory.title || memory.content.slice(0, 40)}
+        </p>
+        <p className="mt-1 line-clamp-4 whitespace-pre-wrap text-xs text-ink-muted">
+          {memory.content}
+        </p>
+      </button>
+      <div className="mt-3 flex flex-wrap items-center gap-1">
+        {memory.tags.slice(0, 4).map((tag) => (
+          <Badge key={tag} tone="neutral">
+            {tag}
+          </Badge>
+        ))}
+        {!memory.enabled && <Badge tone="danger">{t('memory.disabled')}</Badge>}
+      </div>
+      <div className="mt-3 flex items-center gap-2 text-[10px] text-ink-muted">
+        <span>{'★'.repeat(memory.importance)}</span>
+        <span>v{memory.version}</span>
+        <span>{new Date(memory.updated_at).toLocaleDateString()}</span>
+        <div className="ml-auto flex gap-1">
+          <Button size="sm" variant="ghost" onClick={onEdit}>
+            <Pencil className="h-3 w-3" />
+          </Button>
+          <Button size="sm" variant="ghost" onClick={onDelete}>
+            <Trash2 className="h-3 w-3" />
+          </Button>
+        </div>
+      </div>
+    </article>
   )
 }

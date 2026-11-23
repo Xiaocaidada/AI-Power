@@ -1153,13 +1153,68 @@ class WorkflowReviewRespondIn(BaseModel):
     output: str = Field(default="", max_length=20000)
 
 
+MemoryScopeType = Literal["global", "project", "agent"]
+MemoryCategory = Literal[
+    "fact",
+    "preference",
+    "profile",
+    "project",
+    "technical",
+    "experience",
+    "decision",
+    "relation",
+    "summary",
+]
+MemoryStatus = Literal[
+    "candidate", "active", "conflict", "expired", "archived", "rejected"
+]
+
+
+def _clean_memory_tags(value: object) -> object:
+    if not isinstance(value, list):
+        return value
+    cleaned: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        tag = item.strip()[:30]
+        if tag and tag not in cleaned:
+            cleaned.append(tag)
+    return cleaned[:20]
+
+
 class MemoryIn(BaseModel):
     content: str = Field(min_length=1, max_length=10000)
     title: str = Field(default="", max_length=120)
     scope: Literal["user", "workspace"] = "user"
     kind: Literal["fact", "preference", "summary"] = "fact"
     agent_id: UUID | None = None
+    project_id: UUID | None = None
+    scope_type: MemoryScopeType | None = None
+    category: MemoryCategory | None = None
+    status: MemoryStatus = "active"
     importance: int = Field(default=3, ge=1, le=5)
+    tags: list[str] = Field(default_factory=list, max_length=20)
+    source_type: str | None = Field(default=None, max_length=30)
+    source_id: str | None = Field(default=None, max_length=100)
+    source_ref: dict[str, object] = Field(default_factory=dict)
+    confidence: float = Field(default=1.0, ge=0, le=1)
+    sensitivity: Literal["normal", "sensitive"] = "normal"
+    enabled: bool = True
+    pinned: bool = False
+    favorite: bool = False
+    valid_until: datetime | None = None
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def clean_tags(cls, value: object) -> object:
+        return _clean_memory_tags(value)
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def strip_title(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
 
 
 class MemoryUpdate(BaseModel):
@@ -1168,22 +1223,185 @@ class MemoryUpdate(BaseModel):
     scope: Literal["user", "workspace"] | None = None
     kind: Literal["fact", "preference", "summary"] | None = None
     importance: int | None = Field(default=None, ge=1, le=5)
+    agent_id: UUID | None = None
+    project_id: UUID | None = None
+    scope_type: MemoryScopeType | None = None
+    category: MemoryCategory | None = None
+    status: MemoryStatus | None = None
+    tags: list[str] | None = Field(default=None, max_length=20)
+    enabled: bool | None = None
+    pinned: bool | None = None
+    favorite: bool | None = None
+    sensitivity: Literal["normal", "sensitive"] | None = None
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    valid_until: datetime | None = None
+    metadata: dict[str, object] | None = None
+    change_reason: str = Field(default="", max_length=300)
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def clean_tags(cls, value: object) -> object:
+        return _clean_memory_tags(value)
 
 
 class MemoryOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     id: UUID
     agent_id: UUID | None = None
+    project_id: UUID | None = None
     scope: str
+    scope_type: str
     kind: str
+    category: str
+    status: str
     title: str
     content: str
     importance: int
     source: str
+    source_type: str
+    source_id: str | None = None
+    source_ref: dict[str, object] = Field(default_factory=dict)
+    confidence: float
+    sensitivity: str
+    enabled: bool
+    pinned: bool
+    favorite: bool
+    tags: list[str] = Field(default_factory=list)
+    valid_until: datetime | None = None
+    use_count: int
+    version: int
+    metadata: dict[str, object] = Field(
+        default_factory=dict,
+        validation_alias="memory_metadata",
+        serialization_alias="metadata",
+    )
     last_used_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class MemoryVersionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    version: int
+    snapshot: dict[str, object]
+    changed_by: UUID | None = None
+    change_reason: str
+    created_at: datetime
+
+
+class MemoryRelationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    from_type: str
+    from_id: UUID
+    to_type: str
+    to_id: UUID
+    relation_type: str
+    confidence: float
+    basis: str
+    source: str
+    created_at: datetime
+
+
+class MemoryRelationIn(BaseModel):
+    to_type: Literal["memory", "project", "document", "agent"] = "memory"
+    to_id: UUID
+    relation_type: Literal[
+        "related", "supports", "contradicts", "supersedes", "derived_from"
+    ] = "related"
+    basis: str = Field(default="", max_length=500)
+
+
+class MemoryUsageOut(BaseModel):
+    id: UUID
+    memory_id: UUID
+    memory_title: str
+    context_type: str
+    context_id: str | None = None
+    provider_id: str | None = None
+    model: str | None = None
+    relevance: float | None = None
+    injected_chars: int
+    created_at: datetime
+
+
+class MemoryStatsOut(BaseModel):
+    total: int
+    active: int
+    pending: int
+    conflict: int
+    expired: int
+    archived: int
+    by_category: dict[str, int] = Field(default_factory=dict)
+    by_scope: dict[str, int] = Field(default_factory=dict)
+    recent: list[MemoryOut] = Field(default_factory=list)
+    top_used: list[MemoryOut] = Field(default_factory=list)
+
+
+class MemorySettingsIn(BaseModel):
+    enabled: bool | None = None
+    auto_extract: bool | None = None
+    auto_save: bool | None = None
+    require_confirmation: bool | None = None
+    allowed_categories: list[MemoryCategory] | None = Field(default=None, max_length=20)
+    allow_project_extract: bool | None = None
+    allow_agent_extract: bool | None = None
+    allow_cross_model: bool | None = None
+    max_inject_items: int | None = Field(default=None, ge=1, le=50)
+    max_inject_chars: int | None = Field(default=None, ge=200, le=20000)
+    blocked_topics: list[str] | None = Field(default=None, max_length=20)
+    retention_days: int | None = Field(default=None, ge=1, le=3650)
+
+    @field_validator("blocked_topics", mode="before")
+    @classmethod
+    def clean_blocked(cls, value: object) -> object:
+        if not isinstance(value, list):
+            return value
+        cleaned: list[str] = []
+        for item in value:
+            if not isinstance(item, str):
+                continue
+            topic = item.strip()[:50]
+            if topic and topic not in cleaned:
+                cleaned.append(topic)
+        return cleaned[:20]
+
+
+class MemorySettingsOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    enabled: bool
+    auto_extract: bool
+    auto_save: bool
+    require_confirmation: bool
+    allowed_categories: list[str]
+    allow_project_extract: bool
+    allow_agent_extract: bool
+    allow_cross_model: bool
+    max_inject_items: int
+    max_inject_chars: int
+    blocked_topics: list[str]
+    retention_days: int | None
+    updated_at: datetime
+
+
+class MemoryBatchIn(BaseModel):
+    ids: list[UUID] = Field(min_length=1, max_length=100)
+    status: MemoryStatus | None = None
+    category: MemoryCategory | None = None
+    scope_type: MemoryScopeType | None = None
+    project_id: UUID | None = None
+    agent_id: UUID | None = None
+    enabled: bool | None = None
+    tags: list[str] | None = Field(default=None, max_length=20)
+
+
+class MemoryBatchOut(BaseModel):
+    updated: int
 
 
 class McpServerIn(BaseModel):

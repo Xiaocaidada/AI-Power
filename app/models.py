@@ -499,7 +499,7 @@ class AgentBuilderSession(Base):
 
 
 class AgentMemory(Base):
-    """Long-term memory available to agents and workflow nodes."""
+    """Long-term memory available to conversations, agents and workflow nodes."""
 
     __tablename__ = "agent_memories"
 
@@ -513,13 +513,35 @@ class AgentMemory(Base):
     agent_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("custom_agents.id", ondelete="SET NULL"), default=None, index=True
     )
+    project_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"), default=None, index=True
+    )
     scope: Mapped[str] = mapped_column(String(20), default="user", index=True)
+    scope_type: Mapped[str] = mapped_column(String(20), default="global", index=True)
     kind: Mapped[str] = mapped_column(String(20), default="fact")
+    category: Mapped[str] = mapped_column(String(30), default="fact", index=True)
+    status: Mapped[str] = mapped_column(String(20), default="active", index=True)
     title: Mapped[str] = mapped_column(String(120), default="")
     content: Mapped[str] = mapped_column(Text)
     embedding: Mapped[list[float] | None] = mapped_column(EmbeddingVector, default=None)
     importance: Mapped[int] = mapped_column(Integer, default=3)
     source: Mapped[str] = mapped_column(String(20), default="manual")
+    source_type: Mapped[str] = mapped_column(String(30), default="manual")
+    source_id: Mapped[str | None] = mapped_column(String(100), default=None)
+    source_ref: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
+    confidence: Mapped[float] = mapped_column(Float, default=1.0)
+    sensitivity: Mapped[str] = mapped_column(String(20), default="normal")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False)
+    favorite: Mapped[bool] = mapped_column(Boolean, default=False)
+    tags: Mapped[list[str]] = mapped_column(JSON, default=list)
+    valid_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+    use_count: Mapped[int] = mapped_column(Integer, default=0)
+    content_hash: Mapped[str | None] = mapped_column(String(64), default=None, index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    memory_metadata: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
     last_used_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), default=None
     )
@@ -530,6 +552,166 @@ class AgentMemory(Base):
 
     __table_args__ = (
         Index("ix_agent_memories_workspace_user_updated", "workspace_id", "user_id", "updated_at"),
+        Index(
+            "ix_agent_memories_workspace_user_status",
+            "workspace_id",
+            "user_id",
+            "status",
+        ),
+    )
+
+
+class MemoryCandidate(Base):
+    __tablename__ = "memory_candidates"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    project_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"), default=None, index=True
+    )
+    agent_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("custom_agents.id", ondelete="SET NULL"), default=None, index=True
+    )
+    target_memory_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("agent_memories.id", ondelete="SET NULL"), default=None
+    )
+    source_type: Mapped[str] = mapped_column(String(30), default="chat")
+    source_id: Mapped[str | None] = mapped_column(String(100), default=None)
+    source_ref: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
+    extracted_by: Mapped[str | None] = mapped_column(String(120), default=None)
+    suggested_action: Mapped[str] = mapped_column(String(20), default="create")
+    category: Mapped[str] = mapped_column(String(30), default="fact")
+    scope_type: Mapped[str] = mapped_column(String(20), default="global")
+    title: Mapped[str] = mapped_column(String(120), default="")
+    content: Mapped[str] = mapped_column(Text)
+    tags: Mapped[list[str]] = mapped_column(JSON, default=list)
+    confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    sensitivity: Mapped[str] = mapped_column(String(20), default="normal")
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    reason: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    reviewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+
+    __table_args__ = (
+        Index("ix_memory_candidates_user_status", "user_id", "status", "created_at"),
+    )
+
+
+class MemoryVersion(Base):
+    __tablename__ = "memory_versions"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    memory_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agent_memories.id", ondelete="CASCADE"), index=True
+    )
+    version: Mapped[int] = mapped_column(Integer)
+    snapshot: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
+    changed_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), default=None
+    )
+    change_reason: Mapped[str] = mapped_column(String(300), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("memory_id", "version", name="uq_memory_versions_memory_version"),
+    )
+
+
+class MemoryRelation(Base):
+    __tablename__ = "memory_relations"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    from_type: Mapped[str] = mapped_column(String(20), default="memory")
+    from_id: Mapped[UUID] = mapped_column(index=True)
+    to_type: Mapped[str] = mapped_column(String(20), default="memory")
+    to_id: Mapped[UUID] = mapped_column(index=True)
+    relation_type: Mapped[str] = mapped_column(String(30), default="related")
+    confidence: Mapped[float] = mapped_column(Float, default=1.0)
+    basis: Mapped[str] = mapped_column(String(500), default="")
+    source: Mapped[str] = mapped_column(String(30), default="manual")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "from_type",
+            "from_id",
+            "to_type",
+            "to_id",
+            "relation_type",
+            name="uq_memory_relations_edge",
+        ),
+        Index("ix_memory_relations_user_created", "user_id", "created_at"),
+    )
+
+
+class MemoryUsageEvent(Base):
+    __tablename__ = "memory_usage_events"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    memory_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agent_memories.id", ondelete="CASCADE"), index=True
+    )
+    context_type: Mapped[str] = mapped_column(String(20), default="chat")
+    context_id: Mapped[str | None] = mapped_column(String(100), default=None)
+    provider_id: Mapped[str | None] = mapped_column(String(50), default=None)
+    model: Mapped[str | None] = mapped_column(String(200), default=None)
+    relevance: Mapped[float | None] = mapped_column(Float, default=None)
+    injected_chars: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        Index("ix_memory_usage_user_created", "user_id", "created_at"),
+    )
+
+
+class MemorySettings(Base):
+    __tablename__ = "memory_settings"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    auto_extract: Mapped[bool] = mapped_column(Boolean, default=True)
+    auto_save: Mapped[bool] = mapped_column(Boolean, default=False)
+    require_confirmation: Mapped[bool] = mapped_column(Boolean, default=True)
+    allowed_categories: Mapped[list[str]] = mapped_column(JSON, default=list)
+    allow_project_extract: Mapped[bool] = mapped_column(Boolean, default=True)
+    allow_agent_extract: Mapped[bool] = mapped_column(Boolean, default=False)
+    allow_cross_model: Mapped[bool] = mapped_column(Boolean, default=True)
+    max_inject_items: Mapped[int] = mapped_column(Integer, default=8)
+    max_inject_chars: Mapped[int] = mapped_column(Integer, default=4000)
+    blocked_topics: Mapped[list[str]] = mapped_column(JSON, default=list)
+    retention_days: Mapped[int | None] = mapped_column(Integer, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "user_id", name="uq_memory_settings_workspace_user"),
     )
 
 

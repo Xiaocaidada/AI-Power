@@ -1,25 +1,75 @@
-"""Long-term agent memory: workspace/user scoped notes with lexical recall."""
+"""Long-term memory hub: scoped notes, versions, relations and usage."""
 
 import asyncio
+import hashlib
 import logging
 import math
 import re
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import String, cast, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
-from app.models import AgentMemory, CustomAgent
+from app.models import (
+    AgentMemory,
+    CustomAgent,
+    MemoryRelation,
+    MemorySettings,
+    MemoryUsageEvent,
+    MemoryVersion,
+    Project,
+)
 from app.services.embedding_factory import build_embedder
 
 MEMORY_SCOPES = {"user", "workspace"}
 MEMORY_KINDS = {"fact", "preference", "summary"}
+SCOPE_TYPES = {"global", "project", "agent"}
+CATEGORIES = {
+    "fact",
+    "preference",
+    "profile",
+    "project",
+    "technical",
+    "experience",
+    "decision",
+    "relation",
+    "summary",
+}
+STATUSES = {"candidate", "active", "conflict", "expired", "archived", "rejected"}
+SOURCE_TYPES = {
+    "manual",
+    "chat",
+    "agent",
+    "workflow",
+    "project",
+    "document",
+    "import",
+    "api",
+    "system",
+}
+SENSITIVITIES = {"normal", "sensitive"}
+RELATION_TYPES = {"related", "supports", "contradicts", "supersedes", "derived_from"}
+
 MAX_SEARCH_WORDS = 5
 MIN_SEARCH_WORD = 2
 MAX_VECTOR_CANDIDATES = 200
 MIN_VECTOR_SCORE = 0.25
+SECRET_PATTERN = re.compile(
+    r"(?i)\b(password|passwd|api[_ -]?key|secret|access[_ -]?token|refresh[_ -]?token)"
+    r"\s*[:=]\s*\S{6,}"
+)
+DEFAULT_ALLOWED_CATEGORIES = [
+    "preference",
+    "profile",
+    "project",
+    "technical",
+    "experience",
+    "decision",
+    "relation",
+    "fact",
+]
 logger = logging.getLogger(__name__)
 
 
@@ -35,18 +85,84 @@ def _words(query: str) -> list[str]:
     return words[:MAX_SEARCH_WORDS]
 
 
-def _visible(user_id: UUID, scope: str | None):
-    if scope == "workspace":
-        return or_(
-            AgentMemory.user_id == user_id,
-            and_(
-                AgentMemory.scope == "workspace",
-                AgentMemory.user_id != user_id,
-            ),
-        )
-    if scope == "user":
-        return and_(AgentMemory.user_id == user_id, AgentMemory.scope == "user")
-    return or_(AgentMemory.user_id == user_id, AgentMemory.scope == "workspace")
+def memory_hash(title: str, content: str) -> str:
+    return hashlib.sha256(f"{title}\n{content}".encode()).hexdigest()
+
+
+def _contains_secret(content: str) -> bool:
+    return bool(SECRET_PATTERN.search(content))
+
+
+def _clean_tags(tags: list[str] | None) -> list[str]:
+    if not tags:
+        return []
+    cleaned: list[str] = []
+    for item in tags:
+        tag = item.strip()[:30]
+        if tag and tag not in cleaned:
+            cleaned.append(tag)
+    return cleaned[:20]
+
+
+def _clean_blocked_topics(items: list[str] | None) -> list[str]:
+    if not items:
+        return []
+    cleaned: list[str] = []
+    for item in items:
+        value = item.strip()[:50]
+        if value and value not in cleaned:
+            cleaned.append(value)
+    return cleaned[:20]
+
+
+def _normalize_scope(scope: str | None, scope_type: str | None) -> tuple[str, str]:
+    if scope_type is not None:
+        if scope_type not in SCOPE_TYPES:
+            raise MemoryError("invalid_scope", "Invalid memory scope type")
+        legacy = "user" if scope_type == "global" else "workspace"
+        return legacy, scope_type
+    if scope in {"workspace"}:
+        return "workspace", "global"
+    return "user", "global"
+
+
+def _normalize_category(category: str | None, kind: str | None) -> str:
+    if category is not None:
+        if category not in CATEGORIES:
+            raise MemoryError("invalid_category", "Invalid memory category")
+        return category
+    if kind == "preference":
+        return "preference"
+    if kind == "summary":
+        return "experience"
+    return "fact"
+
+
+def _snapshot(memory: AgentMemory) -> dict[str, object]:
+    return {
+        "title": memory.title,
+        "content": memory.content,
+        "category": memory.category,
+        "scope_type": memory.scope_type,
+        "project_id": str(memory.project_id) if memory.project_id else None,
+        "agent_id": str(memory.agent_id) if memory.agent_id else None,
+        "tags": list(memory.tags or []),
+        "status": memory.status,
+        "importance": memory.importance,
+        "enabled": memory.enabled,
+        "pinned": memory.pinned,
+        "favorite": memory.favorite,
+        "sensitivity": memory.sensitivity,
+        "confidence": memory.confidence,
+        "valid_until": memory.valid_until.isoformat() if memory.valid_until else None,
+        "version": memory.version,
+    }
+
+
+def _personal_filters(workspace_id: UUID, user_id: UUID) -> list:
+    return [AgentMemory.workspace_id == workspace_id, AgentMemory.user_id == user_id]
+
+
 
 
 async def _embed_text(text: str, settings: Settings) -> list[float] | None:
@@ -82,6 +198,65 @@ def _lexical_match(memory: AgentMemory, words: list[str]) -> bool:
     return any(word.casefold() in haystack for word in words)
 
 
+async def _validate_project(
+    session: AsyncSession, workspace_id: UUID, project_id: UUID | None
+) -> None:
+    if project_id is None:
+        return
+    project = await session.get(Project, project_id)
+    if (
+        project is None
+        or project.workspace_id != workspace_id
+        or project.archived_at is not None
+    ):
+        raise MemoryError("project_not_found", "Project not found")
+
+
+async def _validate_agent(
+    session: AsyncSession, workspace_id: UUID, agent_id: UUID | None
+) -> None:
+    if agent_id is None:
+        return
+    agent = await session.get(CustomAgent, agent_id)
+    if agent is None or agent.workspace_id != workspace_id or agent.archived_at is not None:
+        raise MemoryError("agent_not_found", "Agent not found")
+
+
+async def get_memory_settings(
+    session: AsyncSession, workspace_id: UUID, user_id: UUID
+) -> MemorySettings:
+    row = (
+        await session.execute(
+            select(MemorySettings).where(
+                MemorySettings.workspace_id == workspace_id,
+                MemorySettings.user_id == user_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is not None:
+        return row
+    row = MemorySettings(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        allowed_categories=list(DEFAULT_ALLOWED_CATEGORIES),
+    )
+    session.add(row)
+    await session.flush()
+    return row
+
+
+async def update_memory_settings(
+    session: AsyncSession, row: MemorySettings, **fields: object
+) -> MemorySettings:
+    for key, value in fields.items():
+        if value is None:
+            continue
+        setattr(row, key, value)
+    row.updated_at = datetime.now(UTC)
+    await session.flush()
+    return row
+
+
 async def list_memories(
     session: AsyncSession,
     workspace_id: UUID,
@@ -90,13 +265,42 @@ async def list_memories(
     query: str = "",
     agent_id: UUID | None = None,
     scope: str | None = None,
+    scope_type: str | None = None,
+    category: str | None = None,
+    status: str | None = None,
+    project_id: UUID | None = None,
+    tag: str | None = None,
+    favorite: bool | None = None,
+    pinned: bool | None = None,
     limit: int = 50,
+    offset: int = 0,
 ) -> list[AgentMemory]:
-    conditions = [AgentMemory.workspace_id == workspace_id, _visible(user_id, scope)]
+    conditions = _personal_filters(workspace_id, user_id)
+    effective_scope = scope_type
+    if effective_scope is None and scope is not None:
+        effective_scope = "global"
+    if effective_scope is not None:
+        if effective_scope not in SCOPE_TYPES:
+            raise MemoryError("invalid_scope", "Invalid memory scope type")
+        conditions.append(AgentMemory.scope_type == effective_scope)
+    if category is not None:
+        conditions.append(AgentMemory.category == category)
+    if status is not None:
+        conditions.append(AgentMemory.status == status)
+    if project_id is not None:
+        conditions.append(AgentMemory.project_id == project_id)
     if agent_id is not None:
         conditions.append(
             or_(AgentMemory.agent_id == agent_id, AgentMemory.agent_id.is_(None))
         )
+    if tag is not None and tag.strip():
+        conditions.append(
+            cast(AgentMemory.tags, String).ilike(f'%"{tag.strip()}"%')
+        )
+    if favorite is not None:
+        conditions.append(AgentMemory.favorite.is_(favorite))
+    if pinned is not None:
+        conditions.append(AgentMemory.pinned.is_(pinned))
     words = _words(query)
     if words:
         conditions.append(
@@ -114,7 +318,12 @@ async def list_memories(
     rows = await session.execute(
         select(AgentMemory)
         .where(*conditions)
-        .order_by(AgentMemory.importance.desc(), AgentMemory.updated_at.desc())
+        .order_by(
+            AgentMemory.pinned.desc(),
+            AgentMemory.importance.desc(),
+            AgentMemory.updated_at.desc(),
+        )
+        .offset(max(offset, 0))
         .limit(max(1, min(limit, 200)))
     )
     return list(rows.scalars())
@@ -133,16 +342,6 @@ async def get_memory(
     return memory
 
 
-async def _validate_agent(
-    session: AsyncSession, workspace_id: UUID, agent_id: UUID | None
-) -> None:
-    if agent_id is None:
-        return
-    agent = await session.get(CustomAgent, agent_id)
-    if agent is None or agent.workspace_id != workspace_id or agent.archived_at is not None:
-        raise MemoryError("agent_not_found", "Agent not found")
-
-
 async def create_memory(
     session: AsyncSession,
     *,
@@ -153,33 +352,85 @@ async def create_memory(
     scope: str = "user",
     kind: str = "fact",
     agent_id: UUID | None = None,
+    project_id: UUID | None = None,
+    scope_type: str | None = None,
+    category: str | None = None,
+    status: str = "active",
     importance: int = 3,
     source: str = "manual",
+    source_type: str | None = None,
+    source_id: str | None = None,
+    source_ref: dict[str, object] | None = None,
+    confidence: float = 1.0,
+    sensitivity: str = "normal",
+    tags: list[str] | None = None,
+    enabled: bool = True,
+    pinned: bool = False,
+    favorite: bool = False,
+    valid_until: datetime | None = None,
+    metadata: dict[str, object] | None = None,
 ) -> AgentMemory:
     content = content.strip()
     if not content:
         raise MemoryError("invalid_memory", "Memory content is required")
-    if scope not in MEMORY_SCOPES:
-        raise MemoryError("invalid_scope", "Invalid memory scope")
-    if kind not in MEMORY_KINDS:
-        raise MemoryError("invalid_kind", "Invalid memory kind")
+    if _contains_secret(content):
+        raise MemoryError("secret_blocked", "Secrets cannot be stored as memory")
+    legacy_scope, normalized_scope = _normalize_scope(scope, scope_type)
+    normalized_category = _normalize_category(category, kind)
+    if status not in STATUSES:
+        raise MemoryError("invalid_status", "Invalid memory status")
+    if sensitivity not in SENSITIVITIES:
+        raise MemoryError("invalid_sensitivity", "Invalid sensitivity")
+    if source_type is None:
+        source_type = source if source in SOURCE_TYPES else "manual"
     await _validate_agent(session, workspace_id, agent_id)
-    title = title.strip() or content[:60]
+    await _validate_project(session, workspace_id, project_id)
+    if normalized_scope == "project" and project_id is None:
+        raise MemoryError("invalid_scope", "Project memory requires project_id")
+    if normalized_scope == "agent" and agent_id is None:
+        raise MemoryError("invalid_scope", "Agent memory requires agent_id")
+    title = title.strip()[:120] or content[:60]
     memory = AgentMemory(
         workspace_id=workspace_id,
         user_id=user_id,
         agent_id=agent_id,
-        scope=scope,
+        project_id=project_id,
+        scope=legacy_scope,
+        scope_type=normalized_scope,
         kind=kind,
-        title=title[:120],
+        category=normalized_category,
+        status=status,
+        title=title,
         content=content,
         importance=max(1, min(importance, 5)),
         source=source,
+        source_type=source_type,
+        source_id=source_id,
+        source_ref=dict(source_ref or {}),
+        confidence=max(0.0, min(confidence, 1.0)),
+        sensitivity=sensitivity,
+        tags=_clean_tags(tags),
+        enabled=enabled,
+        pinned=pinned,
+        favorite=favorite,
+        valid_until=valid_until,
+        version=1,
+        memory_metadata=dict(metadata or {}),
     )
+    memory.content_hash = memory_hash(memory.title, memory.content)
     session.add(memory)
     await session.flush()
     memory.embedding = await _embed_text(
         memory.title + "\n" + memory.content, get_settings()
+    )
+    session.add(
+        MemoryVersion(
+            memory_id=memory.id,
+            version=1,
+            snapshot=_snapshot(memory),
+            changed_by=user_id,
+            change_reason="created",
+        )
     )
     await session.flush()
     return memory
@@ -194,35 +445,440 @@ async def update_memory(
     scope: str | None = None,
     kind: str | None = None,
     importance: int | None = None,
+    scope_type: str | None = None,
+    category: str | None = None,
+    status: str | None = None,
+    project_id: UUID | None = None,
+    agent_id: UUID | None = None,
+    tags: list[str] | None = None,
+    enabled: bool | None = None,
+    pinned: bool | None = None,
+    favorite: bool | None = None,
+    sensitivity: str | None = None,
+    confidence: float | None = None,
+    valid_until: datetime | None = None,
+    metadata: dict[str, object] | None = None,
+    change_reason: str = "",
+    changed_by: UUID | None = None,
 ) -> AgentMemory:
+    content_changed = False
     if content is not None:
         stripped = content.strip()
         if not stripped:
             raise MemoryError("invalid_memory", "Memory content is required")
+        if _contains_secret(stripped):
+            raise MemoryError("secret_blocked", "Secrets cannot be stored as memory")
         memory.content = stripped
+        content_changed = True
     if title is not None:
         memory.title = title.strip()[:120] or memory.content[:60]
-    if scope is not None:
-        if scope not in MEMORY_SCOPES:
-            raise MemoryError("invalid_scope", "Invalid memory scope")
-        memory.scope = scope
-    if kind is not None:
+        content_changed = True
+    if scope_type is not None:
+        if scope_type not in SCOPE_TYPES:
+            raise MemoryError("invalid_scope", "Invalid memory scope type")
+        memory.scope_type = scope_type
+        memory.scope = "user" if scope_type == "global" else "workspace"
+    elif scope is not None:
+        legacy_scope, normalized_scope = _normalize_scope(scope, None)
+        memory.scope = legacy_scope
+        memory.scope_type = normalized_scope
+    if category is not None:
+        if category not in CATEGORIES:
+            raise MemoryError("invalid_category", "Invalid memory category")
+        memory.category = category
+    elif kind is not None:
         if kind not in MEMORY_KINDS:
             raise MemoryError("invalid_kind", "Invalid memory kind")
         memory.kind = kind
+        memory.category = _normalize_category(None, kind)
+    if status is not None:
+        if status not in STATUSES:
+            raise MemoryError("invalid_status", "Invalid memory status")
+        memory.status = status
+    if project_id is not None:
+        await _validate_project(session, memory.workspace_id, project_id)
+        memory.project_id = project_id
+    if agent_id is not None:
+        await _validate_agent(session, memory.workspace_id, agent_id)
+        memory.agent_id = agent_id
     if importance is not None:
         memory.importance = max(1, min(importance, 5))
+    if tags is not None:
+        memory.tags = _clean_tags(tags)
+    if enabled is not None:
+        memory.enabled = enabled
+    if pinned is not None:
+        memory.pinned = pinned
+    if favorite is not None:
+        memory.favorite = favorite
+    if sensitivity is not None:
+        if sensitivity not in SENSITIVITIES:
+            raise MemoryError("invalid_sensitivity", "Invalid sensitivity")
+        memory.sensitivity = sensitivity
+    if confidence is not None:
+        memory.confidence = max(0.0, min(confidence, 1.0))
+    if valid_until is not None:
+        memory.valid_until = valid_until
+    if metadata is not None:
+        memory.memory_metadata = dict(metadata)
+    if memory.scope_type == "project" and memory.project_id is None:
+        raise MemoryError("invalid_scope", "Project memory requires project_id")
+    if memory.scope_type == "agent" and memory.agent_id is None:
+        raise MemoryError("invalid_scope", "Agent memory requires agent_id")
+    memory.content_hash = memory_hash(memory.title, memory.content)
+    memory.version += 1
     memory.updated_at = datetime.now(UTC)
-    memory.embedding = await _embed_text(
-        memory.title + "\n" + memory.content, get_settings()
+    if content_changed:
+        memory.embedding = await _embed_text(
+            memory.title + "\n" + memory.content, get_settings()
+        )
+    session.add(
+        MemoryVersion(
+            memory_id=memory.id,
+            version=memory.version,
+            snapshot=_snapshot(memory),
+            changed_by=changed_by,
+            change_reason=change_reason[:300],
+        )
     )
     await session.flush()
     return memory
 
 
 async def delete_memory(session: AsyncSession, memory: AgentMemory) -> None:
+    await session.execute(
+        delete(MemoryRelation).where(
+            or_(
+                (MemoryRelation.from_type == "memory")
+                & (MemoryRelation.from_id == memory.id),
+                (MemoryRelation.to_type == "memory")
+                & (MemoryRelation.to_id == memory.id),
+            )
+        )
+    )
     await session.delete(memory)
     await session.flush()
+
+
+async def list_memory_versions(
+    session: AsyncSession, memory: AgentMemory
+) -> list[MemoryVersion]:
+    return list(
+        (
+            await session.execute(
+                select(MemoryVersion)
+                .where(MemoryVersion.memory_id == memory.id)
+                .order_by(MemoryVersion.version.desc())
+            )
+        ).scalars()
+    )
+
+
+async def restore_memory_version(
+    session: AsyncSession,
+    memory: AgentMemory,
+    version: int,
+    *,
+    changed_by: UUID,
+) -> AgentMemory:
+    row = (
+        await session.execute(
+            select(MemoryVersion).where(
+                MemoryVersion.memory_id == memory.id,
+                MemoryVersion.version == version,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise MemoryError("not_found", "Memory version not found")
+    snapshot = row.snapshot
+    memory.title = str(snapshot.get("title") or memory.title)[:120]
+    memory.content = str(snapshot.get("content") or memory.content)
+    memory.category = str(snapshot.get("category") or memory.category)
+    memory.scope_type = str(snapshot.get("scope_type") or memory.scope_type)
+    memory.scope = "user" if memory.scope_type == "global" else "workspace"
+    project_id = snapshot.get("project_id")
+    memory.project_id = UUID(str(project_id)) if project_id else None
+    agent_id = snapshot.get("agent_id")
+    memory.agent_id = UUID(str(agent_id)) if agent_id else None
+    memory.tags = list(snapshot.get("tags") or [])
+    memory.status = str(snapshot.get("status") or "active")
+    memory.importance = int(snapshot.get("importance") or memory.importance)
+    memory.enabled = bool(snapshot.get("enabled", True))
+    memory.pinned = bool(snapshot.get("pinned", False))
+    memory.favorite = bool(snapshot.get("favorite", False))
+    memory.sensitivity = str(snapshot.get("sensitivity") or memory.sensitivity)
+    memory.confidence = float(snapshot.get("confidence") or memory.confidence)
+    memory.content_hash = memory_hash(memory.title, memory.content)
+    memory.version += 1
+    memory.updated_at = datetime.now(UTC)
+    memory.embedding = await _embed_text(
+        memory.title + "\n" + memory.content, get_settings()
+    )
+    session.add(
+        MemoryVersion(
+            memory_id=memory.id,
+            version=memory.version,
+            snapshot=_snapshot(memory),
+            changed_by=changed_by,
+            change_reason=f"restored from v{version}",
+        )
+    )
+    await session.flush()
+    return memory
+
+
+async def batch_update_memories(
+    session: AsyncSession,
+    workspace_id: UUID,
+    user_id: UUID,
+    memory_ids: list[UUID],
+    *,
+    status: str | None = None,
+    category: str | None = None,
+    scope_type: str | None = None,
+    project_id: UUID | None = None,
+    agent_id: UUID | None = None,
+    enabled: bool | None = None,
+    tags: list[str] | None = None,
+) -> int:
+    rows = list(
+        (
+            await session.execute(
+                select(AgentMemory).where(
+                    AgentMemory.workspace_id == workspace_id,
+                    AgentMemory.user_id == user_id,
+                    AgentMemory.id.in_(memory_ids[:100]),
+                )
+            )
+        ).scalars()
+    )
+    for memory in rows:
+        await update_memory(
+            session,
+            memory,
+            status=status,
+            category=category,
+            scope_type=scope_type,
+            project_id=project_id,
+            agent_id=agent_id,
+            enabled=enabled,
+            tags=tags,
+            changed_by=user_id,
+            change_reason="batch update",
+        )
+    return len(rows)
+
+
+async def memory_stats(
+    session: AsyncSession, workspace_id: UUID, user_id: UUID
+) -> dict[str, object]:
+    base = _personal_filters(workspace_id, user_id)
+
+    async def count(*conditions) -> int:
+        return int(
+            (
+                await session.execute(
+                    select(func.count()).select_from(AgentMemory).where(*base, *conditions)
+                )
+            ).scalar_one()
+        )
+
+    total = await count()
+    active = await count(AgentMemory.status == "active")
+    pending = await count(AgentMemory.status == "candidate")
+    conflicts = await count(AgentMemory.status == "conflict")
+    expired = await count(AgentMemory.status == "expired")
+    archived = await count(AgentMemory.status == "archived")
+    category_rows = (
+        await session.execute(
+            select(AgentMemory.category, func.count())
+            .where(*base)
+            .group_by(AgentMemory.category)
+        )
+    ).all()
+    scope_rows = (
+        await session.execute(
+            select(AgentMemory.scope_type, func.count())
+            .where(*base)
+            .group_by(AgentMemory.scope_type)
+        )
+    ).all()
+    recent = list(
+        (
+            await session.execute(
+                select(AgentMemory)
+                .where(*base)
+                .order_by(AgentMemory.updated_at.desc())
+                .limit(5)
+            )
+        ).scalars()
+    )
+    top_used = list(
+        (
+            await session.execute(
+                select(AgentMemory)
+                .where(*base)
+                .order_by(AgentMemory.use_count.desc(), AgentMemory.last_used_at.desc())
+                .limit(5)
+            )
+        ).scalars()
+    )
+    return {
+        "total": total,
+        "active": active,
+        "pending": pending,
+        "conflict": conflicts,
+        "expired": expired,
+        "archived": archived,
+        "by_category": {str(key): int(value) for key, value in category_rows},
+        "by_scope": {str(key): int(value) for key, value in scope_rows},
+        "recent": recent,
+        "top_used": top_used,
+    }
+
+
+async def list_memory_relations(
+    session: AsyncSession, workspace_id: UUID, user_id: UUID, memory_id: UUID
+) -> list[MemoryRelation]:
+    return list(
+        (
+            await session.execute(
+                select(MemoryRelation)
+                .where(
+                    MemoryRelation.workspace_id == workspace_id,
+                    MemoryRelation.user_id == user_id,
+                    or_(
+                        (MemoryRelation.from_type == "memory")
+                        & (MemoryRelation.from_id == memory_id),
+                        (MemoryRelation.to_type == "memory")
+                        & (MemoryRelation.to_id == memory_id),
+                    ),
+                )
+                .order_by(MemoryRelation.created_at.desc())
+            )
+        ).scalars()
+    )
+
+
+async def create_memory_relation(
+    session: AsyncSession,
+    *,
+    workspace_id: UUID,
+    user_id: UUID,
+    from_type: str,
+    from_id: UUID,
+    to_type: str,
+    to_id: UUID,
+    relation_type: str,
+    basis: str = "",
+) -> MemoryRelation:
+    if relation_type not in RELATION_TYPES:
+        raise MemoryError("invalid_relation", "Invalid relation type")
+    if from_type not in {"memory", "project", "document", "agent"}:
+        raise MemoryError("invalid_relation", "Invalid source type")
+    if to_type not in {"memory", "project", "document", "agent"}:
+        raise MemoryError("invalid_relation", "Invalid target type")
+    existing = (
+        await session.execute(
+            select(MemoryRelation).where(
+                MemoryRelation.from_type == from_type,
+                MemoryRelation.from_id == from_id,
+                MemoryRelation.to_type == to_type,
+                MemoryRelation.to_id == to_id,
+                MemoryRelation.relation_type == relation_type,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing
+    relation = MemoryRelation(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        from_type=from_type,
+        from_id=from_id,
+        to_type=to_type,
+        to_id=to_id,
+        relation_type=relation_type,
+        basis=basis[:500],
+    )
+    session.add(relation)
+    await session.flush()
+    return relation
+
+
+async def delete_memory_relation(
+    session: AsyncSession,
+    workspace_id: UUID,
+    user_id: UUID,
+    relation_id: UUID,
+) -> None:
+    row = (
+        await session.execute(
+            select(MemoryRelation).where(
+                MemoryRelation.id == relation_id,
+                MemoryRelation.workspace_id == workspace_id,
+                MemoryRelation.user_id == user_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise MemoryError("not_found", "Relation not found")
+    await session.delete(row)
+    await session.flush()
+
+
+async def record_memory_usage(
+    session: AsyncSession,
+    *,
+    workspace_id: UUID,
+    user_id: UUID,
+    memories: list[tuple[AgentMemory, float | None, int]],
+    context_type: str,
+    context_id: str | None,
+    provider_id: str | None,
+    model: str | None,
+) -> None:
+    now = datetime.now(UTC)
+    for memory, relevance, injected_chars in memories:
+        session.add(
+            MemoryUsageEvent(
+                workspace_id=workspace_id,
+                user_id=user_id,
+                memory_id=memory.id,
+                context_type=context_type,
+                context_id=context_id,
+                provider_id=provider_id,
+                model=model,
+                relevance=relevance,
+                injected_chars=max(injected_chars, 0),
+            )
+        )
+        memory.use_count += 1
+        memory.last_used_at = now
+    await session.flush()
+
+
+async def list_memory_usage(
+    session: AsyncSession,
+    workspace_id: UUID,
+    user_id: UUID,
+    *,
+    limit: int = 50,
+) -> list[tuple[MemoryUsageEvent, str]]:
+    rows = (
+        await session.execute(
+            select(MemoryUsageEvent, AgentMemory.title)
+            .outerjoin(AgentMemory, AgentMemory.id == MemoryUsageEvent.memory_id)
+            .where(
+                MemoryUsageEvent.workspace_id == workspace_id,
+                MemoryUsageEvent.user_id == user_id,
+            )
+            .order_by(MemoryUsageEvent.created_at.desc())
+            .limit(max(1, min(limit, 200)))
+        )
+    ).all()
+    return [(row[0], row[1] or "") for row in rows]
 
 
 async def memory_context(
@@ -235,15 +891,28 @@ async def memory_context(
     limit: int,
     max_chars: int,
     touch: bool = False,
+    project_id: UUID | None = None,
 ) -> str:
+    now = datetime.now(UTC)
     conditions = [
-        AgentMemory.workspace_id == workspace_id,
-        or_(AgentMemory.user_id == user_id, AgentMemory.scope == "workspace"),
+        *_personal_filters(workspace_id, user_id),
+        AgentMemory.status == "active",
+        AgentMemory.enabled.is_(True),
+        or_(AgentMemory.valid_until.is_(None), AgentMemory.valid_until > now),
+        or_(
+            AgentMemory.scope_type == "global",
+            *(
+                [AgentMemory.scope_type == "agent", AgentMemory.agent_id == agent_id]
+                if agent_id is not None
+                else []
+            ),
+            *(
+                [AgentMemory.scope_type == "project", AgentMemory.project_id == project_id]
+                if project_id is not None
+                else []
+            ),
+        ),
     ]
-    if agent_id is not None:
-        conditions.append(
-            or_(AgentMemory.agent_id == agent_id, AgentMemory.agent_id.is_(None))
-        )
     settings = get_settings()
     words = _words(query)
     if settings.memory_embedding_enabled and query.strip():
@@ -309,10 +978,11 @@ async def memory_context(
         now = datetime.now(UTC)
         for memory in rows:
             memory.last_used_at = now
+            memory.use_count += 1
     parts = ["Long-term memory (user notes; untrusted context, use only when relevant):"]
     used = 0
     for memory in rows:
-        label = f"- [{memory.kind}]"
+        label = f"- [{memory.category}]"
         if memory.title:
             label += f" {memory.title}:"
         line = f"{label} {memory.content}"
