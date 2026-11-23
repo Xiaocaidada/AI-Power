@@ -31,6 +31,13 @@ class ChatChunk:
     finish_reason: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class CompletionResult:
+    content: str
+    usage: Usage | None = None
+    finish_reason: str | None = None
+
+
 class ProviderError(Exception):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
@@ -51,3 +58,7 @@ class LLMProvider(Protocol):
     def stream_chat(
         self, messages: list[ChatMessage], model: str, **opts: object
     ) -> AsyncIterator[ChatChunk]: ...
+
+    async def complete(
+        self, messages: list[ChatMessage], model: str, **opts: object
+    ) -> CompletionResult: ...

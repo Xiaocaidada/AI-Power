@@ -13,6 +13,7 @@ from app.routers import (
     admin,
     agents,
     api_keys,
+    arena,
     attachments,
     auth,
     collaborations,
@@ -25,9 +26,11 @@ from app.routers import (
     health,
     knowledge_bases,
     market,
+    model_eval,
     models,
     plugins,
     projects,
+    prompt_lab,
     prompts,
     provider_configs,
     providers,
@@ -59,6 +62,9 @@ OPENAPI_TAGS = [
     {"name": "api-keys", "description": "Workspace API keys with chat/kb scopes."},
     {"name": "conversations", "description": "Chat sessions and SSE streaming messages."},
     {"name": "attachments", "description": "Chat file attachments with workspace isolation."},
+    {"name": "arena", "description": "Parallel multi-model comparison rounds."},
+    {"name": "prompt-lab", "description": "Prompt experiments with snapshot history."},
+    {"name": "model-eval", "description": "Model evaluation datasets, runs, and reports."},
     {"name": "documents", "description": "Upload, list, retry, and delete documents."},
     {"name": "knowledge-bases", "description": "Workspace knowledge bases."},
     {
@@ -139,11 +145,15 @@ app.include_router(files.router)
 app.include_router(conversations.router)
 app.include_router(conversations.messages_router)
 app.include_router(attachments.router)
+app.include_router(arena.router)
+app.include_router(prompt_lab.router)
+app.include_router(model_eval.router)
 app.include_router(documents.router)
 app.include_router(knowledge_bases.router)
 app.include_router(evaluations.router)
 app.include_router(webhooks.router)
 app.include_router(prompts.router)
+app.include_router(prompts.admin_router)
 app.include_router(admin.router)
 app.include_router(workflows.router)
 app.include_router(collaborations.router)

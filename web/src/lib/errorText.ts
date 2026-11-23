@@ -4,6 +4,7 @@ export function errorTextKey(error: unknown): string {
   if (!(error instanceof ApiError)) return 'errors.network'
   if (error.code === 'retrieval_failed') return 'errors.retrievalFailed'
   if (error.code === 'queue_unavailable') return 'errors.queueUnavailable'
+  if (error.code === 'question_in_use') return 'errors.questionInUse'
   switch (error.status) {
     case 401:
       return 'errors.unauthorized'

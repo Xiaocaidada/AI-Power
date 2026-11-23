@@ -89,9 +89,10 @@ class PromptTemplate(Base):
     __tablename__ = "prompt_templates"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
-    workspace_id: Mapped[UUID] = mapped_column(
-        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    workspace_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, default=None
     )
+    scope: Mapped[str] = mapped_column(String(20), default="workspace", index=True)
     name: Mapped[str] = mapped_column(String(120))
     description: Mapped[str] = mapped_column(String(500), default="")
     category: Mapped[str] = mapped_column(String(50), default="general", index=True)
@@ -126,7 +127,10 @@ class PromptVersion(Base):
     )
     version: Mapped[int] = mapped_column(Integer)
     system_prompt: Mapped[str] = mapped_column(Text)
+    user_prompt: Mapped[str] = mapped_column(Text, default="")
     variables: Mapped[list[str]] = mapped_column(JSON, default=list)
+    variable_definitions: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    parameters: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     __table_args__ = (
@@ -717,6 +721,7 @@ class UsageEvent(Base):
         ForeignKey("messages.id", ondelete="SET NULL"), unique=True, index=True, default=None
     )
     source: Mapped[str] = mapped_column(String(20), default="chat", index=True)
+    source_ref_id: Mapped[UUID | None] = mapped_column(unique=True, index=True, default=None)
     api_key_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("api_keys.id", ondelete="SET NULL"), default=None, index=True
     )
@@ -994,6 +999,232 @@ class EvalRunItem(Base):
 
     __table_args__ = (
         UniqueConstraint("run_id", "question_id", name="uq_eval_run_items_run_question"),
+    )
+
+
+class ModelEvalDataset(Base):
+    __tablename__ = "model_eval_datasets"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    created_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), default=None
+    )
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+
+class ModelEvalQuestion(Base):
+    __tablename__ = "model_eval_questions"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    dataset_id: Mapped[UUID] = mapped_column(
+        ForeignKey("model_eval_datasets.id", ondelete="CASCADE"), index=True
+    )
+    question: Mapped[str] = mapped_column(Text)
+    reference_answer: Mapped[str] = mapped_column(Text, default="")
+    scoring_criteria: Mapped[str] = mapped_column(Text, default="")
+    expected_keywords: Mapped[list[str]] = mapped_column(JSON, default=list)
+    regex: Mapped[str] = mapped_column(String(500), default="")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ModelEvalRun(Base):
+    __tablename__ = "model_eval_runs"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    dataset_id: Mapped[UUID] = mapped_column(
+        ForeignKey("model_eval_datasets.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(120), default="")
+    status: Mapped[str] = mapped_column(String(20), default="queued", index=True)
+    config: Mapped[dict] = mapped_column(JSON, default=dict)
+    metrics: Mapped[dict | None] = mapped_column(JSON, default=None)
+    error_code: Mapped[str | None] = mapped_column(String(50), default=None)
+    progress_total: Mapped[int] = mapped_column(Integer, default=0)
+    progress_done: Mapped[int] = mapped_column(Integer, default=0)
+    progress_failed: Mapped[int] = mapped_column(Integer, default=0)
+    progress_running: Mapped[int] = mapped_column(Integer, default=0)
+    current_model: Mapped[str | None] = mapped_column(String(200), default=None)
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        Index("ix_model_eval_runs_workspace_created", "workspace_id", "created_at"),
+    )
+
+
+class ModelEvalItem(Base):
+    __tablename__ = "model_eval_items"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("model_eval_runs.id", ondelete="CASCADE"), index=True
+    )
+    question_id: Mapped[UUID] = mapped_column(
+        ForeignKey("model_eval_questions.id", ondelete="CASCADE"), index=True
+    )
+    provider_id: Mapped[str] = mapped_column(String(50))
+    model: Mapped[str] = mapped_column(String(200))
+    question_snapshot: Mapped[str] = mapped_column(Text)
+    reference_snapshot: Mapped[str] = mapped_column(Text, default="")
+    scoring_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    answer: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="queued")
+    error_code: Mapped[str | None] = mapped_column(String(50), default=None)
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer, default=None)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer, default=None)
+    cost: Mapped[float] = mapped_column(Float, default=0.0)
+    ttft_ms: Mapped[float | None] = mapped_column(Float, default=None)
+    latency_ms: Mapped[float | None] = mapped_column(Float, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id",
+            "question_id",
+            "provider_id",
+            "model",
+            name="uq_model_eval_items_question_model",
+        ),
+    )
+
+
+class ModelEvalScore(Base):
+    __tablename__ = "model_eval_scores"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    item_id: Mapped[UUID] = mapped_column(
+        ForeignKey("model_eval_items.id", ondelete="CASCADE"), index=True
+    )
+    method: Mapped[str] = mapped_column(String(20))
+    score: Mapped[float | None] = mapped_column(Float, default=None)
+    passed: Mapped[bool | None] = mapped_column(Boolean, default=None)
+    reason: Mapped[str] = mapped_column(String(1000), default="")
+    scorer_user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), default=None
+    )
+    judge_provider_id: Mapped[str | None] = mapped_column(String(50), default=None)
+    judge_model: Mapped[str | None] = mapped_column(String(200), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "item_id", "method", "scorer_user_id", name="uq_model_eval_scores_item_method"
+        ),
+    )
+
+
+class PromptExperiment(Base):
+    __tablename__ = "prompt_experiments"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    template_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("prompt_templates.id", ondelete="SET NULL"), default=None, index=True
+    )
+    version_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("prompt_versions.id", ondelete="SET NULL"), default=None
+    )
+    system_prompt: Mapped[str] = mapped_column(Text, default="")
+    user_prompt: Mapped[str] = mapped_column(Text, default="")
+    variables: Mapped[dict] = mapped_column(JSON, default=dict)
+    parameters: Mapped[dict] = mapped_column(JSON, default=dict)
+    rating: Mapped[str | None] = mapped_column(String(20), default=None)
+    note: Mapped[str] = mapped_column(String(1000), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+    __table_args__ = (
+        Index("ix_prompt_experiments_workspace_created", "workspace_id", "created_at"),
+    )
+
+
+class PromptExperimentOutput(Base):
+    __tablename__ = "prompt_experiment_outputs"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    experiment_id: Mapped[UUID] = mapped_column(
+        ForeignKey("prompt_experiments.id", ondelete="CASCADE"), index=True
+    )
+    provider_id: Mapped[str] = mapped_column(String(50))
+    model: Mapped[str] = mapped_column(String(200))
+    status: Mapped[str] = mapped_column(String(20), default="queued")
+    content: Mapped[str] = mapped_column(Text, default="")
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer, default=None)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer, default=None)
+    cost: Mapped[float] = mapped_column(Float, default=0.0)
+    ttft_ms: Mapped[float | None] = mapped_column(Float, default=None)
+    total_ms: Mapped[float | None] = mapped_column(Float, default=None)
+    error_code: Mapped[str | None] = mapped_column(String(50), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ArenaRound(Base):
+    __tablename__ = "arena_rounds"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    prompt: Mapped[str] = mapped_column(Text)
+    generation_settings: Mapped[dict] = mapped_column(JSON, default=dict)
+    blind: Mapped[bool] = mapped_column(Boolean, default=False)
+    revealed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    vote_response_id: Mapped[UUID | None] = mapped_column(default=None)
+    vote_reason: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+    __table_args__ = (
+        Index("ix_arena_rounds_workspace_created", "workspace_id", "created_at"),
+    )
+
+
+class ArenaResponse(Base):
+    __tablename__ = "arena_responses"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    round_id: Mapped[UUID] = mapped_column(
+        ForeignKey("arena_rounds.id", ondelete="CASCADE"), index=True
+    )
+    position: Mapped[int] = mapped_column(Integer)
+    provider_id: Mapped[str] = mapped_column(String(50))
+    model: Mapped[str] = mapped_column(String(200))
+    status: Mapped[str] = mapped_column(String(20), default="queued")
+    content: Mapped[str] = mapped_column(Text, default="")
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer, default=None)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer, default=None)
+    cost: Mapped[float] = mapped_column(Float, default=0.0)
+    ttft_ms: Mapped[float | None] = mapped_column(Float, default=None)
+    total_ms: Mapped[float | None] = mapped_column(Float, default=None)
+    error_code: Mapped[str | None] = mapped_column(String(50), default=None)
+    feedback: Mapped[str | None] = mapped_column(String(20), default=None)
+    attempt: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("round_id", "position", name="uq_arena_responses_round_position"),
     )
 
 

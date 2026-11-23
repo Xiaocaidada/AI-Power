@@ -12,6 +12,7 @@ from app.models import Document
 from app.services.evaluation_runner import run_evaluation
 from app.services.ingestion import ingest_document, mark_job_dead, schedule_retry
 from app.services.maintenance import cleanup_audit_logs, cleanup_orphan_files, cleanup_traces
+from app.services.model_eval import run_model_eval_job
 from app.services.queue import ArqJobQueue, recover_stale_jobs
 from app.services.run_execution import execute_collaboration_run, execute_workflow_run
 from app.services.webhooks import deliver_due_deliveries, enqueue_event
@@ -114,6 +115,7 @@ class WorkerSettings:
     functions = [
         ingest_document_job,
         run_evaluation_job,
+        run_model_eval_job,
         run_workflow_job,
         run_collaboration_job,
     ]

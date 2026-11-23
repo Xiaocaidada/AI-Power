@@ -235,6 +235,7 @@ export function PromptTemplatesPage() {
                       />
                     </button>
                     <Badge tone="neutral">{template.category}</Badge>
+                    {template.scope === 'platform' && <Badge tone="accent">P</Badge>}
                     <Badge tone="accent">v{current?.version ?? 1}</Badge>
                   </div>
                 </div>
@@ -260,26 +261,30 @@ export function PromptTemplatesPage() {
                   <Button variant="secondary" size="sm" onClick={() => openPreview(template)}>
                     {t('prompts.preview')}
                   </Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => {
-                      setVersionTarget(template)
-                      setVersionPrompt(current?.system_prompt ?? '')
-                      resetError()
-                    }}
-                  >
-                    <FilePlus2 className="h-3.5 w-3.5" />
-                    {t('prompts.newVersion')}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    aria-label={t('prompts.delete')}
-                    onClick={() => setDeleteTarget(template)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  {template.scope !== 'platform' && (
+                    <>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          setVersionTarget(template)
+                          setVersionPrompt(current?.system_prompt ?? '')
+                          resetError()
+                        }}
+                      >
+                        <FilePlus2 className="h-3.5 w-3.5" />
+                        {t('prompts.newVersion')}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-label={t('prompts.delete')}
+                        onClick={() => setDeleteTarget(template)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </>
+                  )}
                   <span className="ml-auto text-[11px] text-ink-muted">
                     {formatDate(template.created_at, language)}
                   </span>

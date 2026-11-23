@@ -1,3 +1,4 @@
+import difflib
 import re
 from datetime import UTC, datetime
 from uuid import UUID
@@ -17,13 +18,21 @@ class MissingPromptVariables(Exception):
         self.missing = missing
 
 
-def extract_variables(system_prompt: str) -> list[str]:
+def extract_variables(*prompts: str) -> list[str]:
     variables: list[str] = []
-    for match in VARIABLE_PATTERN.finditer(system_prompt):
-        name = match.group(1)
-        if name not in variables:
-            variables.append(name)
+    for prompt in prompts:
+        for match in VARIABLE_PATTERN.finditer(prompt):
+            name = match.group(1)
+            if name not in variables:
+                variables.append(name)
     return variables
+
+
+def _render_one(text: str, variables: dict[str, str]) -> str:
+    def replace(match: re.Match[str]) -> str:
+        return str(variables[match.group(1)])
+
+    return VARIABLE_PATTERN.sub(replace, text)
 
 
 def render_prompt(system_prompt: str, variables: dict[str, str]) -> tuple[str, list[str]]:
@@ -31,11 +40,97 @@ def render_prompt(system_prompt: str, variables: dict[str, str]) -> tuple[str, l
     missing = [name for name in declared if name not in variables]
     if missing:
         raise MissingPromptVariables(missing)
+    return _render_one(system_prompt, variables), declared
 
-    def replace(match: re.Match[str]) -> str:
-        return str(variables[match.group(1)])
 
-    return VARIABLE_PATTERN.sub(replace, system_prompt), declared
+def render_prompt_both(
+    system_prompt: str,
+    user_prompt: str,
+    variables: dict[str, str],
+    definitions: list[dict] | None = None,
+) -> tuple[str, str, list[str]]:
+    declared = extract_variables(system_prompt, user_prompt)
+    filled = dict(variables)
+    for item in definitions or []:
+        name = str(item.get("name", ""))
+        if name and name not in filled and item.get("default"):
+            filled[name] = str(item["default"])
+    required = {
+        str(item.get("name"))
+        for item in definitions or []
+        if item.get("required", True)
+    }
+    missing = [
+        name
+        for name in declared
+        if name not in filled and (not definitions or name in required)
+    ]
+    if missing:
+        raise MissingPromptVariables(missing)
+    return (
+        _render_one(system_prompt, filled),
+        _render_one(user_prompt, filled),
+        declared,
+    )
+
+
+def diff_prompt_lines(old_text: str, new_text: str) -> list[dict[str, object]]:
+    """Line-level diff with old/new line numbers for the Prompt Lab view."""
+    old_lines = old_text.splitlines()
+    new_lines = new_text.splitlines()
+    matcher = difflib.SequenceMatcher(None, old_lines, new_lines)
+    rows: list[dict[str, object]] = []
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            for offset in range(i2 - i1):
+                rows.append(
+                    {
+                        "type": "equal",
+                        "old_line": i1 + offset + 1,
+                        "new_line": j1 + offset + 1,
+                        "text": old_lines[i1 + offset],
+                    }
+                )
+        elif tag == "delete":
+            for index in range(i1, i2):
+                rows.append(
+                    {
+                        "type": "delete",
+                        "old_line": index + 1,
+                        "new_line": None,
+                        "text": old_lines[index],
+                    }
+                )
+        elif tag == "insert":
+            for index in range(j1, j2):
+                rows.append(
+                    {
+                        "type": "insert",
+                        "old_line": None,
+                        "new_line": index + 1,
+                        "text": new_lines[index],
+                    }
+                )
+        else:
+            for index in range(i1, i2):
+                rows.append(
+                    {
+                        "type": "delete",
+                        "old_line": index + 1,
+                        "new_line": None,
+                        "text": old_lines[index],
+                    }
+                )
+            for index in range(j1, j2):
+                rows.append(
+                    {
+                        "type": "insert",
+                        "old_line": None,
+                        "new_line": index + 1,
+                        "text": new_lines[index],
+                    }
+                )
+    return rows
 
 
 def _not_found() -> HTTPException:
@@ -65,6 +160,7 @@ async def get_owned_template(
             select(PromptTemplate).where(
                 PromptTemplate.id == template_id,
                 PromptTemplate.workspace_id == workspace_id,
+                PromptTemplate.scope == "workspace",
                 PromptTemplate.deleted_at.is_(None),
             )
         )
@@ -72,6 +168,57 @@ async def get_owned_template(
     if template is None:
         raise _not_found()
     return template
+
+
+async def get_accessible_template(
+    template_id: UUID, workspace_id: UUID, session: AsyncSession
+) -> PromptTemplate:
+    template = (
+        await session.execute(
+            select(PromptTemplate).where(
+                PromptTemplate.id == template_id,
+                PromptTemplate.deleted_at.is_(None),
+                or_(
+                    PromptTemplate.workspace_id == workspace_id,
+                    PromptTemplate.scope == "platform",
+                ),
+            )
+        )
+    ).scalar_one_or_none()
+    if template is None:
+        raise _not_found()
+    return template
+
+
+async def get_platform_template(
+    session: AsyncSession, template_id: UUID
+) -> PromptTemplate:
+    template = (
+        await session.execute(
+            select(PromptTemplate).where(
+                PromptTemplate.id == template_id,
+                PromptTemplate.scope == "platform",
+                PromptTemplate.workspace_id.is_(None),
+                PromptTemplate.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if template is None:
+        raise _not_found()
+    return template
+
+
+async def list_platform_templates(session: AsyncSession) -> list[PromptTemplate]:
+    result = await session.execute(
+        select(PromptTemplate)
+        .where(
+            PromptTemplate.scope == "platform",
+            PromptTemplate.workspace_id.is_(None),
+            PromptTemplate.deleted_at.is_(None),
+        )
+        .order_by(PromptTemplate.created_at.desc(), PromptTemplate.id.desc())
+    )
+    return list(result.scalars())
 
 
 async def list_versions(session: AsyncSession, template_id: UUID) -> list[PromptVersion]:
@@ -93,8 +240,11 @@ async def list_templates(
     favorite_only: bool = False,
 ) -> list[PromptTemplate]:
     conditions = [
-        PromptTemplate.workspace_id == workspace_id,
         PromptTemplate.deleted_at.is_(None),
+        or_(
+            PromptTemplate.workspace_id == workspace_id,
+            PromptTemplate.scope == "platform",
+        ),
     ]
     if category:
         conditions.append(PromptTemplate.category == category)
@@ -107,7 +257,10 @@ async def list_templates(
                 exists(
                     select(PromptVersion.id).where(
                         PromptVersion.template_id == PromptTemplate.id,
-                        PromptVersion.system_prompt.ilike(term),
+                        or_(
+                            PromptVersion.system_prompt.ilike(term),
+                            PromptVersion.user_prompt.ilike(term),
+                        ),
                     )
                 ),
             )
@@ -182,15 +335,20 @@ async def update_template(
 async def create_template(
     session: AsyncSession,
     *,
-    workspace_id: UUID,
+    workspace_id: UUID | None,
     user_id: UUID,
     name: str,
     description: str,
     system_prompt: str,
     category: str = "general",
+    user_prompt: str = "",
+    variable_definitions: list[dict] | None = None,
+    parameters: dict | None = None,
+    scope: str = "workspace",
 ) -> tuple[PromptTemplate, PromptVersion]:
     template = PromptTemplate(
         workspace_id=workspace_id,
+        scope=scope,
         name=name,
         description=description,
         category=category,
@@ -202,7 +360,10 @@ async def create_template(
         template_id=template.id,
         version=1,
         system_prompt=system_prompt,
-        variables=extract_variables(system_prompt),
+        user_prompt=user_prompt,
+        variables=extract_variables(system_prompt, user_prompt),
+        variable_definitions=variable_definitions or [],
+        parameters=parameters or {},
     )
     session.add(version)
     await session.commit()
@@ -212,7 +373,12 @@ async def create_template(
 
 
 async def create_version(
-    session: AsyncSession, template: PromptTemplate, system_prompt: str
+    session: AsyncSession,
+    template: PromptTemplate,
+    system_prompt: str,
+    user_prompt: str = "",
+    variable_definitions: list[dict] | None = None,
+    parameters: dict | None = None,
 ) -> PromptVersion:
     latest = (
         await session.execute(
@@ -223,7 +389,10 @@ async def create_version(
         template_id=template.id,
         version=(latest or 0) + 1,
         system_prompt=system_prompt,
-        variables=extract_variables(system_prompt),
+        user_prompt=user_prompt,
+        variables=extract_variables(system_prompt, user_prompt),
+        variable_definitions=variable_definitions or [],
+        parameters=parameters or {},
     )
     session.add(version)
     await session.commit()
@@ -270,8 +439,11 @@ async def resolve_conversation_prompt(
             .join(PromptTemplate, PromptTemplate.id == PromptVersion.template_id)
             .where(
                 PromptVersion.id == version_id,
-                PromptTemplate.workspace_id == workspace_id,
                 PromptTemplate.deleted_at.is_(None),
+                or_(
+                    PromptTemplate.workspace_id == workspace_id,
+                    PromptTemplate.scope == "platform",
+                ),
             )
         )
     ).scalar_one_or_none()

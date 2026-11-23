@@ -10,9 +10,12 @@ import { apiRequest } from './lib/http'
 import { clearTokens, hasSession, refreshAccessToken } from './lib/tokens'
 import type { User } from './lib/types'
 import { AdminPluginsPage } from './pages/admin/AdminPluginsPage'
+import { AdminPromptsPage } from './pages/admin/AdminPromptsPage'
 import { AgentDetailPage } from './pages/agents/AgentDetailPage'
 import { AgentsPage } from './pages/agents/AgentsPage'
 import { ArchivedConversationsPage } from './pages/chat/ArchivedConversationsPage'
+import { ArenaDetailPage } from './pages/arena/ArenaDetailPage'
+import { ArenaPage } from './pages/arena/ArenaPage'
 import { DashboardPage } from './pages/dashboard/DashboardPage'
 import { FilesPage } from './pages/files/FilesPage'
 import { SearchPage } from './pages/search/SearchPage'
@@ -24,7 +27,9 @@ import { KnowledgePage } from './pages/knowledge/KnowledgePage'
 import { LoginPage } from './pages/LoginPage'
 import { ModelsPage } from './pages/models/ModelsPage'
 import { ModelDetailPage } from './pages/models/ModelDetailPage'
+import { ModelEvalPage } from './pages/model-eval/ModelEvalPage'
 import { ModelPlaygroundPage } from './pages/models/ModelPlaygroundPage'
+import { PromptLabPage } from './pages/prompt-lab/PromptLabPage'
 import { AnnouncementDetailPage } from './pages/portal/AnnouncementDetailPage'
 import { AnnouncementsPage } from './pages/portal/AnnouncementsPage'
 import { HelpPage } from './pages/help/HelpPage'
@@ -95,6 +100,10 @@ export function App() {
           <Route path="chat/:id" element={<ChatPage />} />
         </Route>
         <Route element={<AppShell />}>
+          <Route path="arena" element={<ArenaPage />} />
+          <Route path="arena/:id" element={<ArenaDetailPage />} />
+          <Route path="prompt-lab" element={<PromptLabPage />} />
+          <Route path="model-eval" element={<ModelEvalPage />} />
           <Route path="archive" element={<ArchivedConversationsPage />} />
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="projects/:id" element={<ProjectDetailPage />} />
@@ -109,6 +118,7 @@ export function App() {
           <Route path="admin" element={<AdminPage />} />
           <Route path="admin/content" element={<AdminContentPage />} />
           <Route path="admin/plugins" element={<AdminPluginsPage />} />
+          <Route path="admin/prompts" element={<AdminPromptsPage />} />
           <Route path="knowledge" element={<KnowledgePage />} />
           <Route path="knowledge/:id" element={<KnowledgeDetailPage />} />
           <Route path="evaluation" element={<EvaluationPage />} />

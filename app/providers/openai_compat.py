@@ -4,7 +4,14 @@ from contextlib import asynccontextmanager
 
 import httpx
 
-from app.providers.base import ChatChunk, ChatMessage, ModelInfo, ProviderError, Usage
+from app.providers.base import (
+    ChatChunk,
+    ChatMessage,
+    CompletionResult,
+    ModelInfo,
+    ProviderError,
+    Usage,
+)
 
 
 class OpenAICompatProvider:
@@ -106,6 +113,73 @@ class OpenAICompatProvider:
             raise ProviderError(
                 "provider_unreachable", f"Provider unreachable: {type(exc).__name__}"
             ) from None
+
+    async def complete(
+        self, messages: list[ChatMessage], model: str, **opts: object
+    ) -> CompletionResult:
+        payload: dict[str, object] = {
+            "model": model,
+            "messages": [
+                {"role": message.role, "content": message.content} for message in messages
+            ],
+            "stream": False,
+        }
+        payload.update(opts)
+        try:
+            async with self._http() as client:
+                response = await client.post(
+                    f"{self.base_url}/chat/completions",
+                    json=payload,
+                    headers=self._headers(),
+                )
+                if response.status_code >= 400:
+                    raise ProviderError(
+                        "provider_http_error",
+                        f"Provider returned HTTP {response.status_code}",
+                    )
+                body = response.json()
+        except ProviderError:
+            raise
+        except httpx.HTTPError as exc:
+            raise ProviderError(
+                "provider_unreachable", f"Provider unreachable: {type(exc).__name__}"
+            ) from None
+        except ValueError:
+            raise ProviderError(
+                "provider_bad_response", "Provider returned invalid JSON"
+            ) from None
+
+        if not isinstance(body, dict):
+            raise ProviderError(
+                "provider_bad_response", "Provider completion response is not an object"
+            )
+        choices = body.get("choices")
+        if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+            raise ProviderError(
+                "provider_bad_response", "Provider completion response has no choices"
+            )
+        choice = choices[0]
+        message = choice.get("message")
+        content = ""
+        if isinstance(message, dict) and isinstance(message.get("content"), str):
+            content = message["content"]
+        finish_reason = choice.get("finish_reason")
+        usage_obj = body.get("usage")
+        usage: Usage | None = None
+        if isinstance(usage_obj, dict):
+            prompt_tokens = usage_obj.get("prompt_tokens")
+            completion_tokens = usage_obj.get("completion_tokens")
+            usage = Usage(
+                prompt_tokens=prompt_tokens if isinstance(prompt_tokens, int) else None,
+                completion_tokens=(
+                    completion_tokens if isinstance(completion_tokens, int) else None
+                ),
+            )
+        return CompletionResult(
+            content=content,
+            usage=usage,
+            finish_reason=finish_reason if isinstance(finish_reason, str) else None,
+        )
 
     @staticmethod
     def _parse_line(line: str) -> ChatChunk | None:
