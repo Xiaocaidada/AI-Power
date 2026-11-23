@@ -776,12 +776,15 @@ async def create_conversation(
         except ProjectError:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found") from None
     custom_agent = None
-    if payload.custom_agent_id is not None:
+    custom_agent_id = payload.custom_agent_id
+    if custom_agent_id is None and project is not None:
+        custom_agent_id = project.default_custom_agent_id
+    if custom_agent_id is not None:
         try:
             custom_agent = await get_custom_agent(
                 session,
                 context.workspace.id,
-                payload.custom_agent_id,
+                custom_agent_id,
                 context.user.id,
             )
         except CustomAgentError:
@@ -922,6 +925,8 @@ async def create_conversation(
     )
     session.add(conversation)
     await session.flush()
+    if custom_agent is not None:
+        custom_agent.usage_count += 1
     if kb_ids:
         session.add_all(
             [

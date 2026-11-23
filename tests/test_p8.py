@@ -3,6 +3,18 @@ import json
 from sqlalchemy import select
 
 
+async def _make_admin(email: str) -> None:
+    from app.db import SessionLocal
+    from app.models import User
+
+    async with SessionLocal() as session:
+        user = (
+            await session.execute(select(User).where(User.email == email))
+        ).scalar_one()
+        user.role = "admin"
+        await session.commit()
+
+
 async def _seed_model_catalog() -> None:
     from app.db import SessionLocal
     from app.models import ModelCatalog
@@ -347,6 +359,130 @@ async def test_agent_builder_fix_uses_failed_run(client, api, registry):
     assert fixed.status_code == 200, fixed.text
     assert fixed.json()["diff"]["removed_nodes"][0]["id"] == "retrieve"
     assert fixed.json()["message"]
+
+
+async def test_agent_scopes_featured_and_market_filter(client, api):
+    headers = await api.headers("p8-scopes@example.com")
+
+    async def create(name: str) -> dict:
+        response = await client.post(
+            "/agents",
+            json={"name": name, "instructions": "Be helpful."},
+            headers=headers,
+        )
+        assert response.status_code == 201, response.text
+        return response.json()
+
+    first = await create("Scope one")
+    second = await create("Scope two")
+    copied = await client.post(f"/agents/{first['id']}/copy", headers=headers)
+    assert copied.status_code == 201
+
+    created = await client.get("/agents?scope=created", headers=headers)
+    assert {item["name"] for item in created.json()} == {"Scope one", "Scope two"}
+    copied_scope = await client.get("/agents?scope=copied", headers=headers)
+    assert [item["name"] for item in copied_scope.json()] == ["Scope one (copy)"]
+
+    favorite = await client.put(f"/agents/{first['id']}/favorite", headers=headers)
+    assert favorite.status_code == 200
+    favorites = await client.get("/agents?scope=favorites", headers=headers)
+    assert [item["id"] for item in favorites.json()] == [first["id"]]
+
+    publish = await client.post(
+        f"/agents/{second['id']}/publish",
+        json={"slug": "scope-two", "allow_copy": True, "show_structure": True},
+        headers=headers,
+    )
+    assert publish.status_code == 200
+    published = await client.get("/agents?scope=published", headers=headers)
+    assert [item["id"] for item in published.json()] == [second["id"]]
+
+    admin = await api.headers("p8-agent-admin@example.com")
+    await _make_admin("p8-agent-admin@example.com")
+    assert (await client.get("/admin/agents", headers=headers)).status_code == 404
+    admin_list = await client.get("/admin/agents", headers=admin)
+    assert admin_list.status_code == 200
+    featured = await client.post(
+        f"/admin/agents/{second['id']}/feature",
+        json={"featured": True},
+        headers=admin,
+    )
+    assert featured.status_code == 200
+    assert featured.json()["featured"] is True
+    market = await client.get("/market/agents?featured=true")
+    assert [item["slug"] for item in market.json()] == ["scope-two"]
+
+    usage = await client.post(f"/agents/{first['id']}/use", headers=headers)
+    assert usage.status_code == 200
+    assert usage.json()["usage_count"] == 1
+
+
+async def test_agent_runs_and_project_default_agent(client, api):
+    headers = await api.headers("p8-runs@example.com")
+    agent = await client.post(
+        "/agents",
+        json={"name": "Runs agent", "instructions": "Be helpful."},
+        headers=headers,
+    )
+    assert agent.status_code == 201
+    agent_id = agent.json()["id"]
+
+    project = await client.post(
+        "/projects",
+        json={"name": "P8 project", "default_custom_agent_id": agent_id},
+        headers=headers,
+    )
+    assert project.status_code == 201, project.text
+    assert project.json()["default_custom_agent_id"] == agent_id
+
+    conversation = await client.post(
+        "/conversations", json={"project_id": project.json()["id"]}, headers=headers
+    )
+    assert conversation.status_code == 201, conversation.text
+    assert conversation.json()["custom_agent_id"] == agent_id
+    refreshed = await client.get(f"/agents/{agent_id}", headers=headers)
+    assert refreshed.json()["usage_count"] == 1
+
+    runs = await client.get(f"/agents/{agent_id}/runs", headers=headers)
+    assert runs.status_code == 200
+    assert runs.json()[0]["kind"] == "chat"
+
+    workflow = await client.post(
+        "/workflows",
+        json={
+            "name": "Run history",
+            "definition": {
+                "nodes": [
+                    {"id": "start", "type": "start", "config": {}},
+                    {"id": "out", "type": "output", "config": {}},
+                ],
+                "edges": [{"from": "start", "to": "out"}],
+            },
+        },
+        headers=headers,
+    )
+    workflow_agent = await client.post(
+        "/agents",
+        json={
+            "name": "Workflow runs agent",
+            "instructions": "Run the workflow.",
+            "mode": "workflow",
+            "workflow_id": workflow.json()["id"],
+        },
+        headers=headers,
+    )
+    assert workflow_agent.status_code == 201
+    accepted = await client.post(
+        f"/workflows/{workflow.json()['id']}/runs",
+        json={"input": "hello"},
+        headers=headers,
+    )
+    workflow_runs = await client.get(
+        f"/agents/{workflow_agent.json()['id']}/runs", headers=headers
+    )
+    assert workflow_runs.status_code == 200
+    assert workflow_runs.json()[0]["kind"] == "workflow"
+    assert workflow_runs.json()[0]["id"] == accepted.json()["run_id"]
 
 
 async def test_agent_builder_generates_valid_definition(client, api, registry):

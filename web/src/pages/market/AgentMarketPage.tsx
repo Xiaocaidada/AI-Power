@@ -13,14 +13,16 @@ import type { AgentMarketSummary } from '../../lib/types'
 export function AgentMarketPage() {
   const { t } = useI18n()
   const [search, setSearch] = useState('')
-  const [sort, setSort] = useState<'newest' | 'popular'>('newest')
+  const [sort, setSort] = useState<'newest' | 'popular' | 'featured'>('newest')
+  const [featuredOnly, setFeaturedOnly] = useState(false)
 
   const agents = useQuery({
-    queryKey: ['market-agents', search, sort],
+    queryKey: ['market-agents', search, sort, featuredOnly],
     queryFn: () =>
       apiRequest<AgentMarketSummary[]>(
         `/market/agents?${new URLSearchParams({
           ...(search.trim() !== '' ? { search: search.trim() } : {}),
+          ...(featuredOnly ? { featured: 'true' } : {}),
           sort,
         }).toString()}`,
         { auth: false },
@@ -37,7 +39,7 @@ export function AgentMarketPage() {
           </h1>
           <p className="mt-2 text-sm text-ink-muted">{t('market.lead')}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
@@ -45,7 +47,7 @@ export function AgentMarketPage() {
             className="w-56"
           />
           <div className="flex rounded-lg border border-border bg-surface p-0.5">
-            {(['newest', 'popular'] as const).map((item) => (
+            {(['newest', 'popular', 'featured'] as const).map((item) => (
               <button
                 key={item}
                 type="button"
@@ -58,6 +60,17 @@ export function AgentMarketPage() {
               </button>
             ))}
           </div>
+          <button
+            type="button"
+            onClick={() => setFeaturedOnly((value) => !value)}
+            className={`rounded-lg border px-3 py-1.5 text-xs ${
+              featuredOnly
+                ? 'border-accent bg-accent-soft text-accent'
+                : 'border-border bg-surface text-ink-muted'
+            }`}
+          >
+            {t('market.featuredOnly')}
+          </button>
         </div>
       </header>
 
@@ -77,9 +90,10 @@ export function AgentMarketPage() {
                 {agent.icon}
               </span>
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <p className="truncate text-sm font-medium text-ink">{agent.name}</p>
                   <Badge tone="neutral">{agent.mode}</Badge>
+                  {agent.featured && <Badge tone="accent">{t('market.featured')}</Badge>}
                 </div>
                 <p className="mt-1 line-clamp-3 text-xs text-ink-muted">
                   {agent.description}

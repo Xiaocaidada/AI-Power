@@ -334,12 +334,27 @@ export interface Project {
   default_provider_id: string | null
   default_model: string | null
   default_kb_id: string | null
+  default_custom_agent_id: string | null
   default_agent: boolean
   archived: boolean
   conversation_count: number
   owned: boolean
   created_at: string
   updated_at: string
+}
+
+export interface AgentRun {
+  id: string
+  kind: 'chat' | 'workflow'
+  title: string
+  status: string
+  input: string
+  output: string
+  model: string
+  duration_ms: number | null
+  error_code: string | null
+  created_at: string
+  href: string
 }
 
 export interface GenerationSettings {
@@ -375,6 +390,7 @@ export interface CustomAgent {
   owned: boolean
   builtin: boolean
   published: boolean
+  featured: boolean
   public_slug: string | null
   allow_copy: boolean
   show_structure: boolean
@@ -401,6 +417,7 @@ export interface AgentMarketSummary {
   icon: string
   category: string
   mode: AgentMode
+  featured: boolean
   usage_count: number
   favorite_count: number
   copy_count: number

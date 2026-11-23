@@ -8,7 +8,12 @@ import { Spinner } from '../../components/ui/spinner'
 import { formatDate } from '../../lib/format'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
-import type { Conversation, CustomAgent, Plugin } from '../../lib/types'
+import type {
+  AgentRun,
+  Conversation,
+  CustomAgent,
+  Plugin,
+} from '../../lib/types'
 
 export function AgentDetailPage() {
   const { id = '' } = useParams<{ id: string }>()
@@ -24,6 +29,11 @@ export function AgentDetailPage() {
     queryKey: ['plugins'],
     queryFn: () => apiRequest<Plugin[]>('/plugins'),
     staleTime: 60_000,
+  })
+  const runs = useQuery({
+    queryKey: ['agent-runs', id],
+    queryFn: () => apiRequest<AgentRun[]>(`/agents/${id}/runs?limit=10`),
+    enabled: id !== '' && agent.data !== undefined && !agent.data.builtin,
   })
   const conversations = useQuery({
     queryKey: ['conversations', 'agent', id],
@@ -54,7 +64,11 @@ export function AgentDetailPage() {
   const detail = agent.data
   const pluginNames = new Map((plugins.data ?? []).map((item) => [item.id, item.name]))
   const experience = () =>
-    navigate(detail.builtin ? '/chat?agentMode=1' : `/chat?agent=${detail.id}`)
+    navigate(
+      detail.builtin
+        ? '/chat?agentMode=1'
+        : `/agents/${detail.id}/experience`,
+    )
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -118,6 +132,48 @@ export function AgentDetailPage() {
               {detail.instructions}
             </p>
           </div>
+
+          {!detail.builtin && (
+            <div className="rounded-2xl border border-border bg-surface">
+              <h2 className="border-b border-border px-5 py-3 text-sm font-semibold text-ink">
+                {t('agents.runs')}
+              </h2>
+              <div className="divide-y divide-border">
+                {(runs.data ?? []).map((run) => (
+                  <Link
+                    key={`${run.kind}-${run.id}`}
+                    to={run.href || `/agents/${detail.id}/experience`}
+                    className="block px-5 py-3 hover:bg-surface-muted"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Badge
+                        tone={run.status === 'completed' ? 'success' : 'neutral'}
+                      >
+                        {run.status}
+                      </Badge>
+                      <span className="text-[10px] text-ink-muted">{run.kind}</span>
+                      <span className="ml-auto text-[10px] text-ink-muted">
+                        {run.duration_ms !== null
+                          ? `${run.duration_ms.toFixed(0)} ms`
+                          : formatDate(run.created_at, language)}
+                      </span>
+                    </div>
+                    <p className="mt-1 truncate text-sm text-ink">
+                      {run.input || run.title}
+                    </p>
+                    <p className="line-clamp-2 text-xs text-ink-muted">
+                      {run.output || run.error_code || '—'}
+                    </p>
+                  </Link>
+                ))}
+                {runs.data !== undefined && runs.data.length === 0 && (
+                  <p className="px-5 py-6 text-sm text-ink-muted">
+                    {t('agents.noHistory')}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
 
           {!detail.builtin && (
             <div className="rounded-2xl border border-border bg-surface">

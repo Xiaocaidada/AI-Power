@@ -1,7 +1,7 @@
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +13,8 @@ from app.providers.registry import ProviderRegistry
 from app.schemas import (
     AgentFavoriteOut,
     AgentPublishIn,
+    AgentRunOut,
+    AgentUseOut,
     CustomAgentCreate,
     CustomAgentOut,
     CustomAgentUpdate,
@@ -29,6 +31,8 @@ from app.services.custom_agents import (
     create_custom_agent,
     favorite_agent_ids,
     get_custom_agent,
+    increment_agent_usage,
+    list_agent_runs,
     list_custom_agents,
     publish_custom_agent,
     set_agent_favorite,
@@ -72,6 +76,7 @@ def _custom_out(
         owned=can_manage(agent, context.user.id, context.role),
         builtin=False,
         published=agent.published,
+        featured=agent.featured,
         public_slug=agent.public_slug,
         allow_copy=agent.allow_copy,
         show_structure=agent.show_structure,
@@ -202,10 +207,22 @@ async def list_agents(
     session: SessionDep,
     q: str | None = None,
     category: str | None = None,
+    scope: Literal[
+        "all", "mine", "created", "copied", "favorites", "published"
+    ] = "all",
 ) -> list[CustomAgentOut]:
-    result = [_builtin_out(agent_id) for agent_id in _builtin_ids(q, category)]
+    result = (
+        [_builtin_out(agent_id) for agent_id in _builtin_ids(q, category)]
+        if scope == "all"
+        else []
+    )
     custom = await list_custom_agents(
-        session, context.workspace.id, context.user.id, search=q, category=category
+        session,
+        context.workspace.id,
+        context.user.id,
+        search=q,
+        category=category,
+        scope=scope,
     )
     favorites = await favorite_agent_ids(
         session, context.user.id, [agent.id for agent in custom]
@@ -443,6 +460,48 @@ async def unpublish_agent(
     await session.commit()
     await session.refresh(agent)
     return _custom_out(agent, await agent_conversation_count(session, agent.id), context)
+
+
+@router.post("/{agent_id}/use", response_model=AgentUseOut)
+async def use_agent(
+    agent_id: str, context: JwtContext, session: SessionDep
+) -> AgentUseOut:
+    try:
+        parsed = UUID(agent_id)
+    except ValueError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found") from None
+    try:
+        agent = await get_custom_agent(
+            session, context.workspace.id, parsed, context.user.id
+        )
+    except CustomAgentError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, exc.message) from None
+    count = await increment_agent_usage(session, agent)
+    await session.commit()
+    return AgentUseOut(usage_count=count)
+
+
+@router.get("/{agent_id}/runs", response_model=list[AgentRunOut])
+async def list_runs(
+    agent_id: str,
+    context: JwtContext,
+    session: SessionDep,
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+) -> list[AgentRunOut]:
+    try:
+        parsed = UUID(agent_id)
+    except ValueError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found") from None
+    try:
+        agent = await get_custom_agent(
+            session, context.workspace.id, parsed, context.user.id
+        )
+    except CustomAgentError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, exc.message) from None
+    rows = await list_agent_runs(
+        session, agent, context.workspace.id, limit=limit
+    )
+    return [AgentRunOut(**row) for row in rows]
 
 
 @router.post("/{agent_id}/copy", response_model=CustomAgentOut, status_code=status.HTTP_201_CREATED)

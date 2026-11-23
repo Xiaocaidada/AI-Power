@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
 from app.deps import AuthContext, get_jwt_context, get_scoped_registry
-from app.models import AuditLog, Project
+from app.models import AuditLog, CustomAgent, Project
 from app.providers.base import ProviderError
 from app.providers.registry import ProviderRegistry
 from app.schemas import ProjectCreate, ProjectOut, ProjectUpdate
@@ -39,6 +39,7 @@ def _project_out(project: Project, count: int, context: AuthContext) -> ProjectO
         default_provider_id=project.default_provider_id,
         default_model=project.default_model,
         default_kb_id=project.default_kb_id,
+        default_custom_agent_id=project.default_custom_agent_id,
         default_agent=project.default_agent,
         archived=project.archived_at is not None,
         conversation_count=count,
@@ -66,6 +67,7 @@ async def _validate_defaults(
     model: str | None,
     agent: bool,
     kb_id: UUID | None,
+    custom_agent_id: UUID | None = None,
 ) -> None:
     if provider_id is None:
         if model is not None:
@@ -95,6 +97,19 @@ async def _validate_defaults(
             raise _defaults_error(exc) from None
     if kb_id is not None:
         await get_owned_knowledge_base(kb_id, context.workspace.id, session)
+    if custom_agent_id is not None:
+        custom_agent = await session.get(CustomAgent, custom_agent_id)
+        if (
+            custom_agent is None
+            or custom_agent.workspace_id != context.workspace.id
+            or custom_agent.archived_at is not None
+            or (
+                custom_agent.owner_user_id != context.user.id
+                and custom_agent.visibility != "shared"
+                and context.role != "owner"
+            )
+        ):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
 
 
 def _normalize_pair(provider_id: str | None, model: str | None) -> tuple[str | None, str | None]:
@@ -131,6 +146,7 @@ async def create_workspace_project(
         model=model,
         agent=payload.default_agent,
         kb_id=payload.default_kb_id,
+        custom_agent_id=payload.default_custom_agent_id,
     )
     values = payload.model_dump()
     values["default_provider_id"] = provider_id
@@ -182,6 +198,9 @@ async def update_workspace_project(
     model = data.get("default_model", project.default_model)
     agent = data.get("default_agent", project.default_agent)
     kb_id = data.get("default_kb_id", project.default_kb_id)
+    custom_agent_id = data.get(
+        "default_custom_agent_id", project.default_custom_agent_id
+    )
     if "default_provider_id" in data and provider_id not in (None, "auto"):
         if "default_model" not in data and project.default_provider_id != provider_id:
             raise HTTPException(
@@ -197,6 +216,7 @@ async def update_workspace_project(
         model=model,
         agent=agent,
         kb_id=kb_id,
+        custom_agent_id=custom_agent_id,
     )
     data["default_provider_id"] = provider_id
     data["default_model"] = model

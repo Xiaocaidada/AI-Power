@@ -79,6 +79,7 @@ export function AgentMarketDetailPage() {
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-semibold text-ink">{detail.name}</h1>
             <Badge tone="neutral">{detail.mode}</Badge>
+            {detail.featured && <Badge tone="accent">{t('market.featured')}</Badge>}
             {detail.allow_copy && <Badge tone="success">{t('market.copyable')}</Badge>}
           </div>
           <p className="mt-1 text-sm text-ink-muted">{detail.description}</p>

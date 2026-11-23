@@ -13,6 +13,7 @@ import type { User } from './lib/types'
 import { AdminPluginsPage } from './pages/admin/AdminPluginsPage'
 import { AdminPromptsPage } from './pages/admin/AdminPromptsPage'
 import { AgentDetailPage } from './pages/agents/AgentDetailPage'
+import { AgentExperiencePage } from './pages/agents/AgentExperiencePage'
 import { AgentsPage } from './pages/agents/AgentsPage'
 import { ArchivedConversationsPage } from './pages/chat/ArchivedConversationsPage'
 import { AgentMarketDetailPage } from './pages/market/AgentMarketDetailPage'
@@ -120,6 +121,7 @@ export function App() {
           <Route path="projects/:id" element={<ProjectDetailPage />} />
           <Route path="agents" element={<AgentsPage />} />
           <Route path="agents/:id" element={<AgentDetailPage />} />
+          <Route path="agents/:id/experience" element={<AgentExperiencePage />} />
           <Route path="plugins" element={<PluginsPage />} />
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="files" element={<FilesPage />} />

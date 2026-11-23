@@ -724,6 +724,7 @@ class ProjectCreate(BaseModel):
     default_provider_id: str | None = Field(default=None, max_length=50)
     default_model: str | None = Field(default=None, max_length=200)
     default_kb_id: UUID | None = None
+    default_custom_agent_id: UUID | None = None
     default_agent: bool = False
 
     @field_validator(
@@ -742,6 +743,7 @@ class ProjectUpdate(BaseModel):
     default_provider_id: str | None = Field(default=None, max_length=50)
     default_model: str | None = Field(default=None, max_length=200)
     default_kb_id: UUID | None = None
+    default_custom_agent_id: UUID | None = None
     default_agent: bool | None = None
     archived: bool | None = None
 
@@ -762,6 +764,7 @@ class ProjectOut(BaseModel):
     default_provider_id: str | None
     default_model: str | None
     default_kb_id: UUID | None
+    default_custom_agent_id: UUID | None = None
     default_agent: bool
     archived: bool
     conversation_count: int
@@ -858,6 +861,7 @@ class CustomAgentOut(BaseModel):
     owned: bool
     builtin: bool
     published: bool = False
+    featured: bool = False
     public_slug: str | None = None
     allow_copy: bool = True
     show_structure: bool = True
@@ -880,6 +884,28 @@ class AgentFavoriteOut(BaseModel):
     favorite: bool
 
 
+class AgentUseOut(BaseModel):
+    usage_count: int
+
+
+class AgentFeatureIn(BaseModel):
+    featured: bool
+
+
+class AgentRunOut(BaseModel):
+    id: UUID
+    kind: Literal["chat", "workflow"]
+    title: str = ""
+    status: str
+    input: str = ""
+    output: str = ""
+    model: str = ""
+    duration_ms: float | None = None
+    error_code: str | None = None
+    created_at: datetime
+    href: str = ""
+
+
 class AgentMarketOut(BaseModel):
     id: UUID
     slug: str
@@ -888,6 +914,7 @@ class AgentMarketOut(BaseModel):
     icon: str
     category: str
     mode: str
+    featured: bool = False
     usage_count: int = 0
     favorite_count: int = 0
     copy_count: int = 0
