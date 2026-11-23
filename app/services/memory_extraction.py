@@ -218,6 +218,13 @@ async def _apply_candidate(
     user_id: UUID,
     candidate: MemoryCandidate,
 ) -> AgentMemory:
+    metadata: dict[str, object] = {}
+    if candidate.extracted_by:
+        provider_id, _, model = candidate.extracted_by.partition("/")
+        if provider_id:
+            metadata["provider_id"] = provider_id
+        if model:
+            metadata["model"] = model
     if (
         candidate.suggested_action == "duplicate"
         and candidate.target_memory_id is not None
@@ -238,6 +245,7 @@ async def _apply_candidate(
                 category=candidate.category,
                 tags=candidate.tags,
                 confidence=candidate.confidence,
+                metadata=metadata or None,
                 change_reason="memory extraction update",
                 changed_by=user_id,
             )
@@ -259,6 +267,7 @@ async def _apply_candidate(
         source_type=candidate.source_type,
         source_id=candidate.source_id,
         source_ref=candidate.source_ref,
+        metadata=metadata or None,
     )
     candidate.status = "accepted"
     candidate.target_memory_id = memory.id
@@ -288,6 +297,10 @@ async def run_memory_extraction_for_message(
         await session.commit()
         if not memory_settings.enabled:
             return {"status": "skipped", "reason": "memory_disabled"}
+        if conversation.agent and not memory_settings.allow_agent_extract:
+            return {"status": "skipped", "reason": "agent_extraction_disabled"}
+        if conversation.project_id is not None and not memory_settings.allow_project_extract:
+            return {"status": "skipped", "reason": "project_extraction_disabled"}
         user_text = (user_message.content if user_message else "") or ""
         explicit = explicit_memory_request(user_text)
         if not memory_settings.auto_extract and not explicit:

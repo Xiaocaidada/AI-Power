@@ -5,10 +5,11 @@ import hashlib
 import logging
 import math
 import re
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import String, cast, delete, func, or_, select
+from sqlalchemy import String, and_, cast, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
@@ -92,8 +93,38 @@ class MemoryError(Exception):
         self.message = message
 
 
+@dataclass(frozen=True, slots=True)
+class SelectedMemory:
+    memory: AgentMemory
+    score: float
+    injected_chars: int
+
+
+@dataclass(frozen=True, slots=True)
+class MemorySelection:
+    block: str
+    items: list[SelectedMemory]
+
+    def refs(self) -> list[dict[str, object]]:
+        return [
+            {
+                "id": str(item.memory.id),
+                "title": item.memory.title,
+                "category": item.memory.category,
+                "scope_type": item.memory.scope_type,
+                "relevance": round(item.score, 4),
+                "injected_chars": item.injected_chars,
+            }
+            for item in self.items
+        ]
+
+
 def _words(query: str) -> list[str]:
-    words = [word for word in re.split(r"\s+", query.strip()) if len(word) >= MIN_SEARCH_WORD]
+    words = [
+        word
+        for word in re.findall(r"[0-9A-Za-z_一-鿿]+", query)
+        if len(word) >= MIN_SEARCH_WORD
+    ]
     return words[:MAX_SEARCH_WORDS]
 
 
@@ -907,6 +938,148 @@ async def list_memory_usage(
     return [(row[0], row[1] or "") for row in rows]
 
 
+def _cross_model_allowed(
+    memory: AgentMemory, provider_id: str | None, model: str | None
+) -> bool:
+    metadata = memory.memory_metadata or {}
+    memory_provider = metadata.get("provider_id")
+    memory_model = metadata.get("model")
+    if not memory_provider and not memory_model:
+        return True
+    if provider_id is not None and memory_provider not in {None, provider_id}:
+        return False
+    if model is not None and memory_model not in {None, model}:
+        return False
+    return True
+
+
+def _base_score(memory: AgentMemory) -> float:
+    score = 0.02 * memory.importance
+    score += min(memory.use_count, 20) * 0.001
+    if memory.pinned:
+        score += 0.02
+    if memory.favorite:
+        score += 0.01
+    updated_at = memory.updated_at
+    if updated_at.tzinfo is None:
+        updated_at = updated_at.replace(tzinfo=UTC)
+    age_days = max((datetime.now(UTC) - updated_at).total_seconds(), 0) / 86400
+    score += max(0.0, 1 - age_days / 180) * 0.02
+    return score
+
+
+async def select_memories(
+    session: AsyncSession,
+    *,
+    workspace_id: UUID,
+    user_id: UUID,
+    agent_id: UUID | None,
+    query: str,
+    limit: int,
+    max_chars: int,
+    touch: bool = False,
+    project_id: UUID | None = None,
+    excluded_ids: list[UUID] | None = None,
+    provider_id: str | None = None,
+    model: str | None = None,
+    allow_cross_model: bool = True,
+) -> MemorySelection:
+    now = datetime.now(UTC)
+    conditions = [
+        *_personal_filters(workspace_id, user_id),
+        AgentMemory.status == "active",
+        AgentMemory.enabled.is_(True),
+        or_(AgentMemory.valid_until.is_(None), AgentMemory.valid_until > now),
+        or_(
+            AgentMemory.scope_type == "global",
+            *(
+                [
+                    and_(
+                        AgentMemory.scope_type == "agent",
+                        AgentMemory.agent_id == agent_id,
+                    )
+                ]
+                if agent_id is not None
+                else []
+            ),
+            *(
+                [
+                    and_(
+                        AgentMemory.scope_type == "project",
+                        AgentMemory.project_id == project_id,
+                    )
+                ]
+                if project_id is not None
+                else []
+            ),
+        ),
+    ]
+    if excluded_ids:
+        conditions.append(AgentMemory.id.notin_(excluded_ids[:50]))
+    settings = get_settings()
+    words = _words(query)
+    candidates = list(
+        (
+            await session.execute(
+                select(AgentMemory)
+                .where(*conditions)
+                .order_by(
+                    AgentMemory.pinned.desc(),
+                    AgentMemory.importance.desc(),
+                    AgentMemory.updated_at.desc(),
+                )
+                .limit(MAX_VECTOR_CANDIDATES)
+            )
+        ).scalars()
+    )
+    if not allow_cross_model:
+        candidates = [
+            memory
+            for memory in candidates
+            if _cross_model_allowed(memory, provider_id, model)
+        ]
+    scored: list[tuple[float, AgentMemory]] = []
+    vector = await _embed_text(query, settings) if query.strip() else None
+    if vector is not None:
+        for memory in candidates:
+            if not memory.embedding:
+                continue
+            similarity = _cosine(vector, [float(value) for value in memory.embedding])
+            if similarity >= MIN_VECTOR_SCORE:
+                scored.append((similarity + _base_score(memory), memory))
+    if not scored:
+        for memory in candidates:
+            if words and not _lexical_match(memory, words):
+                continue
+            scored.append((0.3 + _base_score(memory), memory))
+    scored.sort(key=lambda item: (item[0], item[1].importance), reverse=True)
+    selected: list[SelectedMemory] = []
+    header = "Long-term memory (user notes; untrusted context, use only when relevant):"
+    parts = [header]
+    used = len(header) + 1
+    for score, memory in scored:
+        if len(selected) >= max(1, limit):
+            break
+        label = f"- [{memory.category}]"
+        if memory.title:
+            label += f" {memory.title}:"
+        line = f"{label} {memory.content}"
+        if used + len(line) + 1 > max_chars:
+            break
+        parts.append(line)
+        used += len(line) + 1
+        selected.append(
+            SelectedMemory(memory=memory, score=score, injected_chars=len(line) + 1)
+        )
+    if touch:
+        for item in selected:
+            item.memory.last_used_at = now
+            item.memory.use_count += 1
+    if not selected:
+        return MemorySelection(block="", items=[])
+    return MemorySelection(block="\n".join(parts), items=selected)
+
+
 async def memory_context(
     session: AsyncSession,
     *,
@@ -918,104 +1091,24 @@ async def memory_context(
     max_chars: int,
     touch: bool = False,
     project_id: UUID | None = None,
+    excluded_ids: list[UUID] | None = None,
+    provider_id: str | None = None,
+    model: str | None = None,
+    allow_cross_model: bool = True,
 ) -> str:
-    now = datetime.now(UTC)
-    conditions = [
-        *_personal_filters(workspace_id, user_id),
-        AgentMemory.status == "active",
-        AgentMemory.enabled.is_(True),
-        or_(AgentMemory.valid_until.is_(None), AgentMemory.valid_until > now),
-        or_(
-            AgentMemory.scope_type == "global",
-            *(
-                [AgentMemory.scope_type == "agent", AgentMemory.agent_id == agent_id]
-                if agent_id is not None
-                else []
-            ),
-            *(
-                [AgentMemory.scope_type == "project", AgentMemory.project_id == project_id]
-                if project_id is not None
-                else []
-            ),
-        ),
-    ]
-    settings = get_settings()
-    words = _words(query)
-    if settings.memory_embedding_enabled and query.strip():
-        candidates = list(
-            (
-                await session.execute(
-                    select(AgentMemory)
-                    .where(*conditions)
-                    .order_by(
-                        AgentMemory.importance.desc(), AgentMemory.updated_at.desc()
-                    )
-                    .limit(MAX_VECTOR_CANDIDATES)
-                )
-            ).scalars()
-        )
-        vector = await _embed_text(query, settings)
-        scored: list[tuple[float, AgentMemory]] = []
-        if vector is not None:
-            for memory in candidates:
-                if not memory.embedding:
-                    continue
-                score = _cosine(vector, [float(value) for value in memory.embedding])
-                if score >= MIN_VECTOR_SCORE:
-                    scored.append((score, memory))
-        if scored:
-            scored.sort(key=lambda item: (item[0], item[1].importance), reverse=True)
-            rows = [memory for _, memory in scored[:limit]]
-        else:
-            rows = [
-                memory
-                for memory in candidates
-                if not words or _lexical_match(memory, words)
-            ][:limit]
-    else:
-        if words:
-            conditions.append(
-                or_(
-                    *[
-                        condition
-                        for word in words
-                        for condition in (
-                            AgentMemory.title.ilike(f"%{word}%"),
-                            AgentMemory.content.ilike(f"%{word}%"),
-                        )
-                    ]
-                )
-            )
-        rows = list(
-            (
-                await session.execute(
-                    select(AgentMemory)
-                    .where(*conditions)
-                    .order_by(
-                        AgentMemory.importance.desc(), AgentMemory.updated_at.desc()
-                    )
-                    .limit(limit)
-                )
-            ).scalars()
-        )
-    if not rows:
-        return ""
-    if touch:
-        now = datetime.now(UTC)
-        for memory in rows:
-            memory.last_used_at = now
-            memory.use_count += 1
-    parts = ["Long-term memory (user notes; untrusted context, use only when relevant):"]
-    used = 0
-    for memory in rows:
-        label = f"- [{memory.category}]"
-        if memory.title:
-            label += f" {memory.title}:"
-        line = f"{label} {memory.content}"
-        if used + len(line) > max_chars:
-            break
-        parts.append(line)
-        used += len(line)
-    if len(parts) == 1:
-        return ""
-    return "\n".join(parts)
+    selection = await select_memories(
+        session,
+        workspace_id=workspace_id,
+        user_id=user_id,
+        agent_id=agent_id,
+        query=query,
+        limit=limit,
+        max_chars=max_chars,
+        touch=touch,
+        project_id=project_id,
+        excluded_ids=excluded_ids,
+        provider_id=provider_id,
+        model=model,
+        allow_cross_model=allow_cross_model,
+    )
+    return selection.block

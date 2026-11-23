@@ -21,6 +21,7 @@ import type {
   ChatAttachment,
   Citation,
   MessageFeedback,
+  MessageMemoryRef,
 } from '../../lib/types'
 
 export interface DisplayMessage {
@@ -36,6 +37,7 @@ export interface DisplayMessage {
   prompt_tokens?: number | null
   completion_tokens?: number | null
   request_id?: string | null
+  memory_refs?: MessageMemoryRef[]
   reply_to_message_id?: string | null
   feedback?: MessageFeedback | null
   agentActivity?: AgentActivity[]
@@ -134,8 +136,11 @@ export function MessageItem({
     message.prompt_tokens !== null && message.prompt_tokens !== undefined
       ? true
       : message.completion_tokens !== null && message.completion_tokens !== undefined
+  const hasMemories = (message.memory_refs?.length ?? 0) > 0
   const hasDetails =
-    (message.model !== null && message.model !== undefined) || hasTokens
+    (message.model !== null && message.model !== undefined) ||
+    hasTokens ||
+    hasMemories
 
   return (
     <div className="group space-y-2">
@@ -313,6 +318,20 @@ export function MessageItem({
                 </button>
               )}
           </div>
+          {hasMemories && (
+            <div className="mt-1 flex flex-wrap items-center gap-1">
+              <span>{t('chat.memoryUsed')}:</span>
+              {(message.memory_refs ?? []).map((ref) => (
+                <span
+                  key={ref.id}
+                  className="rounded-full bg-surface-muted px-2 py-0.5 text-[10px] text-ink-muted"
+                  title={`${ref.category} · ${ref.relevance}`}
+                >
+                  {ref.title || ref.id.slice(0, 8)}
+                </span>
+              ))}
+            </div>
+          )}
         </details>
       )}
     </div>

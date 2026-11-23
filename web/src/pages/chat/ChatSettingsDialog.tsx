@@ -8,6 +8,7 @@ import { errorTextKey } from '../../lib/errorText'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
 import type {
+  AgentMemory,
   ConversationDetail,
   ModelEntry,
   PersonalModel,
@@ -47,6 +48,12 @@ export function ChatSettingsDialog({ conversation, onClose }: ChatSettingsDialog
     queryFn: () => apiRequest<Plugin[]>('/plugins'),
     staleTime: 60_000,
   })
+  const memories = useQuery({
+    queryKey: ['memories', 'chat-settings'],
+    queryFn: () =>
+      apiRequest<AgentMemory[]>('/memories?status=active&limit=100'),
+    staleTime: 30_000,
+  })
   const [pluginIds, setPluginIds] = useState(
     conversation.plugins.map((item) => item.plugin_id),
   )
@@ -84,6 +91,17 @@ export function ChatSettingsDialog({ conversation, onClose }: ChatSettingsDialog
   const [topP, setTopP] = useState(
     conversation.generation_settings?.top_p?.toString() ?? '',
   )
+  const [memoryMode, setMemoryMode] = useState<'inherit' | 'on' | 'off'>(
+    conversation.memory_enabled === null ||
+      conversation.memory_enabled === undefined
+      ? 'inherit'
+      : conversation.memory_enabled
+        ? 'on'
+        : 'off',
+  )
+  const [excludedMemoryIds, setExcludedMemoryIds] = useState<string[]>(
+    conversation.excluded_memory_ids ?? [],
+  )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -108,6 +126,9 @@ export function ChatSettingsDialog({ conversation, onClose }: ChatSettingsDialog
             max_tokens: numberOrNull(maxTokens),
             top_p: numberOrNull(topP),
           },
+          memory_enabled:
+            memoryMode === 'inherit' ? null : memoryMode === 'on',
+          excluded_memory_ids: excludedMemoryIds,
         },
       })
       if (conversation.agent) {
@@ -234,6 +255,44 @@ export function ChatSettingsDialog({ conversation, onClose }: ChatSettingsDialog
             onChange={(event) => setTopP(event.target.value)}
           />
         </label>
+      </div>
+      <div className="mt-4 border-t border-border pt-3">
+        <p className="text-xs text-ink-muted">{t('chat.memory')}</p>
+        <select
+          value={memoryMode}
+          onChange={(event) =>
+            setMemoryMode(event.target.value as 'inherit' | 'on' | 'off')
+          }
+          className="mt-1 h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm text-ink"
+        >
+          <option value="inherit">{t('chat.memoryInherit')}</option>
+          <option value="on">{t('chat.memoryOn')}</option>
+          <option value="off">{t('chat.memoryOff')}</option>
+        </select>
+        <p className="mt-1 text-[11px] text-ink-muted">{t('chat.memoryHint')}</p>
+        {(memories.data ?? []).length > 0 && (
+          <label className="mt-2 block text-xs text-ink-muted">
+            {t('chat.memoryExclude')}
+            <select
+              multiple
+              value={excludedMemoryIds}
+              onChange={(event) =>
+                setExcludedMemoryIds(
+                  Array.from(event.target.selectedOptions).map(
+                    (option) => option.value,
+                  ),
+                )
+              }
+              className="mt-1 h-24 w-full rounded-lg border border-border bg-surface px-2 py-1 text-sm text-ink"
+            >
+              {(memories.data ?? []).map((memory) => (
+                <option key={memory.id} value={memory.id}>
+                  {memory.title || memory.content.slice(0, 40)}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
       {conversation.agent && (
         <div className="mt-4 border-t border-border pt-3">

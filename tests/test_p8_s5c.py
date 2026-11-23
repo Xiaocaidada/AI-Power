@@ -62,6 +62,9 @@ async def test_catalog_exposes_s5c_nodes(client, api):
 
 async def test_loop_memory_and_http_nodes(client, api, registry, monkeypatch):
     headers = await api.headers("p8s5c-nodes@example.com")
+    await client.patch(
+        "/memories/settings", json={"enabled": True}, headers=headers
+    )
     await _seed_model_catalog()
     definition = {
         "nodes": [

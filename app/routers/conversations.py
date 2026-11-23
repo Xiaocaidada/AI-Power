@@ -81,7 +81,11 @@ from app.services.custom_agents import (
     build_agent_spec,
     get_custom_agent,
 )
-from app.services.memories import memory_context
+from app.services.memories import (
+    get_memory_settings,
+    record_memory_usage,
+    select_memories,
+)
 from app.services.plugins import (
     PluginError,
     build_plugin_tools,
@@ -1239,6 +1243,11 @@ async def update_conversation(
         conversation.generation_settings = _normalize_generation_settings(
             data.pop("generation_settings")
         )
+    if "memory_enabled" in data:
+        conversation.memory_enabled = data.pop("memory_enabled")
+    if "excluded_memory_ids" in data:
+        excluded = data.pop("excluded_memory_ids") or []
+        conversation.excluded_memory_ids = [str(item) for item in excluded][:50]
     if "title" in data:
         conversation.title = data.pop("title") or ""
     if "pinned" in data:
@@ -1833,28 +1842,56 @@ async def _start_chat_turn(
     )
     effective_agents = agent_registry
     root_agent = SUPERVISOR_AGENT
+
+    memory_settings = await get_memory_settings(
+        session, context.workspace.id, context.user.id
+    )
+    memory_allowed = (
+        conversation.memory_enabled
+        if conversation.memory_enabled is not None
+        else memory_settings.enabled
+    )
+    if not memory_settings.enabled:
+        memory_allowed = False
+    if custom_agent is not None and not custom_agent.memory_enabled:
+        memory_allowed = False
+    memory_block = ""
+    memory_items = []
+    if memory_allowed:
+        excluded: list[UUID] = []
+        for item in conversation.excluded_memory_ids or []:
+            try:
+                excluded.append(UUID(str(item)))
+            except ValueError:
+                continue
+        selection = await select_memories(
+            session,
+            workspace_id=context.workspace.id,
+            user_id=context.user.id,
+            agent_id=custom_agent.id if custom_agent is not None else conversation.custom_agent_id,
+            project_id=conversation.project_id,
+            query=content,
+            limit=memory_settings.max_inject_items,
+            max_chars=memory_settings.max_inject_chars,
+            excluded_ids=excluded,
+            provider_id=provider.id if provider is not None else None,
+            model=routed_model,
+            allow_cross_model=memory_settings.allow_cross_model,
+        )
+        memory_block = selection.block
+        memory_items = selection.items
+
     if custom_agent is not None:
         extra_tools = list(plugin_tool_names(plugin_tools))
         if conversation_kbs and "kb_search" not in extra_tools:
             extra_tools.append("kb_search")
         spec = build_agent_spec(custom_agent, tuple(extra_tools))
-        if custom_agent.memory_enabled:
-            settings = get_settings()
-            block = await memory_context(
-                session,
-                workspace_id=context.workspace.id,
-                user_id=context.user.id,
-                agent_id=custom_agent.id,
-                query=content,
-                limit=settings.agent_memory_inject_limit,
-                max_chars=settings.agent_memory_inject_chars,
+        if memory_block:
+            spec = AgentSpec(
+                name=spec.name,
+                system_prompt=f"{spec.system_prompt}\n\n{memory_block}",
+                tools=spec.tools,
             )
-            if block:
-                spec = AgentSpec(
-                    name=spec.name,
-                    system_prompt=f"{spec.system_prompt}\n\n{block}",
-                    tools=spec.tools,
-                )
         effective_agents = AgentRegistry([*agent_registry.all(), spec])
         root_agent = spec.name
     elif plugin_tools:
@@ -1869,6 +1906,29 @@ async def _start_chat_turn(
             ),
         )
         effective_agents = AgentRegistry(specs)
+    if memory_block and custom_agent is None:
+        supervisor = effective_agents.get(SUPERVISOR_AGENT)
+        specs = [
+            spec for spec in effective_agents.all() if spec.name != SUPERVISOR_AGENT
+        ]
+        specs.insert(
+            0,
+            AgentSpec(
+                name=supervisor.name,
+                system_prompt=f"{supervisor.system_prompt}\n\n{memory_block}",
+                tools=supervisor.tools,
+            ),
+        )
+        effective_agents = AgentRegistry(specs)
+
+    if memory_block and not conversation.agent:
+        if chat_history and chat_history[0].role == "system":
+            chat_history[0] = ChatMessage(
+                role="system",
+                content=f"{chat_history[0].content}\n\n{memory_block}",
+            )
+        else:
+            chat_history.insert(0, ChatMessage(role="system", content=memory_block))
 
     if persist_user_message and not conversation.title:
         conversation.title = content[:TITLE_MAX_LENGTH]
@@ -1896,6 +1956,21 @@ async def _start_chat_turn(
         provider_id=provider.id,
         model=routed_model,
         request_id=request_id,
+        memory_refs=(
+            [
+                {
+                    "id": str(item.memory.id),
+                    "title": item.memory.title,
+                    "category": item.memory.category,
+                    "scope_type": item.memory.scope_type,
+                    "relevance": round(item.score, 4),
+                    "injected_chars": item.injected_chars,
+                }
+                for item in memory_items
+            ]
+            if memory_items
+            else []
+        ),
         reply_to_message_id=reply_to_message_id,
     )
     trace = Trace(
@@ -1917,6 +1992,20 @@ async def _start_chat_turn(
             if row.message_id is None:
                 row.message_id = user_message.id
     trace.message_id = assistant_message.id
+    if memory_items:
+        await record_memory_usage(
+            session,
+            workspace_id=context.workspace.id,
+            user_id=context.user.id,
+            memories=[
+                (item.memory, item.score, item.injected_chars)
+                for item in memory_items
+            ],
+            context_type="agent" if conversation.agent else "chat",
+            context_id=str(assistant_message.id),
+            provider_id=provider.id,
+            model=routed_model,
+        )
     await session.commit()
     await session.refresh(assistant_message)
 
