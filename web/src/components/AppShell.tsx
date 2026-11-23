@@ -41,6 +41,7 @@ const workNav = [
   { to: '/prompt-lab', labelKey: 'nav.promptLab', icon: FlaskConical },
   { to: '/model-eval', labelKey: 'nav.modelEval', icon: ClipboardList },
   { to: '/agents', labelKey: 'nav.agents', icon: Bot },
+  { to: '/studio', labelKey: 'nav.studio', icon: Workflow },
   { to: '/settings/prompts', labelKey: 'nav.prompts', icon: FileText },
   { to: '/files', labelKey: 'nav.files', icon: FolderOpen },
   { to: '/knowledge', labelKey: 'nav.knowledge', icon: BookOpen },

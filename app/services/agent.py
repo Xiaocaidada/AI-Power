@@ -61,6 +61,7 @@ class AgentRunner:
         generation_opts: dict[str, object] | None = None,
         root_agent: str = SUPERVISOR_AGENT,
         step_guard: Callable[[], None] | None = None,
+        max_steps: int | None = None,
     ) -> None:
         settings = get_settings()
         self._provider = provider
@@ -73,7 +74,11 @@ class AgentRunner:
         self._generation_opts = generation_opts or {}
         self._root_agent = root_agent
         self._step_guard = step_guard
-        self._max_steps = settings.agent_max_steps
+        self._max_steps = (
+            min(settings.agent_max_steps, max_steps)
+            if max_steps is not None
+            else settings.agent_max_steps
+        )
         self._observation_max_chars = settings.agent_tool_output_max_chars
         self._steps = 0
         self._prompt_tokens = 0

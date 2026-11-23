@@ -7,10 +7,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
 from app.deps import AuthContext, get_jwt_context, get_scoped_registry
-from app.models import AuditLog, PluginConfig, PluginDefinition
+from app.models import AuditLog, CustomAgent, PluginConfig, PluginDefinition
 from app.providers.base import ProviderError
 from app.providers.registry import ProviderRegistry
-from app.schemas import CustomAgentCreate, CustomAgentOut, CustomAgentUpdate
+from app.schemas import (
+    AgentFavoriteOut,
+    AgentPublishIn,
+    CustomAgentCreate,
+    CustomAgentOut,
+    CustomAgentUpdate,
+)
 from app.services.access import get_owned_knowledge_base
 from app.services.custom_agents import (
     BUILTIN_AGENT_IDS,
@@ -19,9 +25,14 @@ from app.services.custom_agents import (
     agent_conversation_count,
     archive_custom_agent,
     can_manage,
+    copy_published_agent,
     create_custom_agent,
+    favorite_agent_ids,
     get_custom_agent,
     list_custom_agents,
+    publish_custom_agent,
+    set_agent_favorite,
+    unpublish_custom_agent,
     update_custom_agent,
 )
 from app.services.provider_configs import ProviderConfigError, ensure_model_capability
@@ -33,23 +44,41 @@ JwtContext = Annotated[AuthContext, Depends(get_jwt_context)]
 RegistryDep = Annotated[ProviderRegistry, Depends(get_scoped_registry)]
 
 
-def _custom_out(agent, count: int, context: AuthContext) -> CustomAgentOut:
+def _custom_out(
+    agent, count: int, context: AuthContext, *, favorite: bool = False
+) -> CustomAgentOut:
     return CustomAgentOut(
         id=str(agent.id),
         name=agent.name,
         description=agent.description,
         instructions=agent.instructions,
         category=agent.category,
+        mode=agent.mode,
+        icon=agent.icon,
+        welcome_message=agent.welcome_message,
+        examples=list(agent.examples),
+        usage_instructions=agent.usage_instructions,
+        generation_settings=dict(agent.generation_settings),
         default_provider_id=agent.default_provider_id,
         default_model=agent.default_model,
         default_kb_id=agent.default_kb_id,
+        kb_ids=[UUID(item) for item in agent.kb_ids],
         tools=list(agent.tools),
         plugin_ids=[UUID(item) for item in agent.plugin_ids],
+        workflow_id=agent.workflow_id,
         visibility=agent.visibility,
         enabled=agent.enabled,
         archived=agent.archived_at is not None,
         owned=can_manage(agent, context.user.id, context.role),
         builtin=False,
+        published=agent.published,
+        public_slug=agent.public_slug,
+        allow_copy=agent.allow_copy,
+        show_structure=agent.show_structure,
+        favorite=favorite,
+        favorite_count=agent.favorite_count,
+        usage_count=agent.usage_count,
+        copy_count=agent.copy_count,
         conversation_count=count,
         created_at=agent.created_at,
         updated_at=agent.updated_at,
@@ -64,9 +93,11 @@ def _builtin_out(agent_id: str) -> CustomAgentOut:
         description=item["description"],
         instructions=item["instructions"],
         category=item["category"],
+        mode="autonomous",
         default_provider_id=None,
         default_model=None,
         default_kb_id=None,
+        kb_ids=[],
         tools=list(item["tools"]),
         plugin_ids=[],
         visibility="shared",
@@ -173,11 +204,20 @@ async def list_agents(
     category: str | None = None,
 ) -> list[CustomAgentOut]:
     result = [_builtin_out(agent_id) for agent_id in _builtin_ids(q, category)]
-    for agent in await list_custom_agents(
+    custom = await list_custom_agents(
         session, context.workspace.id, context.user.id, search=q, category=category
-    ):
+    )
+    favorites = await favorite_agent_ids(
+        session, context.user.id, [agent.id for agent in custom]
+    )
+    for agent in custom:
         result.append(
-            _custom_out(agent, await agent_conversation_count(session, agent.id), context)
+            _custom_out(
+                agent,
+                await agent_conversation_count(session, agent.id),
+                context,
+                favorite=agent.id in favorites,
+            )
         )
     return result
 
@@ -198,7 +238,13 @@ async def get_agent(
         )
     except CustomAgentError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, exc.message) from None
-    return _custom_out(agent, await agent_conversation_count(session, agent.id), context)
+    favorites = await favorite_agent_ids(session, context.user.id, [agent.id])
+    return _custom_out(
+        agent,
+        await agent_conversation_count(session, agent.id),
+        context,
+        favorite=agent.id in favorites,
+    )
 
 
 @router.post("", response_model=CustomAgentOut, status_code=status.HTTP_201_CREATED)
@@ -323,3 +369,157 @@ async def delete_agent(
     )
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{agent_id}/publish", response_model=CustomAgentOut)
+async def publish_agent(
+    agent_id: str,
+    payload: AgentPublishIn,
+    context: JwtContext,
+    session: SessionDep,
+) -> CustomAgentOut:
+    try:
+        parsed = UUID(agent_id)
+    except ValueError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found") from None
+    try:
+        agent = await get_custom_agent(
+            session, context.workspace.id, parsed, context.user.id, include_archived=True
+        )
+    except CustomAgentError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, exc.message) from None
+    if not can_manage(agent, context.user.id, context.role):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the agent owner can publish")
+    try:
+        agent = await publish_custom_agent(
+            session,
+            agent,
+            slug=payload.slug,
+            allow_copy=payload.allow_copy,
+            show_structure=payload.show_structure,
+        )
+    except CustomAgentError as exc:
+        raise HTTPException(422, {"code": exc.code, "message": exc.message}) from None
+    session.add(
+        AuditLog(
+            actor_user_id=context.user.id,
+            action="agent.publish",
+            target_type="custom_agent",
+            target_id=str(agent.id),
+            detail={"slug": agent.public_slug},
+        )
+    )
+    await session.commit()
+    await session.refresh(agent)
+    return _custom_out(agent, await agent_conversation_count(session, agent.id), context)
+
+
+@router.delete("/{agent_id}/publish", response_model=CustomAgentOut)
+async def unpublish_agent(
+    agent_id: str, context: JwtContext, session: SessionDep
+) -> CustomAgentOut:
+    try:
+        parsed = UUID(agent_id)
+    except ValueError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found") from None
+    try:
+        agent = await get_custom_agent(
+            session, context.workspace.id, parsed, context.user.id, include_archived=True
+        )
+    except CustomAgentError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, exc.message) from None
+    if not can_manage(agent, context.user.id, context.role):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the agent owner can unpublish")
+    await unpublish_custom_agent(session, agent)
+    session.add(
+        AuditLog(
+            actor_user_id=context.user.id,
+            action="agent.unpublish",
+            target_type="custom_agent",
+            target_id=str(agent.id),
+            detail={},
+        )
+    )
+    await session.commit()
+    await session.refresh(agent)
+    return _custom_out(agent, await agent_conversation_count(session, agent.id), context)
+
+
+@router.post("/{agent_id}/copy", response_model=CustomAgentOut, status_code=status.HTTP_201_CREATED)
+async def copy_agent(
+    agent_id: str, context: JwtContext, session: SessionDep
+) -> CustomAgentOut:
+    try:
+        parsed = UUID(agent_id)
+    except ValueError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found") from None
+    source = await session.get(CustomAgent, parsed)
+    if source is None or source.archived_at is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
+    public_copy = source.published and source.allow_copy
+    workspace_copy = source.workspace_id == context.workspace.id and (
+        source.owner_user_id == context.user.id or source.visibility == "shared"
+    )
+    if not public_copy and not workspace_copy:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
+    try:
+        agent = await copy_published_agent(
+            session,
+            source,
+            workspace_id=context.workspace.id,
+            user_id=context.user.id,
+            require_published=not workspace_copy,
+        )
+    except CustomAgentError as exc:
+        raise HTTPException(422, {"code": exc.code, "message": exc.message}) from None
+    session.add(
+        AuditLog(
+            actor_user_id=context.user.id,
+            action="agent.copy",
+            target_type="custom_agent",
+            target_id=str(agent.id),
+            detail={"source_agent_id": str(source.id)},
+        )
+    )
+    await session.commit()
+    await session.refresh(agent)
+    return _custom_out(agent, 0, context)
+
+
+async def _favoritable_agent(
+    session: AsyncSession, agent_id: str, context: AuthContext
+):
+    try:
+        parsed = UUID(agent_id)
+    except ValueError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found") from None
+    agent = await session.get(CustomAgent, parsed)
+    if agent is None or agent.archived_at is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
+    public = agent.published
+    workspace = agent.workspace_id == context.workspace.id and (
+        agent.owner_user_id == context.user.id or agent.visibility == "shared"
+    )
+    if not public and not workspace:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
+    return agent
+
+
+@router.put("/{agent_id}/favorite", response_model=AgentFavoriteOut)
+async def favorite_agent(
+    agent_id: str, context: JwtContext, session: SessionDep
+) -> AgentFavoriteOut:
+    agent = await _favoritable_agent(session, agent_id, context)
+    favorite = await set_agent_favorite(session, agent, context.user.id, True)
+    await session.commit()
+    return AgentFavoriteOut(favorite=favorite)
+
+
+@router.delete("/{agent_id}/favorite", response_model=AgentFavoriteOut)
+async def unfavorite_agent(
+    agent_id: str, context: JwtContext, session: SessionDep
+) -> AgentFavoriteOut:
+    agent = await _favoritable_agent(session, agent_id, context)
+    favorite = await set_agent_favorite(session, agent, context.user.id, False)
+    await session.commit()
+    return AgentFavoriteOut(favorite=favorite)

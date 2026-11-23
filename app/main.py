@@ -11,6 +11,8 @@ from app.metrics import MetricsMiddleware
 from app.observability import RequestContextMiddleware, configure_logging
 from app.routers import (
     admin,
+    agent_builder,
+    agent_market,
     agents,
     api_keys,
     arena,
@@ -137,6 +139,8 @@ app.include_router(content.notifications_router)
 app.include_router(content.admin_router)
 app.include_router(projects.router)
 app.include_router(agents.router)
+app.include_router(agent_market.router)
+app.include_router(agent_builder.router)
 app.include_router(plugins.router)
 app.include_router(plugins.admin_router)
 app.include_router(dashboard.router)

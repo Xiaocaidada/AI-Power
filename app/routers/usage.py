@@ -32,7 +32,13 @@ RedisDep = Annotated[RedisLike, Depends(get_redis)]
 
 GroupBy = Literal["day", "provider", "model", "source"]
 SourceFilter = Literal[
-    "chat", "workflow", "collaboration", "arena", "prompt_lab", "model_eval"
+    "chat",
+    "workflow",
+    "collaboration",
+    "arena",
+    "prompt_lab",
+    "model_eval",
+    "agent_builder",
 ]
 
 

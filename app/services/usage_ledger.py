@@ -13,6 +13,7 @@ SOURCE_COLLABORATION = "collaboration"
 SOURCE_ARENA = "arena"
 SOURCE_PROMPT_LAB = "prompt_lab"
 SOURCE_MODEL_EVAL = "model_eval"
+SOURCE_AGENT_BUILDER = "agent_builder"
 ALLOWED_SOURCES = frozenset(
     {
         SOURCE_CHAT,
@@ -21,6 +22,7 @@ ALLOWED_SOURCES = frozenset(
         SOURCE_ARENA,
         SOURCE_PROMPT_LAB,
         SOURCE_MODEL_EVAL,
+        SOURCE_AGENT_BUILDER,
     }
 )
 

@@ -44,6 +44,7 @@ export function PortalLayout() {
           <nav className="hidden items-center gap-1 md:flex">
             <PortalLink to="/" label={t('portal.home')} end />
             <PortalLink to="/models" label={t('portal.models')} />
+            <PortalLink to="/market/agents" label={t('market.nav')} />
             <PortalLink to="/arena" label={t('arena.title')} />
             <PortalLink to="/prompt-lab" label={t('promptLab.title')} />
             <PortalLink to="/model-eval" label={t('modelEval.title')} />

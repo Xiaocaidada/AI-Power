@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 
+import { AgentStudioLayout } from './components/AgentStudioLayout'
 import { AppShell } from './components/AppShell'
 import { ChatLayout } from './components/ChatLayout'
 import { PortalLayout } from './components/PortalLayout'
@@ -14,6 +15,10 @@ import { AdminPromptsPage } from './pages/admin/AdminPromptsPage'
 import { AgentDetailPage } from './pages/agents/AgentDetailPage'
 import { AgentsPage } from './pages/agents/AgentsPage'
 import { ArchivedConversationsPage } from './pages/chat/ArchivedConversationsPage'
+import { AgentMarketDetailPage } from './pages/market/AgentMarketDetailPage'
+import { AgentMarketPage } from './pages/market/AgentMarketPage'
+import { AgentStudioPage } from './pages/studio/AgentStudioPage'
+import { StudioListPage } from './pages/studio/StudioListPage'
 import { ArenaDetailPage } from './pages/arena/ArenaDetailPage'
 import { ArenaPage } from './pages/arena/ArenaPage'
 import { DashboardPage } from './pages/dashboard/DashboardPage'
@@ -87,6 +92,8 @@ export function App() {
         <Route index element={<HomePage />} />
         <Route path="models" element={<ModelsPage />} />
         <Route path="models/:slug" element={<ModelDetailPage />} />
+        <Route path="market/agents" element={<AgentMarketPage />} />
+        <Route path="market/agents/:slug" element={<AgentMarketDetailPage />} />
         <Route path="announcements" element={<AnnouncementsPage />} />
         <Route path="announcements/:id" element={<AnnouncementDetailPage />} />
         <Route path="help" element={<HelpPage />} />
@@ -95,6 +102,10 @@ export function App() {
         </Route>
       </Route>
       <Route element={<RequireAuth />}>
+        <Route element={<AgentStudioLayout />}>
+          <Route path="studio" element={<StudioListPage />} />
+          <Route path="studio/:id" element={<AgentStudioPage />} />
+        </Route>
         <Route element={<ChatLayout />}>
           <Route path="chat" element={<NewChatPage />} />
           <Route path="chat/:id" element={<ChatPage />} />
