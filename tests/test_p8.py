@@ -159,6 +159,196 @@ async def test_agent_publish_copy_and_market(client, api, registry):
     assert retrieve["config"]["kb_ids"] == []
 
 
+def _echo_definition(extra_node: bool = False) -> dict:
+    nodes = [
+        {"id": "start", "type": "start", "config": {}},
+    ]
+    edges = []
+    if extra_node:
+        nodes.append(
+            {
+                "id": "ask",
+                "type": "llm",
+                "config": {
+                    "provider_id": "fake",
+                    "model": "fake-model",
+                    "prompt": "Answer: {{input}}",
+                },
+            }
+        )
+        edges.append({"from": "start", "to": "ask"})
+        nodes.append({"id": "out", "type": "output", "config": {}})
+        edges.append({"from": "ask", "to": "out"})
+    else:
+        nodes.append({"id": "out", "type": "output", "config": {}})
+        edges.append({"from": "start", "to": "out"})
+    return {"nodes": nodes, "edges": edges}
+
+
+async def test_agent_builder_multiturn_diff_and_apply(client, api, registry):
+    headers = await api.headers("p8-builder-session@example.com")
+    await _seed_model_catalog()
+    session = await client.post(
+        "/agent-builder/sessions",
+        json={"provider_id": "fake", "model": "fake-model"},
+        headers=headers,
+    )
+    assert session.status_code == 201
+    session_id = session.json()["id"]
+
+    registry.get("fake").complete_content = json.dumps(
+        {
+            "message": "Added an LLM step.",
+            "summary": "Add LLM",
+            "definition": _echo_definition(extra_node=True),
+            "missing_resources": [],
+            "suggestions": [],
+        }
+    )
+    turn = await client.post(
+        f"/agent-builder/sessions/{session_id}/messages",
+        json={
+            "kind": "modify",
+            "prompt": "Add an LLM step",
+            "current_definition": _echo_definition(),
+        },
+        headers=headers,
+    )
+    assert turn.status_code == 200, turn.text
+    payload = turn.json()
+    assert payload["definition"]["nodes"]
+    assert [item["id"] for item in payload["diff"]["added_nodes"]] == ["ask"]
+    assert payload["diff"]["added_edges"][0]["from"] == "start"
+
+    stored = await client.get(
+        f"/agent-builder/sessions/{session_id}", headers=headers
+    )
+    assert stored.status_code == 200
+    assert len(stored.json()["messages"]) == 2
+
+    applied = await client.post(
+        f"/agent-builder/sessions/{session_id}/apply",
+        json={"definition": payload["definition"]},
+        headers=headers,
+    )
+    assert applied.status_code == 200
+    assert [node["id"] for node in applied.json()["draft_definition"]["nodes"]] == [
+        "start",
+        "ask",
+        "out",
+    ]
+    assert len(applied.json()["messages"]) == 3
+
+    registry.get("fake").complete_content = json.dumps(
+        {
+            "message": "The flow starts, calls the LLM, then outputs.",
+            "summary": "Explanation",
+            "missing_resources": [],
+            "suggestions": ["Add a KB search step for grounding."],
+        }
+    )
+    explain = await client.post(
+        f"/agent-builder/sessions/{session_id}/messages",
+        json={
+            "kind": "explain",
+            "prompt": "Explain this workflow",
+            "current_definition": payload["definition"],
+        },
+        headers=headers,
+    )
+    assert explain.status_code == 200
+    assert explain.json()["definition"] is None
+    assert explain.json()["suggestions"] == ["Add a KB search step for grounding."]
+
+    other = await api.headers("p8-builder-other@example.com")
+    assert (
+        await client.get(f"/agent-builder/sessions/{session_id}", headers=other)
+    ).status_code == 404
+
+
+async def test_agent_builder_fix_uses_failed_run(client, api, registry):
+    headers = await api.headers("p8-builder-fix@example.com")
+    await _seed_model_catalog()
+    workflow = await client.post(
+        "/workflows",
+        json={
+            "name": "Needs KB",
+            "definition": {
+                "nodes": [
+                    {"id": "start", "type": "start", "config": {}},
+                    {
+                        "id": "retrieve",
+                        "type": "kb_search",
+                        "config": {"query": "{{input}}"},
+                    },
+                    {"id": "out", "type": "output", "config": {}},
+                ],
+                "edges": [
+                    {"from": "start", "to": "retrieve"},
+                    {"from": "retrieve", "to": "out"},
+                ],
+            },
+        },
+        headers=headers,
+    )
+    workflow_id = workflow.json()["id"]
+    accepted = await client.post(
+        f"/workflows/{workflow_id}/runs",
+        json={"input": "research"},
+        headers=headers,
+    )
+    run_id = accepted.json()["run_id"]
+    failed = await client.get(f"/workflows/runs/{run_id}", headers=headers)
+    assert failed.json()["status"] == "failed"
+
+    session = await client.post(
+        "/agent-builder/sessions",
+        json={
+            "provider_id": "fake",
+            "model": "fake-model",
+            "workflow_id": workflow_id,
+        },
+        headers=headers,
+    )
+    session_id = session.json()["id"]
+    registry.get("fake").complete_content = json.dumps(
+        {
+            "message": "Replaced the missing KB search with an LLM step.",
+            "summary": "Fix missing KB",
+            "definition": _echo_definition(extra_node=True),
+            "missing_resources": [],
+            "suggestions": ["Attach a knowledge base before using kb_search."],
+        }
+    )
+    fixed = await client.post(
+        f"/agent-builder/sessions/{session_id}/messages",
+        json={
+            "kind": "fix",
+            "prompt": "Fix the failed run",
+            "run_id": run_id,
+            "current_definition": {
+                "nodes": [
+                    {"id": "start", "type": "start", "config": {}},
+                    {
+                        "id": "retrieve",
+                        "type": "kb_search",
+                        "config": {"query": "{{input}}"},
+                    },
+                    {"id": "out", "type": "output", "config": {}},
+                ],
+                "edges": [
+                    {"from": "start", "to": "retrieve"},
+                    {"from": "retrieve", "to": "out"},
+                ],
+            },
+        },
+        headers=headers,
+    )
+    assert fixed.status_code == 200, fixed.text
+    assert fixed.json()["diff"]["removed_nodes"][0]["id"] == "retrieve"
+    assert fixed.json()["message"]
+
+
 async def test_agent_builder_generates_valid_definition(client, api, registry):
     headers = await api.headers("p8-builder@example.com")
     await _seed_model_catalog()

@@ -113,6 +113,9 @@ async function mockBase(page: import('@playwright/test').Page) {
   await page.route('**/api/plugins', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/agents', (route) => route.fulfill({ json: [agent] }))
   await page.route('**/api/agents/agent-1', (route) => route.fulfill({ json: agent }))
+  await page.route('**/api/agent-builder/sessions**', (route) =>
+    route.fulfill({ json: [] }),
+  )
   await page.route('**/api/workflows/catalog', (route) =>
     route.fulfill({
       json: {
@@ -163,6 +166,78 @@ test('Agent Studio config, canvas, builder, and run tabs render', async ({ page 
 
   await page.getByRole('button', { name: '运行' }).click()
   await expect(page.getByText('运行时间线')).toBeVisible()
+})
+
+test('Agent builder shows a diff and applies it to the canvas', async ({ page }) => {
+  await page.addInitScript(() =>
+    localStorage.setItem('ai_power_refresh_token', 'e2e-refresh-token-0123456789'),
+  )
+  await mockBase(page)
+  const session = {
+    id: 'bs-1',
+    agent_id: 'agent-1',
+    workflow_id: 'wf-1',
+    provider_id: 'fake',
+    model: 'fake-model',
+    messages: [],
+    draft_definition: definition,
+    created_at: '2026-11-23T00:00:00Z',
+    updated_at: '2026-11-23T00:00:00Z',
+  }
+  const proposed = {
+    nodes: [
+      { id: 'start', type: 'start', config: {}, ui: { x: 80, y: 120 } },
+      {
+        id: 'ask',
+        type: 'llm',
+        config: { provider_id: 'fake', model: 'fake-model', prompt: '{{input}}' },
+        ui: { x: 300, y: 120 },
+      },
+      { id: 'out', type: 'output', config: {}, ui: { x: 520, y: 120 } },
+    ],
+    edges: [
+      { from: 'start', to: 'ask' },
+      { from: 'ask', to: 'out' },
+    ],
+  }
+  await page.route(/\/api\/agent-builder\/sessions\?agent_id=agent-1$/, (route) =>
+    route.fulfill({ json: [session] }),
+  )
+  await page.route('**/api/agent-builder/sessions/bs-1', (route) =>
+    route.fulfill({ json: session }),
+  )
+  await page.route('**/api/agent-builder/sessions/bs-1/messages', (route) =>
+    route.fulfill({
+      json: {
+        session_id: 'bs-1',
+        message: 'Added an LLM step.',
+        definition: proposed,
+        diff: {
+          added_nodes: [{ id: 'ask', type: 'llm' }],
+          removed_nodes: [],
+          updated_nodes: [],
+          added_edges: [{ from: 'start', to: 'ask' }],
+          removed_edges: [],
+        },
+        missing_resources: [],
+        suggestions: ['Add a KB search step.'],
+      },
+    }),
+  )
+  await page.route('**/api/agent-builder/sessions/bs-1/apply', (route) =>
+    route.fulfill({ json: { ...session, messages: [] } }),
+  )
+
+  await page.goto('/studio/agent-1')
+  await page.getByRole('button', { name: 'AI 构建' }).click()
+  await expect(page.getByText('AI 构建对话')).toBeVisible()
+  await page.getByPlaceholder('需求描述').fill('Add an LLM step')
+  await page.getByRole('button', { name: '发送' }).click()
+  await expect(page.getByText('变更预览')).toBeVisible()
+  await expect(page.getByText('ask · llm')).toBeVisible()
+  await page.getByRole('button', { name: '应用到画布' }).click()
+  await expect(page.getByText('节点', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '保存画布' })).toBeVisible()
 })
 
 test('Agent plaza lists and opens a public agent', async ({ page }) => {

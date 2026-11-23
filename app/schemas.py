@@ -923,6 +923,66 @@ class AgentBuilderOut(BaseModel):
     model: str
 
 
+class AgentBuilderSessionCreate(BaseModel):
+    agent_id: UUID | None = None
+    workflow_id: UUID | None = None
+    provider_id: str = Field(min_length=1, max_length=50)
+    model: str = Field(min_length=1, max_length=200)
+    draft_definition: dict | None = None
+
+
+class AgentBuilderSessionOut(BaseModel):
+    id: UUID
+    agent_id: UUID | None = None
+    workflow_id: UUID | None = None
+    provider_id: str
+    model: str
+    messages: list[dict] = Field(default_factory=list)
+    draft_definition: dict = Field(default_factory=dict)
+    created_at: datetime
+    updated_at: datetime
+
+
+class AgentBuilderMessageIn(BaseModel):
+    kind: Literal["generate", "modify", "explain", "fix"] = "modify"
+    prompt: str = Field(min_length=1, max_length=20000)
+    current_definition: dict | None = None
+    run_id: UUID | None = None
+
+
+class AgentBuilderApplyIn(BaseModel):
+    definition: dict
+
+
+class AgentBuilderNodeChange(BaseModel):
+    field: str
+    before: object | None = None
+    after: object | None = None
+
+
+class AgentBuilderNodeDiff(BaseModel):
+    id: str
+    type: str
+    changes: list[AgentBuilderNodeChange] = Field(default_factory=list)
+
+
+class AgentBuilderDiff(BaseModel):
+    added_nodes: list[dict] = Field(default_factory=list)
+    removed_nodes: list[dict] = Field(default_factory=list)
+    updated_nodes: list[AgentBuilderNodeDiff] = Field(default_factory=list)
+    added_edges: list[dict] = Field(default_factory=list)
+    removed_edges: list[dict] = Field(default_factory=list)
+
+
+class AgentBuilderTurnOut(BaseModel):
+    session_id: UUID
+    message: str = ""
+    definition: dict | None = None
+    diff: AgentBuilderDiff | None = None
+    missing_resources: list[str] = Field(default_factory=list)
+    suggestions: list[str] = Field(default_factory=list)
+
+
 class PluginCreate(BaseModel):
     slug: str = Field(min_length=2, max_length=80, pattern=r"^[a-z0-9][a-z0-9-]*$")
     name: str = Field(min_length=1, max_length=120)
