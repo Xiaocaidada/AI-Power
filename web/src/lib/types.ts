@@ -552,18 +552,118 @@ export interface WorkflowReview {
   resolved_at: string | null
 }
 
+export type MemoryScopeType = 'global' | 'project' | 'agent'
+export type MemoryCategory =
+  | 'fact'
+  | 'preference'
+  | 'profile'
+  | 'project'
+  | 'technical'
+  | 'experience'
+  | 'decision'
+  | 'relation'
+  | 'summary'
+export type MemoryStatus =
+  | 'candidate'
+  | 'active'
+  | 'conflict'
+  | 'expired'
+  | 'archived'
+  | 'rejected'
+
 export interface AgentMemory {
   id: string
   agent_id: string | null
+  project_id: string | null
   scope: 'user' | 'workspace'
-  kind: 'fact' | 'preference' | 'summary'
+  scope_type: MemoryScopeType
+  kind: string
+  category: MemoryCategory
+  status: MemoryStatus
   title: string
   content: string
   importance: number
   source: string
+  source_type: string
+  source_id: string | null
+  source_ref: Record<string, unknown>
+  confidence: number
+  sensitivity: 'normal' | 'sensitive'
+  enabled: boolean
+  pinned: boolean
+  favorite: boolean
+  tags: string[]
+  valid_until: string | null
+  use_count: number
+  version: number
+  metadata: Record<string, unknown>
   last_used_at: string | null
   created_at: string
   updated_at: string
+}
+
+export interface MemoryStats {
+  total: number
+  active: number
+  pending: number
+  conflict: number
+  expired: number
+  archived: number
+  by_category: Record<string, number>
+  by_scope: Record<string, number>
+  recent: AgentMemory[]
+  top_used: AgentMemory[]
+}
+
+export interface MemorySettings {
+  enabled: boolean
+  auto_extract: boolean
+  auto_save: boolean
+  require_confirmation: boolean
+  allowed_categories: string[]
+  allow_project_extract: boolean
+  allow_agent_extract: boolean
+  allow_cross_model: boolean
+  max_inject_items: number
+  max_inject_chars: number
+  blocked_topics: string[]
+  retention_days: number | null
+  updated_at: string
+}
+
+export interface MemoryVersion {
+  id: string
+  version: number
+  snapshot: Record<string, unknown>
+  changed_by: string | null
+  change_reason: string
+  created_at: string
+}
+
+export interface MemoryRelation {
+  id: string
+  from_type: string
+  from_id: string
+  to_type: string
+  to_id: string
+  relation_type: string
+  confidence: number
+  basis: string
+  source: string
+  created_at: string
+}
+
+export interface MemoryUsage {
+  id: string
+  memory_id: string
+  memory_title: string
+  context_type: string
+  context_id: string | null
+  provider_id: string | null
+  model: string | null
+  relevance: number | null
+  injected_chars: number
+  created_at: string
 }
 
 export interface McpServer {
