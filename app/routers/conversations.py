@@ -379,6 +379,12 @@ async def _finalize(
                         "content": (content or "")[:2000],
                     },
                 )
+                if get_settings().memory_extraction_enabled:
+                    from app.services.memory_extraction import (
+                        schedule_memory_extraction,
+                    )
+
+                    await schedule_memory_extraction(message.id)
     except Exception:
         logger.exception("failed to finalize message %s", message_id)
 

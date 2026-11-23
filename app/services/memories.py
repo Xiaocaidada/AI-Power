@@ -15,6 +15,7 @@ from app.config import Settings, get_settings
 from app.models import (
     AgentMemory,
     CustomAgent,
+    MemoryCandidate,
     MemoryRelation,
     MemorySettings,
     MemoryUsageEvent,
@@ -56,9 +57,20 @@ MAX_SEARCH_WORDS = 5
 MIN_SEARCH_WORD = 2
 MAX_VECTOR_CANDIDATES = 200
 MIN_VECTOR_SCORE = 0.25
-SECRET_PATTERN = re.compile(
-    r"(?i)\b(password|passwd|api[_ -]?key|secret|access[_ -]?token|refresh[_ -]?token)"
-    r"\s*[:=]\s*\S{6,}"
+SECRET_PATTERNS = (
+    re.compile(
+        r"(?i)\b(password|passwd|api[_ -]?key|secret|access[_ -]?token|"
+        r"refresh[_ -]?token|密码)\s*[:=：]\s*\S{4,}"
+    ),
+    re.compile(r"\bsk-[A-Za-z0-9_-]{16,}\b"),
+    re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._-]{20,}"),
+    re.compile(r"-----BEGIN (?:RSA |OPENSSH |EC |PGP )?PRIVATE KEY-----"),
+    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+    re.compile(r"\bghp_[A-Za-z0-9]{20,}\b"),
+    re.compile(
+        r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"
+    ),
+    re.compile(r"(?i)\b(?:postgres(?:ql)?|mysql|mongodb|redis)://[^:\s]+:[^@\s]+@"),
 )
 DEFAULT_ALLOWED_CATEGORIES = [
     "preference",
@@ -90,7 +102,7 @@ def memory_hash(title: str, content: str) -> str:
 
 
 def _contains_secret(content: str) -> bool:
-    return bool(SECRET_PATTERN.search(content))
+    return any(pattern.search(content) for pattern in SECRET_PATTERNS)
 
 
 def _clean_tags(tags: list[str] | None) -> list[str]:
@@ -687,6 +699,19 @@ async def memory_stats(
     total = await count()
     active = await count(AgentMemory.status == "active")
     pending = await count(AgentMemory.status == "candidate")
+    candidates_pending = int(
+        (
+            await session.execute(
+                select(func.count())
+                .select_from(MemoryCandidate)
+                .where(
+                    MemoryCandidate.workspace_id == workspace_id,
+                    MemoryCandidate.user_id == user_id,
+                    MemoryCandidate.status == "pending",
+                )
+            )
+        ).scalar_one()
+    )
     conflicts = await count(AgentMemory.status == "conflict")
     expired = await count(AgentMemory.status == "expired")
     archived = await count(AgentMemory.status == "archived")
@@ -728,6 +753,7 @@ async def memory_stats(
         "total": total,
         "active": active,
         "pending": pending,
+        "candidates_pending": candidates_pending,
         "conflict": conflicts,
         "expired": expired,
         "archived": archived,

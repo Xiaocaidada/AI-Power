@@ -602,10 +602,34 @@ export interface AgentMemory {
   updated_at: string
 }
 
+export interface MemoryCandidate {
+  id: string
+  project_id: string | null
+  agent_id: string | null
+  target_memory_id: string | null
+  source_type: string
+  source_id: string | null
+  source_ref: Record<string, unknown>
+  extracted_by: string | null
+  suggested_action: string
+  category: MemoryCategory
+  scope_type: MemoryScopeType
+  title: string
+  content: string
+  tags: string[]
+  confidence: number
+  sensitivity: string
+  status: string
+  reason: string
+  created_at: string
+  reviewed_at: string | null
+}
+
 export interface MemoryStats {
   total: number
   active: number
   pending: number
+  candidates_pending?: number
   conflict: number
   expired: number
   archived: number

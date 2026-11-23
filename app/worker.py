@@ -12,6 +12,7 @@ from app.models import Document
 from app.services.evaluation_runner import run_evaluation
 from app.services.ingestion import ingest_document, mark_job_dead, schedule_retry
 from app.services.maintenance import cleanup_audit_logs, cleanup_orphan_files, cleanup_traces
+from app.services.memory_extraction import run_memory_extraction_for_message
 from app.services.model_eval import run_model_eval_job
 from app.services.queue import ArqJobQueue, recover_stale_jobs
 from app.services.run_execution import (
@@ -79,6 +80,10 @@ async def run_collaboration_job(ctx: dict[str, Any], run_id: str) -> None:
     await execute_collaboration_run(UUID(run_id), redis=ctx["redis"])
 
 
+async def run_memory_extraction_job(ctx: dict[str, Any], message_id: str) -> None:
+    await run_memory_extraction_for_message(UUID(message_id))
+
+
 async def deliver_webhooks_job(ctx: dict[str, Any]) -> None:
     delivered = await deliver_due_deliveries()
     if delivered:
@@ -136,6 +141,7 @@ class WorkerSettings:
         run_model_eval_job,
         run_workflow_job,
         run_collaboration_job,
+        run_memory_extraction_job,
     ]
     cron_jobs = [
         cron(recover_stale_jobs_job, minute=set(range(60))),

@@ -1612,6 +1612,7 @@ export const en: Dictionary = {
       topUsed: 'Most used',
       recent: 'Recently updated',
     },
+    candidate: { accept: 'Accept', reject: 'Reject' },
     relations: { title: 'Relations', empty: 'No relations yet.' },
     versions: { title: 'Versions', restore: 'Restore' },
     settings: {

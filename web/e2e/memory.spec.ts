@@ -137,6 +137,34 @@ test('Memory hub renders overview, list, detail and settings', async ({ page }) 
   await page.route('**/api/memories/mem-1/relations', (route) =>
     route.fulfill({ json: [] }),
   )
+  await page.route('**/api/memories/candidates?status=pending', (route) =>
+    route.fulfill({
+      json: [
+        {
+          id: 'cand-1',
+          project_id: null,
+          agent_id: null,
+          target_memory_id: null,
+          source_type: 'chat',
+          source_id: 'msg-1',
+          source_ref: {},
+          extracted_by: 'fake/fake-model',
+          suggested_action: 'create',
+          category: 'preference',
+          scope_type: 'global',
+          title: '回答风格',
+          content: '偏好简洁中文回答。',
+          tags: ['style'],
+          confidence: 0.9,
+          sensitivity: 'normal',
+          status: 'pending',
+          reason: 'stable preference',
+          created_at: '2026-11-23T00:00:00Z',
+          reviewed_at: null,
+        },
+      ],
+    }),
+  )
   await page.route('**/api/memories?*', (route) => route.fulfill({ json: [memory] }))
   await page.route('**/api/projects', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/agents?scope=mine', (route) =>
@@ -155,4 +183,7 @@ test('Memory hub renders overview, list, detail and settings', async ({ page }) 
   await page.getByRole('button', { name: '规则设置' }).click()
   await expect(page.getByText('记忆规则')).toBeVisible()
   await expect(page.getByText('未开启').last()).toBeVisible()
+  await page.getByRole('button', { name: '待确认' }).click()
+  await expect(page.getByText('stable preference')).toBeVisible()
+  await expect(page.getByRole('button', { name: '接受' })).toBeVisible()
 })

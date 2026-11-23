@@ -20,6 +20,7 @@ os.environ["LOGIN_RATE_LIMIT_PER_MINUTE"] = "10"
 os.environ["REDIS_URL"] = "redis://localhost:6379/15"
 os.environ["WORKFLOW_REVIEW_POLL_SECONDS"] = "0.1"
 os.environ["MEMORY_EMBEDDING_ENABLED"] = "false"
+os.environ["MEMORY_EXTRACTION_ENABLED"] = "false"
 
 import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402

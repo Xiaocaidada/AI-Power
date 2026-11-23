@@ -16,6 +16,7 @@ SOURCE_MODEL_EVAL = "model_eval"
 SOURCE_AGENT_BUILDER = "agent_builder"
 SOURCE_KNOWLEDGE_RETRIEVAL = "knowledge_retrieval"
 SOURCE_KNOWLEDGE_EVAL = "knowledge_eval"
+SOURCE_MEMORY_EXTRACTION = "memory_extraction"
 ALLOWED_SOURCES = frozenset(
     {
         SOURCE_CHAT,
@@ -27,6 +28,7 @@ ALLOWED_SOURCES = frozenset(
         SOURCE_AGENT_BUILDER,
         SOURCE_KNOWLEDGE_RETRIEVAL,
         SOURCE_KNOWLEDGE_EVAL,
+        SOURCE_MEMORY_EXTRACTION,
     }
 )
 
