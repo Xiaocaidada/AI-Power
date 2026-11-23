@@ -205,6 +205,46 @@ export function StudioNodePanel({
               </div>
             )
           }
+          if (field.kind === 'db_connection') {
+            return (
+              <div key={field.name} className="text-xs text-ink-muted">
+                {field.label}
+                <PopoverSelect
+                  label={field.label}
+                  value={typeof value === 'string' ? value : ''}
+                  options={[
+                    { value: '', label: t('studio.noDatabase') },
+                    ...resources.databaseConnections.map((connection) => ({
+                      value: connection.id,
+                      label: connection.name,
+                      description: connection.description,
+                    })),
+                  ]}
+                  onChange={(next) => set(field.name, next === '' ? undefined : next)}
+                />
+              </div>
+            )
+          }
+          if (field.kind === 'mcp_server') {
+            return (
+              <div key={field.name} className="text-xs text-ink-muted">
+                {field.label}
+                <PopoverSelect
+                  label={field.label}
+                  value={typeof value === 'string' ? value : ''}
+                  options={[
+                    { value: '', label: t('studio.noMcpServer') },
+                    ...resources.mcpServers.map((server) => ({
+                      value: server.id,
+                      label: server.name,
+                      description: server.description,
+                    })),
+                  ]}
+                  onChange={(next) => set(field.name, next === '' ? undefined : next)}
+                />
+              </div>
+            )
+          }
           if (field.kind === 'kb_multi') {
             const selected = Array.isArray(value) ? value.map(String) : []
             return (

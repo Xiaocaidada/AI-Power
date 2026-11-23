@@ -3,6 +3,7 @@ import { Play } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
+import { ReviewInbox } from '../../components/ReviewInbox'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { errorTextKey } from '../../lib/errorText'
@@ -97,7 +98,9 @@ export function StudioRunPanel({
           )}
         </section>
 
-        <section className="rounded-card border border-border bg-surface p-4">
+        <section className="space-y-4">
+          <ReviewInbox runId={runId === '' ? undefined : runId} />
+          <div className="rounded-card border border-border bg-surface p-4">
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium text-ink">{t('studio.runTimeline')}</p>
             {run.data !== undefined && (
@@ -148,6 +151,7 @@ export function StudioRunPanel({
               ))}
             </div>
           )}
+          </div>
         </section>
       </div>
     </div>

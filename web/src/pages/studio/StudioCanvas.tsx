@@ -17,13 +17,22 @@ import '@xyflow/react/dist/style.css'
 import {
   Bot,
   BookOpen,
+  Brain,
+  Code,
+  Database,
+  FileText,
   Flag,
   GitBranch,
   GitFork,
   GitMerge,
+  Globe,
+  MessageSquare,
   Play,
+  Plug,
+  Repeat,
   Save,
   Sparkles,
+  UserCheck,
   Wrench,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
@@ -46,6 +55,16 @@ const ICONS = {
   parallel: GitFork,
   join: GitMerge,
   output: Flag,
+  review: UserCheck,
+  loop: Repeat,
+  http: Globe,
+  mcp: Plug,
+  memory_read: Brain,
+  memory_write: Save,
+  code: Code,
+  database: Database,
+  mcp_resource: FileText,
+  mcp_prompt: MessageSquare,
 }
 
 function StudioNodeCard({ data, selected }: NodeProps<StudioNode>) {

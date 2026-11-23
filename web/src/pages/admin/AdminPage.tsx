@@ -15,7 +15,9 @@ import type {
   AdminRunSummary,
   AdminUsage,
   AdminWorkspace,
+  AdminAgentReview,
   AgentMarketSummary,
+  AgentReport,
   Announcement,
   AuditLog,
   HomePlacement,
@@ -24,9 +26,9 @@ import type {
 import { cn } from '../../lib/utils'
 import { useAuthStore } from '../../store/auth'
 
-type Tab = 'overview' | 'users' | 'workspaces' | 'models' | 'agents' | 'audit'
+type Tab = 'overview' | 'users' | 'workspaces' | 'models' | 'agents' | 'reports' | 'reviews' | 'audit'
 
-const TABS: Tab[] = ['overview', 'users', 'workspaces', 'models', 'agents', 'audit']
+const TABS: Tab[] = ['overview', 'users', 'workspaces', 'models', 'agents', 'reports', 'reviews', 'audit']
 
 export function AdminPage() {
   const { t, language } = useI18n()
@@ -36,6 +38,8 @@ export function AdminPage() {
   const [workspaceId, setWorkspaceId] = useState<string | null>(null)
   const [busyModel, setBusyModel] = useState<string | null>(null)
   const [busyAgent, setBusyAgent] = useState<string | null>(null)
+  const [busyReport, setBusyReport] = useState<string | null>(null)
+  const [busyReview, setBusyReview] = useState<string | null>(null)
 
   const isAdmin = user?.role === 'admin'
   const users = useQuery({
@@ -72,6 +76,16 @@ export function AdminPage() {
     queryKey: ['admin-agents'],
     queryFn: () => apiRequest<AgentMarketSummary[]>('/admin/agents'),
     enabled: isAdmin && tab === 'agents',
+  })
+  const reports = useQuery({
+    queryKey: ['admin-agent-reports'],
+    queryFn: () => apiRequest<AgentReport[]>('/admin/agent-reports?status=open'),
+    enabled: isAdmin && tab === 'reports',
+  })
+  const adminReviews = useQuery({
+    queryKey: ['admin-agent-reviews'],
+    queryFn: () => apiRequest<AdminAgentReview[]>('/admin/agent-reviews?limit=100'),
+    enabled: isAdmin && tab === 'reviews',
   })
   const audit = useQuery({
     queryKey: ['admin-audit'],
@@ -112,6 +126,38 @@ export function AdminPage() {
       await queryClient.invalidateQueries({ queryKey: ['admin-audit'] })
     } finally {
       setBusyAgent(null)
+    }
+  }
+
+  const resolveReport = async (report: AgentReport, action: 'dismiss' | 'unpublish') => {
+    const resolution = window.prompt(t('admin.reportResolution'), '') ?? ''
+    setBusyReport(report.id)
+    try {
+      await apiRequest(`/admin/agent-reports/${report.id}/resolve`, {
+        method: 'POST',
+        body: { action, resolution },
+      })
+      await queryClient.invalidateQueries({ queryKey: ['admin-agent-reports'] })
+      await queryClient.invalidateQueries({ queryKey: ['admin-agents'] })
+      await queryClient.invalidateQueries({ queryKey: ['market-agents'] })
+      await queryClient.invalidateQueries({ queryKey: ['admin-audit'] })
+    } finally {
+      setBusyReport(null)
+    }
+  }
+
+  const setReviewVisible = async (review: AdminAgentReview, visible: boolean) => {
+    setBusyReview(review.id)
+    try {
+      await apiRequest(`/admin/agent-reviews/${review.id}/visibility`, {
+        method: 'POST',
+        body: { visible },
+      })
+      await queryClient.invalidateQueries({ queryKey: ['admin-agent-reviews'] })
+      await queryClient.invalidateQueries({ queryKey: ['market-agents'] })
+      await queryClient.invalidateQueries({ queryKey: ['admin-audit'] })
+    } finally {
+      setBusyReview(null)
     }
   }
 
@@ -437,6 +483,118 @@ export function AdminPage() {
                   <tr>
                     <td colSpan={4} className="px-3 py-4 text-center text-sm text-ink-muted">
                       {t('admin.noAgents')}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </section>
+        )}
+
+        {tab === 'reports' && (
+          <section className="overflow-x-auto rounded-card border border-border bg-surface">
+            <table className="w-full min-w-[720px] text-left text-sm">
+              <thead className="border-b border-border text-xs uppercase tracking-wide text-ink-muted">
+                <tr>
+                  <th className="px-3 py-2 font-medium">{t('admin.reportAgent')}</th>
+                  <th className="px-3 py-2 font-medium">{t('admin.reportReason')}</th>
+                  <th className="px-3 py-2 font-medium">{t('admin.reportDetail')}</th>
+                  <th className="px-3 py-2 text-right font-medium">{t('admin.reportActions')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(reports.data ?? []).map((report) => (
+                  <tr key={report.id} className="border-b border-border last:border-0">
+                    <td className="px-3 py-2">
+                      {report.agent_name}
+                      <p className="text-[10px] text-ink-muted">{report.reporter}</p>
+                    </td>
+                    <td className="px-3 py-2 text-xs">
+                      <Badge tone="warning">{report.reason}</Badge>
+                    </td>
+                    <td className="max-w-xs px-3 py-2 text-xs text-ink-muted">
+                      {report.detail}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={busyReport === report.id}
+                          onClick={() => void resolveReport(report, 'dismiss')}
+                        >
+                          {t('admin.dismissReport')}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={busyReport === report.id}
+                          onClick={() => void resolveReport(report, 'unpublish')}
+                        >
+                          {t('admin.unpublishAgent')}
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {(reports.data ?? []).length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-3 py-4 text-center text-sm text-ink-muted">
+                      {t('admin.noReports')}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </section>
+        )}
+
+        {tab === 'reviews' && (
+          <section className="overflow-x-auto rounded-card border border-border bg-surface">
+            <table className="w-full min-w-[720px] text-left text-sm">
+              <thead className="border-b border-border text-xs uppercase tracking-wide text-ink-muted">
+                <tr>
+                  <th className="px-3 py-2 font-medium">{t('admin.reviewAgent')}</th>
+                  <th className="px-3 py-2 font-medium">{t('admin.reviewAuthor')}</th>
+                  <th className="px-3 py-2 font-medium">{t('admin.reviewContent')}</th>
+                  <th className="px-3 py-2 font-medium">{t('admin.reviewStatus')}</th>
+                  <th className="px-3 py-2 text-right font-medium">{t('admin.reviewActions')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(adminReviews.data ?? []).map((review) => (
+                  <tr key={review.id} className="border-b border-border last:border-0">
+                    <td className="px-3 py-2">{review.agent_name}</td>
+                    <td className="px-3 py-2 text-xs text-ink-muted">{review.author}</td>
+                    <td className="max-w-xs px-3 py-2 text-xs text-ink-muted">
+                      <span className="text-warning">{'★'.repeat(review.rating)}</span>{' '}
+                      {review.content}
+                    </td>
+                    <td className="px-3 py-2">
+                      <Badge tone={review.status === 'visible' ? 'success' : 'warning'}>
+                        {review.status}
+                      </Badge>
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={busyReview === review.id}
+                        onClick={() =>
+                          void setReviewVisible(review, review.status !== 'visible')
+                        }
+                      >
+                        {review.status === 'visible'
+                          ? t('admin.hideReview')
+                          : t('admin.showReview')}
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+                {(adminReviews.data ?? []).length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-3 py-4 text-center text-sm text-ink-muted">
+                      {t('admin.noReviews')}
                     </td>
                   </tr>
                 )}

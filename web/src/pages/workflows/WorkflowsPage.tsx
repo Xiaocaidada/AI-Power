@@ -3,6 +3,7 @@ import { Ban, Play, Plus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
+import { ReviewInbox } from '../../components/ReviewInbox'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { Dialog } from '../../components/ui/dialog'
@@ -352,6 +353,8 @@ export function WorkflowsPage() {
                 </p>
               )}
             </section>
+
+            <ReviewInbox />
 
             <section className="rounded-card border border-border bg-surface p-4">
               <h3 className="text-sm font-medium">{t('runs.history')}</h3>

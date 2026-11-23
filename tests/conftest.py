@@ -18,6 +18,8 @@ os.environ["ACCESS_TOKEN_TTL_MINUTES"] = "30"
 os.environ["REFRESH_TOKEN_TTL_DAYS"] = "7"
 os.environ["LOGIN_RATE_LIMIT_PER_MINUTE"] = "10"
 os.environ["REDIS_URL"] = "redis://localhost:6379/15"
+os.environ["WORKFLOW_REVIEW_POLL_SECONDS"] = "0.1"
+os.environ["MEMORY_EMBEDDING_ENABLED"] = "false"
 
 import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402
@@ -35,6 +37,9 @@ async def _reset_database():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
+        if engine.dialect.name == "sqlite":
+            await conn.exec_driver_sql("PRAGMA journal_mode=WAL")
+            await conn.exec_driver_sql("PRAGMA busy_timeout=30000")
     yield
 
 
@@ -176,6 +181,9 @@ class InlineQueue:
         await execute_workflow_run(
             run_id, provider_registry=_provider_registry(), redis=_fake_redis()
         )
+
+    async def enqueue_workflow_resume(self, run_id) -> None:
+        await self.enqueue_workflow_run(run_id)
 
     async def enqueue_collaboration_run(self, run_id) -> None:
         self.collaboration_calls.append(run_id)

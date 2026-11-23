@@ -19,6 +19,7 @@ from app.models import (
     AuditLog,
     Workflow,
     WorkflowNodeRun,
+    WorkflowReview,
     WorkflowRun,
     WorkflowRunEvent,
     WorkflowVersion,
@@ -39,6 +40,7 @@ from app.services.queue import JobQueue, get_queue
 from app.services.quotas import enforce_quota
 from app.services.run_events import (
     KEEPALIVE_SECONDS,
+    PAUSED_STATUSES,
     POLL_INTERVAL_SECONDS,
     TERMINAL_EVENTS,
     TERMINAL_STATUSES,
@@ -407,6 +409,8 @@ async def workflow_run_events(
                 position = event.seq
                 if event.event in TERMINAL_EVENTS:
                     terminal_seen = True
+            if run.status in PAUSED_STATUSES:
+                return
             if run.status in TERMINAL_STATUSES:
                 if not terminal_seen and terminal_rows == 0:
                     missing_terminal_polls += 1
@@ -447,6 +451,36 @@ async def cancel_workflow_run(
     session: SessionDep,
 ) -> RunCancelOut:
     run = await _get_owned_run(run_id, context.workspace.id, session)
+    if run.status == "waiting_review":
+        now = datetime.now(UTC)
+        run.status = "cancelled"
+        run.error_code = "cancelled"
+        run.finished_at = now
+        run.paused_at = None
+        run.checkpoint = {}
+        await session.execute(
+            update(WorkflowReview)
+            .where(
+                WorkflowReview.run_id == run_id,
+                WorkflowReview.status == "pending",
+            )
+            .values(status="cancelled", decision="cancelled", resolved_at=now)
+        )
+        await session.commit()
+        try:
+            await append_workflow_event(
+                run_id,
+                "workflow_end",
+                {"run_id": str(run_id), "status": "cancelled", "error_code": "cancelled"},
+            )
+        except Exception:
+            logger.exception("failed to append workflow cancel event %s", run_id)
+        await session.refresh(run)
+        return RunCancelOut(
+            run_id=run.id,
+            status=run.status,
+            cancel_requested_at=run.cancel_requested_at,
+        )
     if run.status not in TERMINAL_STATUSES:
         now = datetime.now(UTC)
         cancelled = await session.execute(

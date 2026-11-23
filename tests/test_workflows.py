@@ -338,6 +338,7 @@ async def test_parallel_branches_run_concurrently_and_join(client, api):
         def __init__(self) -> None:
             self.active = 0
             self.peak = 0
+            self.both_started = asyncio.Event()
 
         async def list_models(self):
             return [ModelInfo(id="fake-model", provider_id="fake")]
@@ -345,10 +346,16 @@ async def test_parallel_branches_run_concurrently_and_join(client, api):
         async def stream_chat(self, messages, model, **_opts):
             self.active += 1
             self.peak = max(self.peak, self.active)
-            await asyncio.sleep(0.05)
+            if self.active >= 2:
+                self.both_started.set()
+            try:
+                # Deterministic concurrency check: both branches must reach the
+                # provider before either can finish.
+                await asyncio.wait_for(self.both_started.wait(), timeout=5)
+            finally:
+                self.active -= 1
             text = messages[-1].content
             output = "left-out" if text.startswith("L") else "right-out"
-            self.active -= 1
             yield ChatChunk(delta=output)
             yield ChatChunk(usage=Usage(prompt_tokens=1, completion_tokens=1))
             yield ChatChunk(finish_reason="stop")

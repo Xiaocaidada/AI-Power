@@ -1,7 +1,14 @@
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from app.config import get_settings
 
@@ -15,10 +22,21 @@ NodeType = Literal[
     "parallel",
     "join",
     "output",
+    "review",
+    "loop",
+    "http",
+    "mcp",
+    "memory_read",
+    "memory_write",
+    "code",
+    "database",
+    "mcp_resource",
+    "mcp_prompt",
 ]
 ConditionOperator = Literal[
     "equals", "not_equals", "contains", "not_contains", "not_empty", "is_empty"
 ]
+MemoryScope = Literal["user", "workspace"]
 
 
 class LLMNodeConfig(BaseModel):
@@ -60,6 +78,115 @@ class ConditionNodeConfig(BaseModel):
     right: str = Field(default="", max_length=5000)
 
 
+class ReviewNodeConfig(BaseModel):
+    prompt: str = Field(min_length=1, max_length=20000)
+    timeout_seconds: int | None = Field(default=None, ge=30, le=86400)
+
+
+class LoopNodeConfig(BaseModel):
+    mode: Literal["foreach", "repeat"] = "foreach"
+    items: str = Field(default="", max_length=20000)
+    times: int = Field(default=3, ge=1, le=20)
+    max_iterations: int = Field(default=5, ge=1, le=20)
+    provider_id: str | None = Field(default=None, max_length=50)
+    model: str | None = Field(default=None, max_length=200)
+    system_prompt: str | None = Field(default=None, max_length=20000)
+    prompt: str = Field(default="", max_length=20000)
+    until_operator: ConditionOperator | Literal["none", ""] | None = None
+    until_right: str = Field(default="", max_length=5000)
+    separator: str = Field(default="\n", max_length=40)
+
+    @model_validator(mode="after")
+    def _validate_loop(self) -> "LoopNodeConfig":
+        if self.mode == "foreach" and not self.items.strip():
+            raise ValueError("foreach loop needs items")
+        if self.prompt.strip() and (not self.provider_id or not self.model):
+            raise ValueError("loop prompt needs provider_id + model")
+        if self.until_operator in {"none", ""}:
+            self.until_operator = None
+        return self
+
+
+class HttpNodeConfig(BaseModel):
+    method: Literal["GET", "POST"] = "GET"
+    url: str = Field(min_length=1, max_length=2000)
+    headers: dict[str, str] = Field(default_factory=dict)
+    body: str = Field(default="", max_length=20000)
+    timeout_seconds: int = Field(default=15, ge=1, le=60)
+
+    @field_validator("headers")
+    @classmethod
+    def _validate_headers(cls, value: dict[str, str]) -> dict[str, str]:
+        if len(value) > 10:
+            raise ValueError("at most 10 HTTP headers are allowed")
+        for key, header_value in value.items():
+            if not key or len(key) > 100 or any(char in key for char in "\r\n:"):
+                raise ValueError("invalid HTTP header name")
+            if len(header_value) > 2000 or any(char in header_value for char in "\r\n"):
+                raise ValueError("invalid HTTP header value")
+        return value
+
+
+class McpNodeConfig(BaseModel):
+    server_id: UUID
+    tool: str = Field(min_length=1, max_length=120)
+    arguments: dict[str, str] = Field(default_factory=dict)
+    timeout_seconds: int = Field(default=20, ge=1, le=120)
+
+    @field_validator("arguments")
+    @classmethod
+    def _validate_arguments(cls, value: dict[str, str]) -> dict[str, str]:
+        if len(value) > 20:
+            raise ValueError("at most 20 MCP arguments are allowed")
+        return value
+
+
+class McpResourceNodeConfig(BaseModel):
+    server_id: UUID
+    uri: str = Field(min_length=1, max_length=2000)
+    timeout_seconds: int = Field(default=20, ge=1, le=120)
+
+
+class McpPromptNodeConfig(BaseModel):
+    server_id: UUID
+    name: str = Field(min_length=1, max_length=120)
+    arguments: dict[str, str] = Field(default_factory=dict)
+    timeout_seconds: int = Field(default=20, ge=1, le=120)
+
+
+class MemoryReadNodeConfig(BaseModel):
+    query: str = Field(default="", max_length=2000)
+    limit: int = Field(default=5, ge=1, le=20)
+    scope: MemoryScope = "user"
+
+
+class MemoryWriteNodeConfig(BaseModel):
+    title: str = Field(default="", max_length=120)
+    content: str = Field(min_length=1, max_length=10000)
+    scope: MemoryScope = "user"
+    kind: Literal["fact", "preference", "summary"] = "fact"
+
+
+class CodeNodeConfig(BaseModel):
+    code: str = Field(min_length=1, max_length=5000)
+    max_output_chars: int = Field(default=20000, ge=1, le=100000)
+
+
+class DatabaseNodeConfig(BaseModel):
+    connection_id: UUID
+    query: str = Field(min_length=1, max_length=10000)
+    params: dict[str, str] = Field(default_factory=dict)
+    max_rows: int = Field(default=100, ge=1, le=500)
+    timeout_seconds: int = Field(default=15, ge=1, le=120)
+
+    @field_validator("params")
+    @classmethod
+    def _validate_params(cls, value: dict[str, str]) -> dict[str, str]:
+        if len(value) > 20:
+            raise ValueError("at most 20 query parameters are allowed")
+        return value
+
+
 class EmptyNodeConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -74,6 +201,16 @@ NODE_CONFIGS: dict[str, type[BaseModel]] = {
     "parallel": EmptyNodeConfig,
     "join": EmptyNodeConfig,
     "output": EmptyNodeConfig,
+    "review": ReviewNodeConfig,
+    "loop": LoopNodeConfig,
+    "http": HttpNodeConfig,
+    "mcp": McpNodeConfig,
+    "mcp_resource": McpResourceNodeConfig,
+    "mcp_prompt": McpPromptNodeConfig,
+    "memory_read": MemoryReadNodeConfig,
+    "memory_write": MemoryWriteNodeConfig,
+    "code": CodeNodeConfig,
+    "database": DatabaseNodeConfig,
 }
 
 

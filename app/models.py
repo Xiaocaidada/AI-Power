@@ -198,6 +198,8 @@ class WorkflowRun(Base):
     completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
     cost: Mapped[float] = mapped_column(Float, default=0.0)
     total_ms: Mapped[float | None] = mapped_column(Float, default=None)
+    checkpoint: Mapped[dict] = mapped_column(JSON, default=dict)
+    paused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
@@ -238,6 +240,43 @@ class WorkflowNodeRun(Base):
     error_code: Mapped[str | None] = mapped_column(String(50), default=None)
     duration_ms: Mapped[float | None] = mapped_column(Float, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class WorkflowReview(Base):
+    """Human-in-the-loop gate created by a ``review`` workflow node."""
+
+    __tablename__ = "workflow_reviews"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workflow_runs.id", ondelete="CASCADE"), index=True
+    )
+    node_run_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("workflow_node_runs.id", ondelete="SET NULL"), default=None
+    )
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    node_id: Mapped[str] = mapped_column(String(80))
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    prompt: Mapped[str] = mapped_column(Text, default="")
+    decision: Mapped[str] = mapped_column(String(20), default="")
+    comment: Mapped[str] = mapped_column(Text, default="")
+    output: Mapped[str] = mapped_column(Text, default="")
+    reviewer_user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), default=None
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+
+    __table_args__ = (
+        Index("ix_workflow_reviews_workspace_status", "workspace_id", "status", "created_at"),
+    )
 
 
 class CollaborationRun(Base):
@@ -373,6 +412,9 @@ class CustomAgent(Base):
     )
     visibility: Mapped[str] = mapped_column(String(20), default="private", index=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    memory_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    rating_avg: Mapped[float] = mapped_column(Float, default=0.0)
+    rating_count: Mapped[int] = mapped_column(Integer, default=0)
     published: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     featured: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     public_slug: Mapped[str | None] = mapped_column(String(80), default=None)
@@ -441,6 +483,91 @@ class AgentBuilderSession(Base):
 
     __table_args__ = (
         Index("ix_agent_builder_sessions_workspace_updated", "workspace_id", "updated_at"),
+    )
+
+
+class AgentMemory(Base):
+    """Long-term memory available to agents and workflow nodes."""
+
+    __tablename__ = "agent_memories"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    agent_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("custom_agents.id", ondelete="SET NULL"), default=None, index=True
+    )
+    scope: Mapped[str] = mapped_column(String(20), default="user", index=True)
+    kind: Mapped[str] = mapped_column(String(20), default="fact")
+    title: Mapped[str] = mapped_column(String(120), default="")
+    content: Mapped[str] = mapped_column(Text)
+    embedding: Mapped[list[float] | None] = mapped_column(EmbeddingVector, default=None)
+    importance: Mapped[int] = mapped_column(Integer, default=3)
+    source: Mapped[str] = mapped_column(String(20), default="manual")
+    last_used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    __table_args__ = (
+        Index("ix_agent_memories_workspace_user_updated", "workspace_id", "user_id", "updated_at"),
+    )
+
+
+class AgentReview(Base):
+    __tablename__ = "agent_reviews"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("custom_agents.id", ondelete="CASCADE"), index=True
+    )
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    rating: Mapped[int] = mapped_column(Integer)
+    content: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="visible", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    __table_args__ = (
+        UniqueConstraint("agent_id", "user_id", name="uq_agent_reviews_agent_user"),
+        Index("ix_agent_reviews_agent_status", "agent_id", "status", "created_at"),
+    )
+
+
+class AgentReport(Base):
+    __tablename__ = "agent_reports"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("custom_agents.id", ondelete="CASCADE"), index=True
+    )
+    reporter_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    reason: Mapped[str] = mapped_column(String(40))
+    detail: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="open", index=True)
+    handled_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), default=None
+    )
+    resolution: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    handled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
     )
 
 
@@ -1341,6 +1468,44 @@ class WebhookDelivery(Base):
     __table_args__ = (
         Index("ix_webhook_deliveries_due", "status", "next_attempt_at"),
         Index("ix_webhook_deliveries_workspace_created", "workspace_id", "created_at"),
+    )
+
+
+class DatabaseConnection(Base):
+    """Admin-managed read-only database target for workflow nodes."""
+
+    __tablename__ = "database_connections"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    name: Mapped[str] = mapped_column(String(120), unique=True)
+    description: Mapped[str] = mapped_column(String(500), default="")
+    dsn_encrypted: Mapped[str] = mapped_column(Text, default="")
+    dsn_hint: Mapped[str] = mapped_column(String(200), default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    max_rows: Mapped[int] = mapped_column(Integer, default=100)
+    timeout_seconds: Mapped[int] = mapped_column(Integer, default=15)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class McpServer(Base):
+    """Admin-managed MCP server reachable over streamable HTTP."""
+
+    __tablename__ = "mcp_servers"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    name: Mapped[str] = mapped_column(String(120), unique=True)
+    description: Mapped[str] = mapped_column(String(500), default="")
+    endpoint_url: Mapped[str] = mapped_column(String(1000))
+    auth_token_encrypted: Mapped[str] = mapped_column(Text, default="")
+    auth_hint: Mapped[str] = mapped_column(String(20), default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    timeout_seconds: Mapped[int] = mapped_column(Integer, default=20)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
 
 

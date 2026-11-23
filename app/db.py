@@ -11,6 +11,7 @@ _settings = get_settings()
 _engine_kwargs: dict[str, object] = {}
 if _settings.database_url.startswith("sqlite"):
     _engine_kwargs["poolclass"] = NullPool
+    _engine_kwargs["connect_args"] = {"timeout": 30}
 else:
     _engine_kwargs.update(
         pool_size=_settings.db_pool_size,
@@ -37,6 +38,9 @@ async def get_session() -> AsyncIterator[AsyncSession]:
 
 async def init_db() -> None:
     async with engine.begin() as conn:
+        if engine.dialect.name == "sqlite":
+            await conn.exec_driver_sql("PRAGMA journal_mode=WAL")
+            await conn.exec_driver_sql("PRAGMA busy_timeout=30000")
         if engine.dialect.name == "postgresql":
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))

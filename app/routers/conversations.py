@@ -81,6 +81,7 @@ from app.services.custom_agents import (
     build_agent_spec,
     get_custom_agent,
 )
+from app.services.memories import memory_context
 from app.services.plugins import (
     PluginError,
     build_plugin_tools,
@@ -1820,6 +1821,23 @@ async def _start_chat_turn(
         if conversation_kbs and "kb_search" not in extra_tools:
             extra_tools.append("kb_search")
         spec = build_agent_spec(custom_agent, tuple(extra_tools))
+        if custom_agent.memory_enabled:
+            settings = get_settings()
+            block = await memory_context(
+                session,
+                workspace_id=context.workspace.id,
+                user_id=context.user.id,
+                agent_id=custom_agent.id,
+                query=content,
+                limit=settings.agent_memory_inject_limit,
+                max_chars=settings.agent_memory_inject_chars,
+            )
+            if block:
+                spec = AgentSpec(
+                    name=spec.name,
+                    system_prompt=f"{spec.system_prompt}\n\n{block}",
+                    tools=spec.tools,
+                )
         effective_agents = AgentRegistry([*agent_registry.all(), spec])
         root_agent = spec.name
     elif plugin_tools:

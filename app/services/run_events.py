@@ -10,6 +10,7 @@ from app.db import SessionLocal
 from app.models import CollaborationRunEvent, WorkflowRunEvent
 
 TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
+PAUSED_STATUSES = frozenset({"waiting_review"})
 TERMINAL_EVENTS = frozenset({"workflow_end", "collaboration_end"})
 POLL_INTERVAL_SECONDS = 0.3
 KEEPALIVE_SECONDS = 15.0

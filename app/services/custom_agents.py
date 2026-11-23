@@ -339,6 +339,20 @@ def _sanitize_workflow_definition(definition: dict[str, Any]) -> dict[str, Any]:
         elif node_type == "agent":
             config.pop("agent_id", None)
             config["kb_ids"] = []
+        elif node_type == "http":
+            # Never publish outbound credentials or request payloads; copies must
+            # reconfigure their own endpoint.
+            config["url"] = ""
+            config["headers"] = {}
+            config["body"] = ""
+        elif node_type == "mcp":
+            config.pop("server_id", None)
+            config["arguments"] = {}
+        elif node_type == "memory_read":
+            config["query"] = ""
+        elif node_type == "memory_write":
+            config["title"] = ""
+            config["content"] = ""
     return copied
 
 
@@ -505,6 +519,8 @@ def public_agent_summary(agent: CustomAgent) -> dict[str, Any]:
         "usage_count": agent.usage_count,
         "favorite_count": agent.favorite_count,
         "copy_count": agent.copy_count,
+        "rating_avg": agent.rating_avg,
+        "rating_count": agent.rating_count,
         "allow_copy": agent.allow_copy,
         "published_at": agent.published_at,
     }

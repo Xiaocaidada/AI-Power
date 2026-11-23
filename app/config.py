@@ -88,6 +88,22 @@ class Settings(BaseSettings):
     workflow_node_attempts: int = 2
     workflow_max_nodes: int = 20
     workflow_parallel_limit: int = 3
+    workflow_review_timeout_seconds: float = 3600.0
+    workflow_review_poll_seconds: float = 0.5
+    workflow_loop_max_iterations: int = 20
+    http_node_timeout_seconds: float = 15.0
+    http_node_max_response_chars: int = 8000
+    http_node_allowed_hosts: str = ""
+    http_node_allow_private_hosts: bool = False
+    mcp_timeout_seconds: float = 20.0
+    mcp_max_response_chars: int = 8000
+    agent_memory_inject_limit: int = 5
+    agent_memory_inject_chars: int = 2000
+    memory_embedding_enabled: bool = True
+    memory_embedding_timeout_seconds: float = 10.0
+    code_node_max_output_chars: int = 20000
+    database_node_max_rows: int = 100
+    database_node_timeout_seconds: float = 15.0
     collaboration_max_tasks: int = 4
     collaboration_max_rounds: int = 2
     collaboration_max_steps: int = 16
@@ -164,6 +180,32 @@ class Settings(BaseSettings):
             raise ValueError("WORKFLOW_MAX_NODES must be >= 1")
         if self.workflow_parallel_limit < 1:
             raise ValueError("WORKFLOW_PARALLEL_LIMIT must be >= 1")
+        if self.workflow_review_timeout_seconds <= 0:
+            raise ValueError("WORKFLOW_REVIEW_TIMEOUT_SECONDS must be > 0")
+        if self.workflow_review_poll_seconds <= 0:
+            raise ValueError("WORKFLOW_REVIEW_POLL_SECONDS must be > 0")
+        if self.workflow_loop_max_iterations < 1:
+            raise ValueError("WORKFLOW_LOOP_MAX_ITERATIONS must be >= 1")
+        if self.http_node_timeout_seconds <= 0:
+            raise ValueError("HTTP_NODE_TIMEOUT_SECONDS must be > 0")
+        if self.http_node_max_response_chars < 1:
+            raise ValueError("HTTP_NODE_MAX_RESPONSE_CHARS must be >= 1")
+        if self.mcp_timeout_seconds <= 0:
+            raise ValueError("MCP_TIMEOUT_SECONDS must be > 0")
+        if self.mcp_max_response_chars < 1:
+            raise ValueError("MCP_MAX_RESPONSE_CHARS must be >= 1")
+        if self.agent_memory_inject_limit < 1:
+            raise ValueError("AGENT_MEMORY_INJECT_LIMIT must be >= 1")
+        if self.agent_memory_inject_chars < 1:
+            raise ValueError("AGENT_MEMORY_INJECT_CHARS must be >= 1")
+        if self.code_node_max_output_chars < 1:
+            raise ValueError("CODE_NODE_MAX_OUTPUT_CHARS must be >= 1")
+        if self.database_node_max_rows < 1:
+            raise ValueError("DATABASE_NODE_MAX_ROWS must be >= 1")
+        if self.database_node_timeout_seconds <= 0:
+            raise ValueError("DATABASE_NODE_TIMEOUT_SECONDS must be > 0")
+        if self.memory_embedding_timeout_seconds <= 0:
+            raise ValueError("MEMORY_EMBEDDING_TIMEOUT_SECONDS must be > 0")
         if self.collaboration_max_tasks < 2:
             raise ValueError("COLLABORATION_MAX_TASKS must be >= 2")
         if self.collaboration_max_rounds < 1:

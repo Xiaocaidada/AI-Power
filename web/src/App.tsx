@@ -10,6 +10,8 @@ import { Spinner } from './components/ui/spinner'
 import { apiRequest } from './lib/http'
 import { clearTokens, hasSession, refreshAccessToken } from './lib/tokens'
 import type { User } from './lib/types'
+import { AdminDatabasesPage } from './pages/admin/AdminDatabasesPage'
+import { AdminMcpPage } from './pages/admin/AdminMcpPage'
 import { AdminPluginsPage } from './pages/admin/AdminPluginsPage'
 import { AdminPromptsPage } from './pages/admin/AdminPromptsPage'
 import { AgentDetailPage } from './pages/agents/AgentDetailPage'
@@ -31,6 +33,7 @@ import { EvaluationPage } from './pages/evaluation/EvaluationPage'
 import { KnowledgeDetailPage } from './pages/knowledge/KnowledgeDetailPage'
 import { KnowledgePage } from './pages/knowledge/KnowledgePage'
 import { LoginPage } from './pages/LoginPage'
+import { MemoryPage } from './pages/memory/MemoryPage'
 import { ModelsPage } from './pages/models/ModelsPage'
 import { ModelDetailPage } from './pages/models/ModelDetailPage'
 import { ModelEvalPage } from './pages/model-eval/ModelEvalPage'
@@ -123,6 +126,7 @@ export function App() {
           <Route path="agents/:id" element={<AgentDetailPage />} />
           <Route path="agents/:id/experience" element={<AgentExperiencePage />} />
           <Route path="plugins" element={<PluginsPage />} />
+          <Route path="memory" element={<MemoryPage />} />
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="files" element={<FilesPage />} />
           <Route path="search" element={<SearchPage />} />
@@ -131,6 +135,8 @@ export function App() {
           <Route path="admin" element={<AdminPage />} />
           <Route path="admin/content" element={<AdminContentPage />} />
           <Route path="admin/plugins" element={<AdminPluginsPage />} />
+          <Route path="admin/mcp" element={<AdminMcpPage />} />
+          <Route path="admin/databases" element={<AdminDatabasesPage />} />
           <Route path="admin/prompts" element={<AdminPromptsPage />} />
           <Route path="knowledge" element={<KnowledgePage />} />
           <Route path="knowledge/:id" element={<KnowledgeDetailPage />} />

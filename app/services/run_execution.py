@@ -1,9 +1,9 @@
 import asyncio
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.registry import build_agent_registry
@@ -14,6 +14,7 @@ from app.models import (
     CollaborationRun,
     User,
     Workflow,
+    WorkflowReview,
     WorkflowRun,
     WorkflowVersion,
     Workspace,
@@ -21,6 +22,7 @@ from app.models import (
 from app.providers.registry import ProviderRegistry
 from app.services.collaboration import CollaborationRunner
 from app.services.provider_configs import build_user_registry
+from app.services.queue import JobQueue
 from app.services.quotas import enforce_quota
 from app.services.run_events import (
     append_collaboration_event,
@@ -50,8 +52,11 @@ async def _append_collaboration(run_id: UUID, event: str, data: dict[str, object
 async def _claim_workflow(session: AsyncSession, run_id: UUID) -> bool:
     result = await session.execute(
         update(WorkflowRun)
-        .where(WorkflowRun.id == run_id, WorkflowRun.status == "queued")
-        .values(status="running")
+        .where(
+            WorkflowRun.id == run_id,
+            WorkflowRun.status.in_(("queued", "waiting_review")),
+        )
+        .values(status="running", paused_at=None)
     )
     return result.rowcount == 1
 
@@ -85,6 +90,65 @@ async def _mark_cancelled(model: type[WorkflowRun] | type[CollaborationRun], run
             .values(status="cancelled", error_code="cancelled", finished_at=datetime.now(UTC))
         )
         await session.commit()
+
+
+async def _mark_interrupted(run_id: UUID) -> str:
+    async with SessionLocal() as session:
+        run = await session.get(WorkflowRun, run_id)
+        if run is None:
+            return "cancelled"
+        now = datetime.now(UTC)
+        pending_reviews: list[WorkflowReview] = []
+        if run.cancel_requested_at is None:
+            pending_reviews = list(
+                (
+                    await session.execute(
+                        select(WorkflowReview)
+                        .where(
+                            WorkflowReview.run_id == run_id,
+                            WorkflowReview.status == "pending",
+                        )
+                        .order_by(WorkflowReview.created_at)
+                    )
+                ).scalars()
+            )
+        checkpoint = dict(run.checkpoint or {})
+        checkpoint_pending = checkpoint.get("pending_reviews")
+        has_checkpoint_pending = isinstance(checkpoint_pending, list) and bool(
+            checkpoint_pending
+        )
+        if pending_reviews:
+            checkpoint.setdefault("node_states", {})
+            checkpoint.setdefault("edge_state", {})
+            checkpoint.setdefault("outputs", {})
+            checkpoint["pending_reviews"] = [
+                {"node_id": review.node_id, "review_id": str(review.id)}
+                for review in pending_reviews
+            ]
+            checkpoint.pop("pending_review", None)
+            run.checkpoint = checkpoint
+            has_checkpoint_pending = True
+        if run.cancel_requested_at is not None:
+            run.status = "cancelled"
+            run.error_code = "cancelled"
+            run.finished_at = now
+            run.checkpoint = {}
+            run.paused_at = None
+            status = "cancelled"
+        elif has_checkpoint_pending:
+            run.status = "waiting_review"
+            run.paused_at = now
+            run.finished_at = None
+            status = "waiting_review"
+        else:
+            run.status = "cancelled"
+            run.error_code = "cancelled"
+            run.finished_at = now
+            run.checkpoint = {}
+            run.paused_at = None
+            status = "cancelled"
+        await session.commit()
+        return status
 
 
 def _context(user: User, workspace: Workspace, api_key_id: UUID | None) -> AuthContext:
@@ -134,6 +198,7 @@ async def execute_workflow_run(
         version_number = version.version
         workflow_id = workflow.id
         kb_id = run.kb_id
+        checkpoint = dict(run.checkpoint or {})
 
     registry = scoped_registry
     tools = build_tool_registry()
@@ -153,6 +218,7 @@ async def execute_workflow_run(
         input_text=input_text,
         quota_guard=(lambda: enforce_quota(redis, context)) if redis is not None else None,
         api_key_id=context.api_key_id,
+        resume_state=checkpoint or None,
     )
     terminal = False
     try:
@@ -160,12 +226,19 @@ async def execute_workflow_run(
             await _append_workflow(run_id, event.kind, event.data)
             terminal = event.kind == "workflow_end"
     except asyncio.CancelledError:
-        await _mark_cancelled(WorkflowRun, run_id)
-        await _append_workflow(
-            run_id,
-            "workflow_end",
-            {"run_id": str(run_id), "status": "cancelled", "error_code": "cancelled"},
-        )
+        status = await _mark_interrupted(run_id)
+        if status == "waiting_review":
+            await _append_workflow(
+                run_id,
+                "workflow_paused",
+                {"run_id": str(run_id), "status": status, "reason": "review"},
+            )
+        else:
+            await _append_workflow(
+                run_id,
+                "workflow_end",
+                {"run_id": str(run_id), "status": status, "error_code": "cancelled"},
+            )
         raise
     except Exception:
         logger.exception("workflow execution failed for run %s", run_id)
@@ -258,3 +331,37 @@ async def execute_collaboration_run(
                 "collaboration_end",
                 {"run_id": str(run_id), "status": "failed", "error_code": "internal_error"},
             )
+
+
+async def requeue_waiting_reviews(
+    queue: JobQueue, *, stale_seconds: int = 600
+) -> int:
+    """Re-enqueue workflow runs paused on a human review.
+
+    Also recovers runs that crashed while a review was pending: their status is
+    still ``running`` but ``paused_at`` is old and no worker is polling them.
+    """
+    now = datetime.now(UTC)
+    stale_before = now - timedelta(seconds=stale_seconds)
+    async with SessionLocal() as session:
+        rows = await session.execute(
+            select(WorkflowRun.id).where(
+                or_(
+                    WorkflowRun.status == "waiting_review",
+                    and_(
+                        WorkflowRun.status == "running",
+                        WorkflowRun.paused_at.is_not(None),
+                        WorkflowRun.paused_at < stale_before,
+                    ),
+                )
+            )
+        )
+        run_ids = [row for row in rows.scalars()]
+    enqueued = 0
+    for run_id in run_ids:
+        try:
+            await queue.enqueue_workflow_resume(run_id)
+            enqueued += 1
+        except Exception:
+            logger.exception("failed to enqueue paused run %s", run_id)
+    return enqueued

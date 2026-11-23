@@ -14,7 +14,11 @@ from app.services.ingestion import ingest_document, mark_job_dead, schedule_retr
 from app.services.maintenance import cleanup_audit_logs, cleanup_orphan_files, cleanup_traces
 from app.services.model_eval import run_model_eval_job
 from app.services.queue import ArqJobQueue, recover_stale_jobs
-from app.services.run_execution import execute_collaboration_run, execute_workflow_run
+from app.services.run_execution import (
+    execute_collaboration_run,
+    execute_workflow_run,
+    requeue_waiting_reviews,
+)
 from app.services.webhooks import deliver_due_deliveries, enqueue_event
 
 logger = logging.getLogger(__name__)
@@ -90,6 +94,20 @@ async def recover_stale_jobs_job(ctx: dict[str, Any]) -> None:
         logger.warning("requeued %s stale ingestion jobs", recovered)
 
 
+async def requeue_waiting_reviews_job(ctx: dict[str, Any]) -> None:
+    queue = ArqJobQueue(ctx["redis"])
+    requeued = await requeue_waiting_reviews(queue)
+    if requeued:
+        logger.info("requeued %s paused workflow reviews", requeued)
+
+
+async def startup_requeue_reviews(ctx: dict[str, Any]) -> None:
+    try:
+        await requeue_waiting_reviews_job(ctx)
+    except Exception:
+        logger.warning("startup review requeue failed", exc_info=True)
+
+
 async def cleanup_orphan_files_job(ctx: dict[str, Any]) -> None:
     async with SessionLocal() as session:
         removed = await cleanup_orphan_files(session, Path(get_settings().upload_dir))
@@ -121,11 +139,13 @@ class WorkerSettings:
     ]
     cron_jobs = [
         cron(recover_stale_jobs_job, minute=set(range(60))),
+        cron(requeue_waiting_reviews_job, minute=set(range(60))),
         cron(deliver_webhooks_job, minute=set(range(60))),
         cron(cleanup_orphan_files_job, hour=3, minute=0),
         cron(cleanup_traces_job, hour=3, minute=15),
         cron(cleanup_audit_logs_job, hour=3, minute=30),
     ]
+    on_startup = startup_requeue_reviews
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)
     max_tries = 1
     job_timeout = 3600
