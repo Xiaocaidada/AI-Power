@@ -1375,6 +1375,78 @@ class MemoryGraphRebuildOut(BaseModel):
     memories: int
 
 
+class MemoryQualityAnalysisOut(BaseModel):
+    total: int = 0
+    duplicates: int = 0
+    duplicate_groups: list[list[str]] = Field(default_factory=list)
+    conflicts: int = 0
+    expired: int = 0
+    unused: int = 0
+    missing_source: int = 0
+    incomplete: int = 0
+    orphans: int = 0
+
+
+class MemoryOptimizationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    kind: str
+    status: str
+    title: str
+    reason: str
+    expected_effect: str
+    memory_ids: list[str] = Field(default_factory=list)
+    payload: dict[str, object] = Field(default_factory=dict)
+    applied_at: datetime | None = None
+    rolled_back_at: datetime | None = None
+    created_at: datetime
+
+
+class MemoryQualityOut(BaseModel):
+    analysis: MemoryQualityAnalysisOut
+    suggestions: list[MemoryOptimizationOut] = Field(default_factory=list)
+
+
+class MemoryEvalCaseIn(BaseModel):
+    name: str = Field(default="", max_length=120)
+    query: str = Field(min_length=1, max_length=2000)
+    expected_memory_ids: list[UUID] = Field(default_factory=list, max_length=20)
+    project_id: UUID | None = None
+    agent_id: UUID | None = None
+    notes: str = Field(default="", max_length=500)
+
+
+class MemoryEvalCaseOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    name: str
+    query: str
+    expected_memory_ids: list[str] = Field(default_factory=list)
+    project_id: UUID | None = None
+    agent_id: UUID | None = None
+    notes: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class MemoryEvalRunIn(BaseModel):
+    top_k: int = Field(default=5, ge=1, le=20)
+
+
+class MemoryEvalRunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    status: str
+    cases_count: int
+    metrics: dict[str, object] = Field(default_factory=dict)
+    results: list[dict[str, object]] = Field(default_factory=list)
+    duration_ms: float
+    created_at: datetime
+
+
 class MemoryRelationIn(BaseModel):
     to_type: Literal["memory", "project", "document", "agent"] = "memory"
     to_id: UUID
@@ -2775,6 +2847,11 @@ class QuotaKnowledgeOut(BaseModel):
     kb_bytes: int
 
 
+class QuotaMemoryOut(BaseModel):
+    max_memories: int
+    memory_count: int
+
+
 class QuotaSummaryOut(BaseModel):
     plan: str
     requests: QuotaWindowOut
@@ -2782,6 +2859,7 @@ class QuotaSummaryOut(BaseModel):
     max_keys: int
     active_keys: int
     knowledge: QuotaKnowledgeOut
+    memory: QuotaMemoryOut
 
 
 class TraceOut(BaseModel):

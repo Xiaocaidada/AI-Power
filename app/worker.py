@@ -13,6 +13,7 @@ from app.services.evaluation_runner import run_evaluation
 from app.services.ingestion import ingest_document, mark_job_dead, schedule_retry
 from app.services.maintenance import cleanup_audit_logs, cleanup_orphan_files, cleanup_traces
 from app.services.memory_extraction import run_memory_extraction_for_message
+from app.services.memory_quality import nightly_consolidation
 from app.services.model_eval import run_model_eval_job
 from app.services.queue import ArqJobQueue, recover_stale_jobs
 from app.services.run_execution import (
@@ -78,6 +79,13 @@ async def run_workflow_job(ctx: dict[str, Any], run_id: str) -> None:
 
 async def run_collaboration_job(ctx: dict[str, Any], run_id: str) -> None:
     await execute_collaboration_run(UUID(run_id), redis=ctx["redis"])
+
+
+async def consolidate_memories_job(ctx: dict[str, Any]) -> None:
+    async with SessionLocal() as session:
+        result = await nightly_consolidation(session)
+        await session.commit()
+    logger.info("memory consolidation complete: %s", result)
 
 
 async def run_memory_extraction_job(ctx: dict[str, Any], message_id: str) -> None:
@@ -150,6 +158,7 @@ class WorkerSettings:
         cron(cleanup_orphan_files_job, hour=3, minute=0),
         cron(cleanup_traces_job, hour=3, minute=15),
         cron(cleanup_audit_logs_job, hour=3, minute=30),
+        cron(consolidate_memories_job, hour=4, minute=0),
     ]
     on_startup = startup_requeue_reviews
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)

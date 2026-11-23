@@ -31,9 +31,17 @@ import { cn } from '../../lib/utils'
 import { MemoryDetailDialog } from './MemoryDetailDialog'
 import { MemoryFormDialog } from './MemoryFormDialog'
 import { MemoryGraphPanel } from './MemoryGraphPanel'
+import { MemoryQualityPanel } from './MemoryQualityPanel'
 import { MemorySettingsPanel } from './MemorySettingsPanel'
 
-type Tab = 'overview' | 'all' | 'graph' | 'pending' | 'usage' | 'settings'
+type Tab =
+  | 'overview'
+  | 'all'
+  | 'graph'
+  | 'quality'
+  | 'pending'
+  | 'usage'
+  | 'settings'
 
 const CATEGORIES: MemoryCategory[] = [
   'preference',
@@ -191,7 +199,7 @@ export function MemoryPage() {
       </header>
 
       <nav className="flex flex-wrap gap-1 border-b border-border bg-surface px-6">
-        {(['overview', 'all', 'graph', 'pending', 'usage', 'settings'] as const).map((item) => (
+        {(['overview', 'all', 'graph', 'quality', 'pending', 'usage', 'settings'] as const).map((item) => (
           <button
             key={item}
             type="button"
@@ -319,6 +327,8 @@ export function MemoryPage() {
             onOpenMemory={(memoryId) => void openMemoryById(memoryId)}
           />
         )}
+
+        {tab === 'quality' && <MemoryQualityPanel />}
 
         {tab === 'pending' && (
           <div className="space-y-3">

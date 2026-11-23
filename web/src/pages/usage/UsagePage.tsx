@@ -228,6 +228,13 @@ export function UsagePage() {
                 count: quota.data.knowledge.max_documents_per_kb,
               })}
             </p>
+            <p className="mt-1 text-xs text-ink-muted">
+              {t('quota.memory')}:{' '}
+              {t('quota.memoryValue', {
+                used: quota.data.memory.memory_count,
+                limit: quota.data.memory.max_memories,
+              })}
+            </p>
           </section>
         )}
         <div className="flex flex-wrap items-end justify-between gap-4">

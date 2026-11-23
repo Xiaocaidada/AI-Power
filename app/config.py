@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     quota_pro_max_documents_per_kb: int = 5000
     quota_free_max_kb_bytes: int = 100_000_000
     quota_pro_max_kb_bytes: int = 10_000_000_000
+    quota_free_max_memories: int = 500
+    quota_pro_max_memories: int = 10_000
     budget_webhook_url: str = ""
     webhook_secret_key: str = ""
     provider_secret_key: str = ""
@@ -289,6 +291,8 @@ class Settings(BaseSettings):
             "quota_pro_max_documents_per_kb",
             "quota_free_max_kb_bytes",
             "quota_pro_max_kb_bytes",
+            "quota_free_max_memories",
+            "quota_pro_max_memories",
         ):
             if getattr(self, name) < 1:
                 raise ValueError(f"{name.upper()} must be >= 1")

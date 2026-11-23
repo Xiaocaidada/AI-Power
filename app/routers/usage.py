@@ -12,6 +12,7 @@ from app.deps import AuthContext, get_jwt_context
 from app.models import ApiKey, Message, Trace, UsageEvent
 from app.schemas import (
     QuotaKnowledgeOut,
+    QuotaMemoryOut,
     QuotaSummaryOut,
     QuotaWindowOut,
     UsageBucketOut,
@@ -96,6 +97,10 @@ async def quota_summary(
             max_documents_per_kb=snapshot.max_documents_per_kb,
             max_kb_bytes=snapshot.max_kb_bytes,
             kb_bytes=snapshot.kb_bytes,
+        ),
+        memory=QuotaMemoryOut(
+            max_memories=snapshot.max_memories,
+            memory_count=snapshot.memory_count,
         ),
     )
 

@@ -25,6 +25,7 @@ from app.models import (
 )
 from app.services.embedding_factory import build_embedder
 from app.services.memory_linking import auto_link_memory
+from app.services.quotas import enforce_memory_quota
 
 MEMORY_SCOPES = {"user", "workspace"}
 MEMORY_KINDS = {"fact", "preference", "summary"}
@@ -474,6 +475,7 @@ async def create_memory(
         raise MemoryError("invalid_scope", "Project memory requires project_id")
     if normalized_scope == "agent" and agent_id is None:
         raise MemoryError("invalid_scope", "Agent memory requires agent_id")
+    await enforce_memory_quota(session, workspace_id)
     title = title.strip()[:120] or content[:60]
     memory = AgentMemory(
         workspace_id=workspace_id,

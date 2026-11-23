@@ -22,6 +22,8 @@ def quota_settings(monkeypatch):
         quota_pro_max_documents_per_kb=5000,
         quota_free_max_kb_bytes=100_000_000,
         quota_pro_max_kb_bytes=10_000_000_000,
+        quota_free_max_memories=500,
+        quota_pro_max_memories=10_000,
     )
     monkeypatch.setattr(quotas, "get_settings", lambda: settings)
     return settings

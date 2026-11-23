@@ -11,10 +11,16 @@ from app.schemas import (
     MemoryBatchOut,
     MemoryCandidateAcceptIn,
     MemoryCandidateOut,
+    MemoryEvalCaseIn,
+    MemoryEvalCaseOut,
+    MemoryEvalRunIn,
+    MemoryEvalRunOut,
     MemoryGraphOut,
     MemoryGraphRebuildOut,
     MemoryIn,
+    MemoryOptimizationOut,
     MemoryOut,
+    MemoryQualityOut,
     MemoryRelationIn,
     MemoryRelationOut,
     MemorySettingsIn,
@@ -41,6 +47,15 @@ from app.services.memories import (
     restore_memory_version,
     update_memory,
     update_memory_settings,
+    validate_memory_targets,
+)
+from app.services.memory_eval import (
+    MemoryEvalError,
+    create_case,
+    delete_case,
+    list_cases,
+    list_runs,
+    run_evaluation,
 )
 from app.services.memory_extraction import (
     accept_candidate,
@@ -53,6 +68,15 @@ from app.services.memory_graph import (
     list_memory_graph,
     rebuild_memory_graph,
     validate_relation_target,
+)
+from app.services.memory_quality import (
+    QualityError,
+    apply_optimization,
+    dismiss_optimization,
+    generate_suggestions,
+    list_optimizations,
+    quality_overview,
+    rollback_optimization,
 )
 
 router = APIRouter(prefix="/memories", tags=["memories"])
@@ -75,6 +99,24 @@ def _memory_out(memory) -> MemoryOut:
 
 
 def _graph_error(exc: GraphError) -> HTTPException:
+    code = (
+        status.HTTP_404_NOT_FOUND
+        if exc.code == "not_found"
+        else status.HTTP_422_UNPROCESSABLE_CONTENT
+    )
+    return HTTPException(code, {"code": exc.code, "message": exc.message})
+
+
+def _quality_error(exc: QualityError) -> HTTPException:
+    code = (
+        status.HTTP_404_NOT_FOUND
+        if exc.code == "not_found"
+        else status.HTTP_422_UNPROCESSABLE_CONTENT
+    )
+    return HTTPException(code, {"code": exc.code, "message": exc.message})
+
+
+def _eval_error(exc: MemoryEvalError) -> HTTPException:
     code = (
         status.HTTP_404_NOT_FOUND
         if exc.code == "not_found"
@@ -380,6 +422,181 @@ async def delete_relation_by_id(
         raise _error(exc) from None
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/quality", response_model=MemoryQualityOut)
+async def get_quality_overview(
+    context: JwtContext, session: SessionDep
+) -> MemoryQualityOut:
+    result = await quality_overview(session, context.workspace.id, context.user.id)
+    return MemoryQualityOut.model_validate(result)
+
+
+@router.post("/quality/analyze", response_model=MemoryQualityOut)
+async def analyze_quality(
+    context: JwtContext, session: SessionDep
+) -> MemoryQualityOut:
+    result = await generate_suggestions(
+        session, context.workspace.id, context.user.id
+    )
+    await session.commit()
+    return MemoryQualityOut.model_validate(result)
+
+
+@router.get("/optimizations", response_model=list[MemoryOptimizationOut])
+async def list_memory_optimizations(
+    context: JwtContext,
+    session: SessionDep,
+    status_filter: Annotated[
+        Literal["pending", "applied", "dismissed", "rolled_back"] | None,
+        Query(alias="status"),
+    ] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> list[MemoryOptimizationOut]:
+    rows = await list_optimizations(
+        session,
+        context.workspace.id,
+        context.user.id,
+        status=status_filter,
+        limit=limit,
+    )
+    return [MemoryOptimizationOut.model_validate(row) for row in rows]
+
+
+@router.post(
+    "/optimizations/{optimization_id}/apply", response_model=MemoryOptimizationOut
+)
+async def apply_memory_optimization(
+    optimization_id: UUID, context: JwtContext, session: SessionDep
+) -> MemoryOptimizationOut:
+    try:
+        row = await apply_optimization(
+            session, context.workspace.id, context.user.id, optimization_id
+        )
+    except QualityError as exc:
+        raise _quality_error(exc) from None
+    await session.commit()
+    await session.refresh(row)
+    return MemoryOptimizationOut.model_validate(row)
+
+
+@router.post(
+    "/optimizations/{optimization_id}/rollback", response_model=MemoryOptimizationOut
+)
+async def rollback_memory_optimization(
+    optimization_id: UUID, context: JwtContext, session: SessionDep
+) -> MemoryOptimizationOut:
+    try:
+        row = await rollback_optimization(
+            session, context.workspace.id, context.user.id, optimization_id
+        )
+    except QualityError as exc:
+        raise _quality_error(exc) from None
+    await session.commit()
+    await session.refresh(row)
+    return MemoryOptimizationOut.model_validate(row)
+
+
+@router.post(
+    "/optimizations/{optimization_id}/dismiss", response_model=MemoryOptimizationOut
+)
+async def dismiss_memory_optimization(
+    optimization_id: UUID, context: JwtContext, session: SessionDep
+) -> MemoryOptimizationOut:
+    try:
+        row = await dismiss_optimization(
+            session, context.workspace.id, context.user.id, optimization_id
+        )
+    except QualityError as exc:
+        raise _quality_error(exc) from None
+    await session.commit()
+    await session.refresh(row)
+    return MemoryOptimizationOut.model_validate(row)
+
+
+@router.get("/eval/cases", response_model=list[MemoryEvalCaseOut])
+async def list_memory_eval_cases(
+    context: JwtContext, session: SessionDep
+) -> list[MemoryEvalCaseOut]:
+    rows = await list_cases(session, context.workspace.id, context.user.id)
+    return [MemoryEvalCaseOut.model_validate(row) for row in rows]
+
+
+@router.post(
+    "/eval/cases", response_model=MemoryEvalCaseOut, status_code=status.HTTP_201_CREATED
+)
+async def create_memory_eval_case(
+    payload: MemoryEvalCaseIn, context: JwtContext, session: SessionDep
+) -> MemoryEvalCaseOut:
+    try:
+        await validate_memory_targets(
+            session,
+            context.workspace.id,
+            project_id=payload.project_id,
+            agent_id=payload.agent_id,
+        )
+        row = await create_case(
+            session,
+            workspace_id=context.workspace.id,
+            user_id=context.user.id,
+            name=payload.name,
+            query=payload.query,
+            expected_memory_ids=payload.expected_memory_ids,
+            project_id=payload.project_id,
+            agent_id=payload.agent_id,
+            notes=payload.notes,
+        )
+    except MemoryError as exc:
+        raise _error(exc) from None
+    except MemoryEvalError as exc:
+        raise _eval_error(exc) from None
+    await session.commit()
+    await session.refresh(row)
+    return MemoryEvalCaseOut.model_validate(row)
+
+
+@router.delete(
+    "/eval/cases/{case_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+async def delete_memory_eval_case(
+    case_id: UUID, context: JwtContext, session: SessionDep
+) -> Response:
+    try:
+        await delete_case(session, context.workspace.id, context.user.id, case_id)
+    except MemoryEvalError as exc:
+        raise _eval_error(exc) from None
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/eval/run", response_model=MemoryEvalRunOut)
+async def run_memory_evaluation(
+    payload: MemoryEvalRunIn, context: JwtContext, session: SessionDep
+) -> MemoryEvalRunOut:
+    try:
+        row = await run_evaluation(
+            session,
+            context.workspace.id,
+            context.user.id,
+            top_k=payload.top_k,
+        )
+    except MemoryEvalError as exc:
+        raise _eval_error(exc) from None
+    await session.commit()
+    await session.refresh(row)
+    return MemoryEvalRunOut.model_validate(row)
+
+
+@router.get("/eval/runs", response_model=list[MemoryEvalRunOut])
+async def list_memory_eval_runs(
+    context: JwtContext,
+    session: SessionDep,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> list[MemoryEvalRunOut]:
+    rows = await list_runs(
+        session, context.workspace.id, context.user.id, limit=limit
+    )
+    return [MemoryEvalRunOut.model_validate(row) for row in rows]
 
 
 @router.get("/{memory_id}", response_model=MemoryOut)
