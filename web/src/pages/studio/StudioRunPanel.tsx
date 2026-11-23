@@ -13,9 +13,14 @@ import type { CustomAgent, RunAccepted, WorkflowRun } from '../../lib/types'
 interface StudioRunPanelProps {
   agent: CustomAgent
   workflowId: string | null
+  onRunId: (runId: string) => void
 }
 
-export function StudioRunPanel({ agent, workflowId }: StudioRunPanelProps) {
+export function StudioRunPanel({
+  agent,
+  workflowId,
+  onRunId,
+}: StudioRunPanelProps) {
   const { t } = useI18n()
   const [input, setInput] = useState('')
   const [runId, setRunId] = useState('')
@@ -42,6 +47,7 @@ export function StudioRunPanel({ agent, workflowId }: StudioRunPanelProps) {
         { method: 'POST', body: { input: input.trim() } },
       )
       setRunId(accepted.run_id)
+      onRunId(accepted.run_id)
     } catch (caught) {
       setError(t(errorTextKey(caught)))
     } finally {

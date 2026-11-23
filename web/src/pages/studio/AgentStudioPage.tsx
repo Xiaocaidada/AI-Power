@@ -61,6 +61,8 @@ export function AgentStudioPage() {
   const [showStructure, setShowStructure] = useState(true)
   const [publishError, setPublishError] = useState<string | null>(null)
   const [publishing, setPublishing] = useState(false)
+  const [builderSessionId, setBuilderSessionId] = useState('')
+  const [lastRunId, setLastRunId] = useState<string | null>(null)
   const draftInitialized = useRef(false)
   const definitionInitialized = useRef(false)
 
@@ -367,13 +369,21 @@ export function AgentStudioPage() {
         {tab === 'builder' && (
           <StudioBuilderPanel
             agentId={agent.id}
+            workflowId={agent.workflow_id}
             definition={definition}
             models={models}
+            sessionId={builderSessionId}
+            onSessionId={setBuilderSessionId}
             onApply={applyBuilder}
+            lastRunId={lastRunId}
           />
         )}
         {tab === 'run' && (
-          <StudioRunPanel agent={agent} workflowId={agent.workflow_id} />
+          <StudioRunPanel
+            agent={agent}
+            workflowId={agent.workflow_id}
+            onRunId={setLastRunId}
+          />
         )}
       </div>
 

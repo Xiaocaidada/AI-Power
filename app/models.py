@@ -415,6 +415,34 @@ class AgentFavorite(Base):
     )
 
 
+class AgentBuilderSession(Base):
+    __tablename__ = "agent_builder_sessions"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    agent_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("custom_agents.id", ondelete="SET NULL"), default=None, index=True
+    )
+    workflow_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("workflows.id", ondelete="SET NULL"), default=None
+    )
+    provider_id: Mapped[str] = mapped_column(String(50))
+    model: Mapped[str] = mapped_column(String(200))
+    messages: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    draft_definition: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    __table_args__ = (
+        Index("ix_agent_builder_sessions_workspace_updated", "workspace_id", "updated_at"),
+    )
+
+
 class Project(Base):
     __tablename__ = "projects"
 

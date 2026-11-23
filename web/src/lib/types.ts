@@ -451,6 +451,60 @@ export interface AgentBuilderResult {
   model: string
 }
 
+export interface AgentBuilderNodeChange {
+  field: string
+  before: unknown
+  after: unknown
+}
+
+export interface AgentBuilderNodeDiff {
+  id: string
+  type: string
+  changes: AgentBuilderNodeChange[]
+}
+
+export interface AgentBuilderDiff {
+  added_nodes: { id: string; type: string }[]
+  removed_nodes: { id: string; type: string }[]
+  updated_nodes: AgentBuilderNodeDiff[]
+  added_edges: { from: string; to: string; when?: string | null }[]
+  removed_edges: { from: string; to: string; when?: string | null }[]
+}
+
+export interface AgentBuilderMessage {
+  role: 'user' | 'assistant'
+  kind: string
+  content: string
+  summary?: string
+  definition?: WorkflowDefinition | null
+  diff?: AgentBuilderDiff | null
+  missing_resources?: string[]
+  suggestions?: string[]
+  run_id?: string | null
+  created_at?: string
+}
+
+export interface AgentBuilderSession {
+  id: string
+  agent_id: string | null
+  workflow_id: string | null
+  provider_id: string
+  model: string
+  messages: AgentBuilderMessage[]
+  draft_definition: WorkflowDefinition
+  created_at: string
+  updated_at: string
+}
+
+export interface AgentBuilderTurn {
+  session_id: string
+  message: string
+  definition: WorkflowDefinition | null
+  diff: AgentBuilderDiff | null
+  missing_resources: string[]
+  suggestions: string[]
+}
+
 export interface Plugin {
   id: string
   slug: string
