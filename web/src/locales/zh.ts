@@ -1607,6 +1607,7 @@ export const zh = {
       topUsed: '高频使用',
       recent: '最近更新',
     },
+    candidate: { accept: '接受', reject: '拒绝' },
     relations: { title: '关联关系', empty: '暂无关联。' },
     versions: { title: '历史版本', restore: '恢复' },
     settings: {

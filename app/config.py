@@ -125,6 +125,12 @@ class Settings(BaseSettings):
     agent_memory_inject_chars: int = 2000
     memory_embedding_enabled: bool = True
     memory_embedding_timeout_seconds: float = 10.0
+    memory_extraction_enabled: bool = True
+    memory_extraction_provider_id: str = ""
+    memory_extraction_model: str = ""
+    memory_extraction_max_chars: int = 6000
+    memory_extraction_max_candidates: int = 5
+    memory_extraction_min_confidence: float = 0.5
     code_node_max_output_chars: int = 20000
     database_node_max_rows: int = 100
     database_node_timeout_seconds: float = 15.0

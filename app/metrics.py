@@ -164,6 +164,14 @@ metrics.describe(
     "ai_power_knowledge_optimizations_total",
     "Knowledge optimization actions",
 )
+metrics.describe(
+    "ai_power_memory_extractions_total",
+    "Memory extraction runs by status",
+)
+metrics.describe(
+    "ai_power_memory_candidates_total",
+    "Memory candidate review actions",
+)
 
 
 class MetricsMiddleware(BaseHTTPMiddleware):

@@ -19,6 +19,7 @@ import { useI18n } from '../../lib/i18n'
 import type {
   AgentMemory,
   CustomAgent,
+  MemoryCandidate,
   MemoryCategory,
   MemorySettings,
   MemoryStats,
@@ -89,6 +90,12 @@ export function MemoryPage() {
     queryFn: () => apiRequest<MemoryUsage[]>('/memories/usage?limit=100'),
     enabled: tab === 'usage',
   })
+  const candidates = useQuery({
+    queryKey: ['memory-candidates'],
+    queryFn: () =>
+      apiRequest<MemoryCandidate[]>('/memories/candidates?status=pending'),
+    enabled: tab === 'pending',
+  })
   const effectiveStatus = tab === 'pending' ? 'candidate' : status
   const memories = useQuery({
     queryKey: [
@@ -113,7 +120,7 @@ export function MemoryPage() {
           ...(favoriteOnly ? { favorite: 'true' } : {}),
         }).toString()}`,
       ),
-    enabled: tab === 'all' || tab === 'pending',
+    enabled: tab === 'all',
   })
 
   const refresh = async () => {
@@ -130,6 +137,20 @@ export function MemoryPage() {
       body: { [key]: !memory[key] },
     })
     await refresh()
+  }
+
+  const reviewCandidate = async (
+    candidate: MemoryCandidate,
+    action: 'accept' | 'reject',
+  ) => {
+    await apiRequest(`/memories/candidates/${candidate.id}/${action}`, {
+      method: 'POST',
+      ...(action === 'accept' ? { body: {} } : {}),
+    })
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['memory-candidates'] }),
+      refresh(),
+    ])
   }
 
   const remove = async (memory: AgentMemory) => {
@@ -186,7 +207,7 @@ export function MemoryPage() {
           <Overview stats={stats.data} loading={stats.isLoading} onOpen={setDetail} />
         )}
 
-        {(tab === 'all' || tab === 'pending') && (
+        {tab === 'all' && (
           <div className="space-y-4">
             <div className="flex flex-wrap gap-2">
               <input
@@ -207,10 +228,9 @@ export function MemoryPage() {
                   </option>
                 ))}
               </select>
-              {tab === 'all' && (
-                <>
-                  <select
-                    value={status}
+              <>
+                <select
+                  value={status}
                     onChange={(event) => setStatus(event.target.value)}
                     className="h-9 rounded-lg border border-border bg-surface px-2 text-sm text-ink"
                   >
@@ -234,7 +254,6 @@ export function MemoryPage() {
                     ))}
                   </select>
                 </>
-              )}
               <select
                 value={scopeType}
                 onChange={(event) => setScopeType(event.target.value)}
@@ -270,16 +289,8 @@ export function MemoryPage() {
             {memories.isLoading && <Spinner />}
             {!memories.isLoading && rows.length === 0 && (
               <EmptyState
-                title={
-                  tab === 'pending'
-                    ? t('memory.pendingEmpty')
-                    : t('memory.empty')
-                }
-                description={
-                  tab === 'pending'
-                    ? t('memory.pendingEmptyLead')
-                    : t('memory.emptyLead')
-                }
+                title={t('memory.empty')}
+                description={t('memory.emptyLead')}
               />
             )}
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -291,6 +302,28 @@ export function MemoryPage() {
                   onEdit={() => setEditing(memory)}
                   onDelete={() => void remove(memory)}
                   onToggle={(key) => void toggleFlag(memory, key)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {tab === 'pending' && (
+          <div className="space-y-3">
+            {candidates.isLoading && <Spinner />}
+            {!candidates.isLoading && (candidates.data ?? []).length === 0 && (
+              <EmptyState
+                title={t('memory.pendingEmpty')}
+                description={t('memory.pendingEmptyLead')}
+              />
+            )}
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {(candidates.data ?? []).map((candidate) => (
+                <CandidateCard
+                  key={candidate.id}
+                  candidate={candidate}
+                  onAccept={() => void reviewCandidate(candidate, 'accept')}
+                  onReject={() => void reviewCandidate(candidate, 'reject')}
                 />
               ))}
             </div>
@@ -395,7 +428,11 @@ function Overview({
   const cards = [
     { label: t('memory.stats.total'), value: stats.total, tone: 'accent' },
     { label: t('memory.stats.active'), value: stats.active, tone: 'success' },
-    { label: t('memory.stats.pending'), value: stats.pending, tone: 'warning' },
+    {
+      label: t('memory.stats.pending'),
+      value: stats.pending + (stats.candidates_pending ?? 0),
+      tone: 'warning',
+    },
     { label: t('memory.stats.conflict'), value: stats.conflict, tone: 'danger' },
   ] as const
   return (
@@ -496,6 +533,56 @@ function Overview({
         </div>
       </section>
     </div>
+  )
+}
+
+function CandidateCard({
+  candidate,
+  onAccept,
+  onReject,
+}: {
+  candidate: MemoryCandidate
+  onAccept: () => void
+  onReject: () => void
+}) {
+  const { t } = useI18n()
+  return (
+    <article className="flex flex-col rounded-2xl border border-dashed border-accent/40 bg-surface p-4">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Badge tone="accent">{t(`memory.category.${candidate.category}`)}</Badge>
+        <Badge tone="neutral">{t(`memory.scopeType.${candidate.scope_type}`)}</Badge>
+        <Badge tone={candidate.suggested_action === 'update' ? 'warning' : 'neutral'}>
+          {candidate.suggested_action}
+        </Badge>
+        <span className="ml-auto text-[10px] text-ink-muted">
+          {(candidate.confidence * 100).toFixed(0)}%
+        </span>
+      </div>
+      <p className="mt-2 text-sm font-medium text-ink">
+        {candidate.title || candidate.content.slice(0, 40)}
+      </p>
+      <p className="mt-1 line-clamp-4 whitespace-pre-wrap text-xs text-ink-muted">
+        {candidate.content}
+      </p>
+      {candidate.reason !== '' && (
+        <p className="mt-1 text-[10px] text-ink-muted">{candidate.reason}</p>
+      )}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {candidate.tags.map((tag) => (
+          <Badge key={tag} tone="neutral">
+            {tag}
+          </Badge>
+        ))}
+        <div className="ml-auto flex gap-1">
+          <Button size="sm" onClick={onAccept}>
+            {t('memory.candidate.accept')}
+          </Button>
+          <Button size="sm" variant="secondary" onClick={onReject}>
+            {t('memory.candidate.reject')}
+          </Button>
+        </div>
+      </div>
+    </article>
   )
 }
 

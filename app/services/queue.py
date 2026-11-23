@@ -24,6 +24,8 @@ class JobQueue(Protocol):
 
     async def enqueue_collaboration_run(self, run_id: UUID) -> None: ...
 
+    async def enqueue_memory_extraction(self, message_id: UUID) -> None: ...
+
 
 class ArqJobQueue:
     def __init__(self, pool: Any) -> None:
@@ -72,6 +74,13 @@ class ArqJobQueue:
             "run_collaboration_job",
             str(run_id),
             _job_id=f"collab:{run_id}",
+        )
+
+    async def enqueue_memory_extraction(self, message_id: UUID) -> None:
+        await self._pool.enqueue_job(
+            "run_memory_extraction_job",
+            str(message_id),
+            _job_id=f"memextract:{message_id}",
         )
 
 

@@ -1329,10 +1329,49 @@ class MemoryUsageOut(BaseModel):
     created_at: datetime
 
 
+class MemoryCandidateOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    project_id: UUID | None = None
+    agent_id: UUID | None = None
+    target_memory_id: UUID | None = None
+    source_type: str
+    source_id: str | None = None
+    source_ref: dict[str, object] = Field(default_factory=dict)
+    extracted_by: str | None = None
+    suggested_action: str
+    category: str
+    scope_type: str
+    title: str
+    content: str
+    tags: list[str] = Field(default_factory=list)
+    confidence: float
+    sensitivity: str
+    status: str
+    reason: str
+    created_at: datetime
+    reviewed_at: datetime | None = None
+
+
+class MemoryCandidateAcceptIn(BaseModel):
+    title: str | None = Field(default=None, max_length=120)
+    content: str | None = Field(default=None, min_length=1, max_length=10000)
+    category: MemoryCategory | None = None
+    scope_type: MemoryScopeType | None = None
+    tags: list[str] | None = Field(default=None, max_length=20)
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def clean_tags(cls, value: object) -> object:
+        return _clean_memory_tags(value)
+
+
 class MemoryStatsOut(BaseModel):
     total: int
     active: int
     pending: int
+    candidates_pending: int = 0
     conflict: int
     expired: int
     archived: int

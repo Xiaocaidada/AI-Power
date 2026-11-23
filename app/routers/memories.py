@@ -9,6 +9,8 @@ from app.deps import AuthContext, get_jwt_context
 from app.schemas import (
     MemoryBatchIn,
     MemoryBatchOut,
+    MemoryCandidateAcceptIn,
+    MemoryCandidateOut,
     MemoryIn,
     MemoryOut,
     MemoryRelationIn,
@@ -37,6 +39,12 @@ from app.services.memories import (
     restore_memory_version,
     update_memory,
     update_memory_settings,
+)
+from app.services.memory_extraction import (
+    accept_candidate,
+    get_candidate,
+    list_candidates,
+    reject_candidate,
 )
 
 router = APIRouter(prefix="/memories", tags=["memories"])
@@ -225,6 +233,80 @@ async def batch_update(
         raise _error(exc) from None
     await session.commit()
     return MemoryBatchOut(updated=updated)
+
+
+@router.get("/candidates", response_model=list[MemoryCandidateOut])
+async def list_memory_candidates(
+    context: JwtContext,
+    session: SessionDep,
+    status_filter: Annotated[
+        Literal["pending", "duplicate", "accepted", "rejected", "merged"]
+        | None,
+        Query(alias="status"),
+    ] = "pending",
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> list[MemoryCandidateOut]:
+    rows = await list_candidates(
+        session,
+        context.workspace.id,
+        context.user.id,
+        status=status_filter or "pending",
+        limit=limit,
+    )
+    return [MemoryCandidateOut.model_validate(row) for row in rows]
+
+
+@router.post(
+    "/candidates/{candidate_id}/accept", response_model=MemoryOut
+)
+async def accept_memory_candidate(
+    candidate_id: UUID,
+    payload: MemoryCandidateAcceptIn,
+    context: JwtContext,
+    session: SessionDep,
+) -> MemoryOut:
+    try:
+        candidate = await get_candidate(
+            session, context.workspace.id, context.user.id, candidate_id
+        )
+        if payload.title is not None:
+            candidate.title = payload.title.strip()[:120]
+        if payload.content is not None:
+            candidate.content = payload.content.strip()
+        if payload.category is not None:
+            candidate.category = payload.category
+        if payload.scope_type is not None:
+            candidate.scope_type = payload.scope_type
+        if payload.tags is not None:
+            candidate.tags = payload.tags
+        memory = await accept_candidate(
+            session, candidate, user_id=context.user.id
+        )
+    except MemoryError as exc:
+        raise _error(exc) from None
+    await session.commit()
+    await session.refresh(memory)
+    return _memory_out(memory)
+
+
+@router.post(
+    "/candidates/{candidate_id}/reject", response_model=MemoryCandidateOut
+)
+async def reject_memory_candidate(
+    candidate_id: UUID,
+    context: JwtContext,
+    session: SessionDep,
+) -> MemoryCandidateOut:
+    try:
+        candidate = await get_candidate(
+            session, context.workspace.id, context.user.id, candidate_id
+        )
+        await reject_candidate(session, candidate)
+    except MemoryError as exc:
+        raise _error(exc) from None
+    await session.commit()
+    await session.refresh(candidate)
+    return MemoryCandidateOut.model_validate(candidate)
 
 
 @router.get("/{memory_id}", response_model=MemoryOut)
