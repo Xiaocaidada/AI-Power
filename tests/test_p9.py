@@ -1,3 +1,6 @@
+from uuid import UUID
+
+
 async def _create_kb(client, headers, name="P9 KB"):
     return await client.post("/knowledge-bases", json={"name": name}, headers=headers)
 
@@ -202,3 +205,226 @@ async def test_knowledge_process_cannot_run_agent_workflow_kind(client, api):
     listed = await client.get("/workflows?kind=knowledge_process", headers=headers)
     assert listed.status_code == 200
     assert all(item["kind"] == "knowledge_process" for item in listed.json())
+
+
+async def test_bound_workflow_runs_on_upload_and_reprocess(
+    client, api, fake_retrieval
+):
+    headers = await api.headers("p9-auto@example.com")
+    kb = await _create_kb(client, headers, name="Auto KB")
+    kb_id = kb.json()["id"]
+
+    created = await client.post(
+        "/workflows",
+        json={
+            "name": "Auto process",
+            "kind": "knowledge_process",
+            "definition": _pipeline_definition(),
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    workflow = created.json()
+    version_id = workflow["versions"][0]["id"]
+    bound = await client.put(
+        f"/knowledge-bases/{kb_id}/processing/binding",
+        json={"workflow_version_id": version_id},
+        headers=headers,
+    )
+    assert bound.status_code == 200, bound.text
+
+    uploaded = await _upload(
+        client,
+        headers,
+        kb_id,
+        content=b"one two three four five six seven eight nine ten eleven twelve",
+    )
+    assert uploaded.status_code == 202, uploaded.text
+    document_id = uploaded.json()["id"]
+    detail = await client.get(f"/documents/{document_id}", headers=headers)
+    assert detail.json()["status"] == "ready", detail.text
+
+    runs = await client.get(
+        f"/knowledge-bases/{kb_id}/processing/runs?document_id={document_id}",
+        headers=headers,
+    )
+    assert runs.status_code == 200, runs.text
+    assert runs.json()
+    run = runs.json()[0]
+    assert run["status"] == "completed"
+    assert run["applied_at"] is not None
+    assert run["input_payload"]["document_id"] == document_id
+
+    from app.db import SessionLocal
+    from app.models import Document
+
+    async with SessionLocal() as session:
+        stored = await session.get(Document, UUID(document_id))
+        assert stored is not None
+        assert stored.process_version_id is not None
+
+    reprocessed = await client.post(
+        f"/documents/{document_id}/reprocess", headers=headers
+    )
+    assert reprocessed.status_code == 202, reprocessed.text
+    again = await client.get(f"/documents/{document_id}", headers=headers)
+    assert again.json()["status"] == "ready"
+    runs_after = await client.get(
+        f"/knowledge-bases/{kb_id}/processing/runs?document_id={document_id}",
+        headers=headers,
+    )
+    assert len(runs_after.json()) >= 2
+
+
+def _retrieval_definition() -> dict:
+    return {
+        "nodes": [
+            {"id": "start", "type": "start", "config": {}},
+            {
+                "id": "hybrid",
+                "type": "hybrid_search",
+                "config": {"top_k": 10, "candidate_k": 20},
+            },
+            {"id": "top", "type": "top_k", "config": {"top_k": 5}},
+            {"id": "context", "type": "context", "config": {"max_chars": 4000}},
+            {"id": "out", "type": "output", "config": {}},
+        ],
+        "edges": [
+            {"from": "start", "to": "hybrid"},
+            {"from": "hybrid", "to": "top"},
+            {"from": "top", "to": "context"},
+            {"from": "context", "to": "out"},
+        ],
+    }
+
+
+async def test_retrieval_canvas_binding_and_chat_path(
+    client, api, fake_ingestion, fake_retrieval
+):
+    headers = await api.headers("p9-retrieval@example.com")
+    kb = await _create_kb(client, headers, name="Retrieval KB")
+    kb_id = kb.json()["id"]
+    document = await _upload(client, headers, kb_id, content=b"hello retrieval world")
+    assert document.status_code == 202
+
+    created = await client.post(
+        "/workflows",
+        json={
+            "name": "Hybrid retrieval",
+            "kind": "knowledge_retrieval",
+            "definition": _retrieval_definition(),
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    workflow = created.json()
+    version_id = workflow["versions"][0]["id"]
+
+    catalog = await client.get(
+        "/workflows/catalog?kind=knowledge_retrieval", headers=headers
+    )
+    assert catalog.status_code == 200
+    types = {item["type"] for item in catalog.json()["nodes"]}
+    assert {"start", "hybrid_search", "rerank", "context", "output"} <= types
+    assert catalog.json()["templates"]
+
+    bound = await client.put(
+        f"/knowledge-bases/{kb_id}/retrieval/binding",
+        json={"workflow_version_id": version_id},
+        headers=headers,
+    )
+    assert bound.status_code == 200, bound.text
+    assert bound.json()["kind"] == "knowledge_retrieval"
+
+    tested = await client.post(
+        f"/knowledge-bases/{kb_id}/retrieval/test",
+        json={"query": "hello", "workflow_version_id": version_id},
+        headers=headers,
+    )
+    assert tested.status_code == 200, tested.text
+    body = tested.json()
+    assert body["results"]
+    assert body["context"]
+    assert body["nodes"]
+    assert body["results"][0]["chunk_id"]
+
+    searched = await client.post(
+        f"/knowledge-bases/{kb_id}/retrieval/search",
+        json={"query": "hello", "top_k": 5},
+        headers=headers,
+    )
+    assert searched.status_code == 200, searched.text
+    assert searched.json()["mode"] == "workflow"
+    assert searched.json()["results"]
+
+
+async def test_retrieval_workflow_rejects_branches(client, api):
+    headers = await api.headers("p9-retrieval-invalid@example.com")
+    definition = _retrieval_definition()
+    definition["edges"].append({"from": "start", "to": "top"})
+    rejected = await client.post(
+        "/workflows",
+        json={
+            "name": "Bad retrieval",
+            "kind": "knowledge_retrieval",
+            "definition": definition,
+        },
+        headers=headers,
+    )
+    assert rejected.status_code == 422
+
+
+async def test_broken_retrieval_workflow_falls_back_to_builtin(
+    client, api, fake_ingestion, fake_retrieval
+):
+    headers = await api.headers("p9-retrieval-fallback@example.com")
+    kb = await _create_kb(client, headers, name="Fallback KB")
+    kb_id = kb.json()["id"]
+    document = await _upload(client, headers, kb_id, content=b"fallback query content")
+    assert document.status_code == 202
+
+    definition = {
+        "nodes": [
+            {"id": "start", "type": "start", "config": {}},
+            {
+                "id": "rewrite",
+                "type": "rewrite_query",
+                "config": {
+                    "provider_id": "missing-provider",
+                    "model": "missing-model",
+                    "prompt": "{{query}}",
+                },
+            },
+            {"id": "vector", "type": "vector_search", "config": {"top_k": 5}},
+            {"id": "out", "type": "output", "config": {}},
+        ],
+        "edges": [
+            {"from": "start", "to": "rewrite"},
+            {"from": "rewrite", "to": "vector"},
+            {"from": "vector", "to": "out"},
+        ],
+    }
+    created = await client.post(
+        "/workflows",
+        json={
+            "name": "Broken rewrite",
+            "kind": "knowledge_retrieval",
+            "definition": definition,
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    version_id = created.json()["versions"][0]["id"]
+    await client.put(
+        f"/knowledge-bases/{kb_id}/retrieval/binding",
+        json={"workflow_version_id": version_id},
+        headers=headers,
+    )
+    searched = await client.post(
+        f"/knowledge-bases/{kb_id}/retrieval/search",
+        json={"query": "fallback", "top_k": 5},
+        headers=headers,
+    )
+    assert searched.status_code == 200, searched.text
+    assert searched.json()["mode"] != "workflow"
+    assert searched.json()["results"]

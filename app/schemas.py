@@ -585,6 +585,28 @@ class KnowledgeProcessPreviewOut(BaseModel):
     applied: bool = False
 
 
+class KnowledgeRetrievalTestIn(BaseModel):
+    query: str = Field(min_length=1, max_length=2000)
+    workflow_version_id: UUID | None = None
+    top_k: int = Field(default=8, ge=1, le=50)
+
+    @field_validator("query", mode="before")
+    @classmethod
+    def strip_query(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class KnowledgeRetrievalTestOut(BaseModel):
+    query: str
+    rewritten_query: str = ""
+    mode: str = "builtin"
+    context: str = ""
+    results: list[RetrievalHitOut] = Field(default_factory=list)
+    citations: list[dict] = Field(default_factory=list)
+    nodes: list[dict] = Field(default_factory=list)
+    timings: dict = Field(default_factory=dict)
+
+
 class KnowledgeProcessApplyOut(BaseModel):
     document_id: UUID
     chunks: int

@@ -32,6 +32,7 @@ import { NewChatPage } from './pages/chat/NewChatPage'
 import { EvaluationPage } from './pages/evaluation/EvaluationPage'
 import { KnowledgeDetailPage } from './pages/knowledge/KnowledgeDetailPage'
 import { KnowledgePage } from './pages/knowledge/KnowledgePage'
+import { KnowledgeRetrievalStudioPage } from './pages/knowledge/KnowledgeRetrievalStudioPage'
 import { KnowledgeStudioPage } from './pages/knowledge/KnowledgeStudioPage'
 import { LoginPage } from './pages/LoginPage'
 import { MemoryPage } from './pages/memory/MemoryPage'
@@ -142,6 +143,7 @@ export function App() {
           <Route path="knowledge" element={<KnowledgePage />} />
           <Route path="knowledge/:id" element={<KnowledgeDetailPage />} />
           <Route path="knowledge/:id/studio" element={<KnowledgeStudioPage />} />
+          <Route path="knowledge/:id/retrieval" element={<KnowledgeRetrievalStudioPage />} />
           <Route path="evaluation" element={<EvaluationPage />} />
           <Route
             path="usage"

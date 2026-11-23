@@ -22,6 +22,7 @@ import {
   Code,
   Database,
   Eraser,
+  Filter,
   Scissors,
   FileText,
   Flag,
@@ -29,6 +30,8 @@ import {
   GitFork,
   GitMerge,
   Globe,
+  Layers,
+  ListOrdered,
   MessageSquare,
   Play,
   Plug,
@@ -73,6 +76,13 @@ const ICONS = {
   chunk_text: Scissors,
   embed_chunks: Boxes,
   index_knowledge: Database,
+  rewrite_query: Sparkles,
+  vector_search: Boxes,
+  lexical_search: FileText,
+  hybrid_search: GitMerge,
+  rerank: ListOrdered,
+  top_k: Filter,
+  context: Layers,
 }
 
 function StudioNodeCard({ data, selected }: NodeProps<StudioNode>) {

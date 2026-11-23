@@ -829,6 +829,13 @@ export interface WorkflowNodeDefinition {
     | 'chunk_text'
     | 'embed_chunks'
     | 'index_knowledge'
+    | 'rewrite_query'
+    | 'vector_search'
+    | 'lexical_search'
+    | 'hybrid_search'
+    | 'rerank'
+    | 'top_k'
+    | 'context'
   config: Record<string, unknown>
   ui?: { x: number; y: number } | null
 }
@@ -893,6 +900,26 @@ export interface KnowledgeProcessDraft {
   text: string
   meta: Record<string, unknown>
   embedded: boolean
+}
+
+export interface KnowledgeRetrievalTestNode {
+  node_id: string
+  node_type: string
+  status: string
+  duration_ms: number
+  count: number
+  error_code: string | null
+}
+
+export interface KnowledgeRetrievalTestResult {
+  query: string
+  rewritten_query: string
+  mode: string
+  context: string
+  results: RetrievalHit[]
+  citations: Record<string, unknown>[]
+  nodes: KnowledgeRetrievalTestNode[]
+  timings: Record<string, number>
 }
 
 export interface KnowledgeProcessPreview {

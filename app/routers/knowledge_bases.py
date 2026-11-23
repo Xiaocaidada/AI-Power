@@ -35,6 +35,8 @@ from app.schemas import (
     KnowledgeProcessBindingIn,
     KnowledgeProcessBindingOut,
     KnowledgeProcessPreviewOut,
+    KnowledgeRetrievalTestIn,
+    KnowledgeRetrievalTestOut,
     RetrievalHitOut,
     RetrievalSearchIn,
     RetrievalSearchOut,
@@ -49,8 +51,14 @@ from app.services.knowledge.apply import (
     draft_preview,
     run_document_id,
 )
+from app.services.knowledge.retrieval_pipeline import (
+    RetrievalWorkflowError,
+    run_retrieval_workflow,
+)
+from app.services.knowledge.retrieval_schema import validate_knowledge_retrieval
 from app.services.knowledge_settings import KnowledgeBaseSettings, resolve_kb_settings
-from app.services.retrieval import retrieve_with_diagnostics
+from app.services.rag import fit_context
+from app.services.retrieval import build_citations, retrieve_with_diagnostics
 
 router = APIRouter(prefix="/knowledge-bases", tags=["knowledge-bases"])
 
@@ -503,4 +511,182 @@ async def apply_processing_run(
         document_id=document.id,
         chunks=result["chunks"],
         applied_at=run.applied_at or datetime.now(UTC),
+    )
+
+
+@router.get(
+    "/{kb_id}/retrieval/binding", response_model=KnowledgeProcessBindingOut
+)
+async def get_retrieval_binding(
+    kb_id: UUID, context: JwtContext, session: SessionDep
+) -> KnowledgeProcessBindingOut:
+    kb = await get_owned_knowledge_base(kb_id, context.workspace.id, session)
+    if kb.retrieval_workflow_version_id is None:
+        return KnowledgeProcessBindingOut(kind="knowledge_retrieval")
+    version = await session.get(WorkflowVersion, kb.retrieval_workflow_version_id)
+    if version is None:
+        return KnowledgeProcessBindingOut(kind="knowledge_retrieval")
+    workflow = await session.get(Workflow, version.workflow_id)
+    return KnowledgeProcessBindingOut(
+        workflow_version_id=version.id,
+        workflow_id=version.workflow_id,
+        version=version.version,
+        kind="knowledge_retrieval",
+        name=workflow.name if workflow is not None else "",
+    )
+
+
+@router.put(
+    "/{kb_id}/retrieval/binding", response_model=KnowledgeProcessBindingOut
+)
+async def bind_retrieval_workflow(
+    kb_id: UUID,
+    payload: KnowledgeProcessBindingIn,
+    context: JwtContext,
+    session: SessionDep,
+) -> KnowledgeProcessBindingOut:
+    kb = await get_owned_knowledge_base(kb_id, context.workspace.id, session)
+    if payload.workflow_version_id is None:
+        kb.retrieval_workflow_version_id = None
+        await session.commit()
+        return KnowledgeProcessBindingOut(kind="knowledge_retrieval")
+    version = await session.get(WorkflowVersion, payload.workflow_version_id)
+    if version is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Workflow version not found")
+    workflow = await session.get(Workflow, version.workflow_id)
+    if (
+        workflow is None
+        or workflow.workspace_id != context.workspace.id
+        or workflow.deleted_at is not None
+        or workflow.kind != "knowledge_retrieval"
+    ):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {"code": "invalid_workflow", "message": "Not a knowledge retrieval workflow"},
+        )
+    kb.retrieval_workflow_version_id = version.id
+    await session.commit()
+    return KnowledgeProcessBindingOut(
+        workflow_version_id=version.id,
+        workflow_id=workflow.id,
+        version=version.version,
+        kind="knowledge_retrieval",
+        name=workflow.name,
+    )
+
+
+@router.post(
+    "/{kb_id}/retrieval/test", response_model=KnowledgeRetrievalTestOut
+)
+async def test_retrieval_workflow(
+    kb_id: UUID,
+    payload: KnowledgeRetrievalTestIn,
+    context: JwtContext,
+    session: SessionDep,
+) -> KnowledgeRetrievalTestOut:
+    kb = await get_owned_knowledge_base(kb_id, context.workspace.id, session)
+    version_id = payload.workflow_version_id or kb.retrieval_workflow_version_id
+    if version_id is not None:
+        version = await session.get(WorkflowVersion, version_id)
+        workflow = await session.get(Workflow, version.workflow_id) if version else None
+        if (
+            version is None
+            or workflow is None
+            or workflow.workspace_id != context.workspace.id
+            or workflow.kind != "knowledge_retrieval"
+        ):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                {"code": "invalid_workflow", "message": "Retrieval workflow not found"},
+            )
+        try:
+            definition = validate_knowledge_retrieval(version.definition)
+            result = await run_retrieval_workflow(
+                session,
+                definition=definition,
+                workspace_id=context.workspace.id,
+                kb_ids=[kb.id],
+                query=payload.query,
+                user_id=context.user.id,
+                collect_traces=True,
+            )
+        except RetrievalWorkflowError as exc:
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                {"code": exc.code, "message": exc.message},
+            ) from None
+        return KnowledgeRetrievalTestOut(
+            query=payload.query,
+            rewritten_query=result.rewritten_query,
+            mode=result.mode,
+            context=result.context,
+            results=[_retrieval_hit(chunk) for chunk in result.selected],
+            citations=[
+                {
+                    "index": citation.index,
+                    "document_id": str(citation.document_id),
+                    "chunk_id": str(citation.chunk_id),
+                    "page_no": citation.page_no,
+                    "snippet": citation.snippet,
+                }
+                for citation in result.citations
+            ],
+            nodes=[
+                {
+                    "node_id": trace.node_id,
+                    "node_type": trace.node_type,
+                    "status": trace.status,
+                    "duration_ms": trace.duration_ms,
+                    "count": trace.count,
+                    "error_code": trace.error_code,
+                }
+                for trace in result.traces
+            ],
+            timings={"total_ms": sum(trace.duration_ms for trace in result.traces)},
+        )
+
+    outcome = await retrieve_with_diagnostics(
+        session,
+        workspace_id=context.workspace.id,
+        kb_id=kb.id,
+        query=payload.query,
+        top_k=payload.top_k,
+    )
+    selected = fit_context(outcome.chunks, resolve_kb_settings(kb).retrieval.top_k * 1200)
+    citations = build_citations(selected)
+    return KnowledgeRetrievalTestOut(
+        query=payload.query,
+        mode=outcome.mode,
+        context="\n\n".join(
+            f"[{index}] {chunk.text}"
+            for index, chunk in enumerate(selected, start=1)
+        ),
+        results=[_retrieval_hit(chunk) for chunk in outcome.chunks],
+        citations=[
+            {
+                "index": citation.index,
+                "document_id": str(citation.document_id),
+                "chunk_id": str(citation.chunk_id),
+                "page_no": citation.page_no,
+                "snippet": citation.snippet,
+            }
+            for citation in citations
+        ],
+        timings=outcome.timings,
+    )
+
+
+def _retrieval_hit(chunk) -> RetrievalHitOut:
+    return RetrievalHitOut(
+        chunk_id=chunk.chunk_id,
+        document_id=chunk.document_id,
+        filename=chunk.filename,
+        page_no=chunk.page_no,
+        chunk_index=chunk.chunk_index,
+        text=chunk.text,
+        distance=chunk.distance,
+        vector_rank=chunk.vector_rank,
+        lexical_rank=chunk.lexical_rank,
+        fused_score=chunk.fused_score,
+        rerank_score=chunk.rerank_score,
     )
