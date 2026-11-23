@@ -213,3 +213,45 @@ export async function streamReply({
     onEvent,
   )
 }
+
+export interface StreamPromptOutputOptions {
+  experimentId: string
+  outputId: string
+  signal?: AbortSignal
+  onEvent: SseHandler
+}
+
+export async function streamPromptOutput({
+  experimentId,
+  outputId,
+  signal,
+  onEvent,
+}: StreamPromptOutputOptions): Promise<void> {
+  return streamResponse(
+    `${API_BASE}/prompt-lab/experiments/${experimentId}/outputs/${outputId}/stream`,
+    {},
+    signal,
+    onEvent,
+  )
+}
+
+export interface StreamArenaResponseOptions {
+  roundId: string
+  responseId: string
+  signal?: AbortSignal
+  onEvent: SseHandler
+}
+
+export async function streamArenaResponse({
+  roundId,
+  responseId,
+  signal,
+  onEvent,
+}: StreamArenaResponseOptions): Promise<void> {
+  return streamResponse(
+    `${API_BASE}/arena/rounds/${roundId}/responses/${responseId}/stream`,
+    {},
+    signal,
+    onEvent,
+  )
+}

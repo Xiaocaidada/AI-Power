@@ -564,10 +564,28 @@ class RunCancelOut(BaseModel):
     cancel_requested_at: datetime | None
 
 
+class PromptVariableDefinition(BaseModel):
+    name: str = Field(min_length=1, max_length=50)
+    description: str = Field(default="", max_length=200)
+    required: bool = True
+    default: str = Field(default="", max_length=2000)
+
+
+class GenerationSettings(BaseModel):
+    temperature: float | None = None
+    max_tokens: int | None = None
+    top_p: float | None = None
+
+
 class PromptVersionCreate(BaseModel):
     system_prompt: str = Field(min_length=1, max_length=20000)
+    user_prompt: str = Field(default="", max_length=20000)
+    variable_definitions: list[PromptVariableDefinition] = Field(
+        default_factory=list, max_length=50
+    )
+    parameters: GenerationSettings = Field(default_factory=GenerationSettings)
 
-    @field_validator("system_prompt", mode="before")
+    @field_validator("system_prompt", "user_prompt", mode="before")
     @classmethod
     def strip_prompt(cls, value: object) -> object:
         return value.strip() if isinstance(value, str) else value
@@ -610,7 +628,10 @@ class PromptVersionOut(BaseModel):
     id: UUID
     version: int
     system_prompt: str
+    user_prompt: str = ""
     variables: list[str]
+    variable_definitions: list[dict] = Field(default_factory=list)
+    parameters: dict = Field(default_factory=dict)
     created_at: datetime
 
 
@@ -619,6 +640,7 @@ class PromptTemplateOut(BaseModel):
     name: str
     description: str
     category: str = "general"
+    scope: str = "workspace"
     favorite: bool = False
     created_at: datetime
     versions: list[PromptVersionOut] = Field(default_factory=list)
@@ -626,8 +648,73 @@ class PromptTemplateOut(BaseModel):
 
 class PromptRenderOut(BaseModel):
     rendered: str
+    system_prompt: str = ""
+    user_prompt: str = ""
     version: int
     variables: list[str]
+    missing: list[str] = Field(default_factory=list)
+
+
+class PromptDiffLineOut(BaseModel):
+    type: Literal["equal", "insert", "delete"]
+    old_line: int | None = None
+    new_line: int | None = None
+    text: str = ""
+
+
+class PromptDiffOut(BaseModel):
+    from_version: int
+    to_version: int
+    system: list[PromptDiffLineOut] = Field(default_factory=list)
+    user: list[PromptDiffLineOut] = Field(default_factory=list)
+
+
+class ArenaModelIn(BaseModel):
+    provider_id: str = Field(min_length=1, max_length=50)
+    model: str = Field(min_length=1, max_length=200)
+
+
+class PromptExperimentCreate(BaseModel):
+    template_id: UUID
+    version: int | None = None
+    variables: dict[str, str] = Field(default_factory=dict)
+    models: list[ArenaModelIn] = Field(min_length=1, max_length=4)
+    parameters: GenerationSettings = Field(default_factory=GenerationSettings)
+
+
+class PromptExperimentOutputOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    provider_id: str
+    model: str
+    status: str
+    content: str
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    cost: float = 0.0
+    ttft_ms: float | None = None
+    total_ms: float | None = None
+    error_code: str | None = None
+
+
+class PromptExperimentOut(BaseModel):
+    id: UUID
+    template_id: UUID | None
+    version_id: UUID | None
+    system_prompt: str
+    user_prompt: str
+    variables: dict
+    parameters: dict
+    rating: str | None = None
+    note: str = ""
+    created_at: datetime
+    outputs: list[PromptExperimentOutputOut] = Field(default_factory=list)
+
+
+class PromptExperimentUpdate(BaseModel):
+    rating: str | None = Field(default=None, pattern="^(good|bad)$")
+    note: str = Field(default="", max_length=1000)
 
 
 class ProjectCreate(BaseModel):
@@ -681,12 +768,6 @@ class ProjectOut(BaseModel):
     owned: bool
     created_at: datetime
     updated_at: datetime
-
-
-class GenerationSettings(BaseModel):
-    temperature: float | None = None
-    max_tokens: int | None = None
-    top_p: float | None = None
 
 
 class CustomAgentCreate(BaseModel):
@@ -1450,6 +1531,154 @@ class UsageByKeyOut(BaseModel):
     total_cost: float
     unpriced_requests: int
     buckets: list[UsageByKeyBucketOut]
+
+
+class ModelEvalQuestionIn(BaseModel):
+    question: str = Field(min_length=1, max_length=5000)
+    reference_answer: str = Field(default="", max_length=10000)
+    scoring_criteria: str = Field(default="", max_length=5000)
+    expected_keywords: list[str] = Field(default_factory=list, max_length=50)
+    regex: str = Field(default="", max_length=500)
+
+
+class ModelEvalQuestionOut(ModelEvalQuestionIn):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    sort_order: int = 0
+
+
+class ModelEvalDatasetCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=500)
+    questions: list[ModelEvalQuestionIn] = Field(default_factory=list, max_length=200)
+
+
+class ModelEvalDatasetOut(BaseModel):
+    id: UUID
+    name: str
+    description: str
+    question_count: int = 0
+    created_at: datetime
+
+
+class ModelEvalDatasetDetail(ModelEvalDatasetOut):
+    questions: list[ModelEvalQuestionOut] = Field(default_factory=list)
+
+
+class ModelEvalRunCreate(BaseModel):
+    dataset_id: UUID
+    name: str = Field(default="", max_length=120)
+    models: list[ArenaModelIn] = Field(min_length=1, max_length=10)
+    parameters: GenerationSettings = Field(default_factory=GenerationSettings)
+    concurrency: int = Field(default=3, ge=1, le=5)
+    methods: list[Literal["rule", "ai"]] = Field(default_factory=lambda: ["rule"])
+    judge_provider_id: str | None = Field(default=None, max_length=50)
+    judge_model: str | None = Field(default=None, max_length=200)
+
+
+class ModelEvalScoreOut(BaseModel):
+    method: str
+    score: float | None = None
+    passed: bool | None = None
+    reason: str = ""
+    judge_provider_id: str | None = None
+    judge_model: str | None = None
+
+
+class ModelEvalItemOut(BaseModel):
+    id: UUID
+    question_id: UUID
+    provider_id: str
+    model: str
+    question: str
+    answer: str
+    status: str
+    error_code: str | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    cost: float = 0.0
+    ttft_ms: float | None = None
+    latency_ms: float | None = None
+    scores: list[ModelEvalScoreOut] = Field(default_factory=list)
+
+
+class ModelEvalRunOut(BaseModel):
+    id: UUID
+    dataset_id: UUID
+    name: str
+    status: str
+    config: dict
+    metrics: dict | None = None
+    error_code: str | None = None
+    progress_total: int
+    progress_done: int
+    progress_failed: int
+    progress_running: int
+    current_model: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    created_at: datetime
+
+
+class ModelEvalRunDetail(ModelEvalRunOut):
+    items: list[ModelEvalItemOut] = Field(default_factory=list)
+
+
+class ModelEvalManualScoreIn(BaseModel):
+    score: float | None = Field(default=None, ge=0, le=5)
+    passed: bool | None = None
+    reason: str = Field(default="", max_length=1000)
+
+
+class ArenaRoundCreate(BaseModel):
+    prompt: str = Field(min_length=1, max_length=20000)
+    models: list[ArenaModelIn] = Field(min_length=2, max_length=4)
+    generation_settings: GenerationSettings = Field(default_factory=GenerationSettings)
+    blind: bool = False
+
+
+class ArenaResponseOut(BaseModel):
+    id: UUID
+    position: int
+    label: str
+    provider_id: str | None = None
+    model: str | None = None
+    status: str
+    content: str
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    cost: float = 0.0
+    ttft_ms: float | None = None
+    total_ms: float | None = None
+    error_code: str | None = None
+    feedback: str | None = None
+    attempt: int = 1
+
+
+class ArenaRoundOut(BaseModel):
+    id: UUID
+    prompt: str
+    blind: bool
+    revealed: bool
+    vote_response_id: UUID | None = None
+    vote_reason: str = ""
+    generation_settings: dict = Field(default_factory=dict)
+    created_at: datetime
+    responses: list[ArenaResponseOut] = Field(default_factory=list)
+
+
+class ArenaVoteIn(BaseModel):
+    response_id: UUID
+    reason: str = Field(default="", max_length=500)
+
+
+class ArenaFeedbackIn(BaseModel):
+    feedback: Literal["helpful", "unhelpful"] | None = None
+
+
+class ArenaRevealOut(BaseModel):
+    responses: list[ArenaResponseOut]
 
 
 class UsageRecentItemOut(BaseModel):

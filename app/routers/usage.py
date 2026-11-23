@@ -31,7 +31,9 @@ JwtContext = Annotated[AuthContext, Depends(get_jwt_context)]
 RedisDep = Annotated[RedisLike, Depends(get_redis)]
 
 GroupBy = Literal["day", "provider", "model", "source"]
-SourceFilter = Literal["chat", "workflow", "collaboration"]
+SourceFilter = Literal[
+    "chat", "workflow", "collaboration", "arena", "prompt_lab", "model_eval"
+]
 
 
 def _range(from_ts: datetime | None, to_ts: datetime | None) -> tuple[datetime, datetime]:

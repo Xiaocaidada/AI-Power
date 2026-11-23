@@ -3,6 +3,7 @@ import {
   BarChart3,
   BookOpen,
   Bot,
+  ClipboardList,
   FileText,
   FlaskConical,
   FolderOpen,
@@ -17,6 +18,7 @@ import {
   Settings,
   Shield,
   Sun,
+  Swords,
   Users,
   Workflow,
   X,
@@ -35,6 +37,9 @@ import { useAuthStore } from '../store/auth'
 
 const workNav = [
   { to: '/chat', labelKey: 'nav.chat', icon: MessageSquare },
+  { to: '/arena', labelKey: 'nav.arena', icon: Swords },
+  { to: '/prompt-lab', labelKey: 'nav.promptLab', icon: FlaskConical },
+  { to: '/model-eval', labelKey: 'nav.modelEval', icon: ClipboardList },
   { to: '/agents', labelKey: 'nav.agents', icon: Bot },
   { to: '/settings/prompts', labelKey: 'nav.prompts', icon: FileText },
   { to: '/files', labelKey: 'nav.files', icon: FolderOpen },
@@ -136,6 +141,7 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
           { to: '/admin', labelKey: 'nav.admin', icon: Shield },
           { to: '/admin/content', labelKey: 'nav.contentAdmin', icon: Megaphone },
           { to: '/admin/plugins', labelKey: 'nav.pluginAdmin', icon: Puzzle },
+          { to: '/admin/prompts', labelKey: 'nav.promptAdmin', icon: BookOpen },
         ]
       : []
 

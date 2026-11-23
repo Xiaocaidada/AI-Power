@@ -433,11 +433,35 @@ export interface Conversation {
   archived_at?: string | null
 }
 
+export interface PromptVariableDefinition {
+  name: string
+  description: string
+  required: boolean
+  default: string
+}
+
+export interface PromptDiffLine {
+  type: 'equal' | 'insert' | 'delete'
+  old_line: number | null
+  new_line: number | null
+  text: string
+}
+
+export interface PromptDiff {
+  from_version: number
+  to_version: number
+  system: PromptDiffLine[]
+  user: PromptDiffLine[]
+}
+
 export interface PromptVersion {
   id: string
   version: number
   system_prompt: string
+  user_prompt: string
   variables: string[]
+  variable_definitions: PromptVariableDefinition[]
+  parameters: GenerationSettings
   created_at: string
 }
 
@@ -614,9 +638,38 @@ export interface PromptTemplate {
   name: string
   description: string
   category: string
+  scope: 'workspace' | 'platform'
   favorite: boolean
   versions: PromptVersion[]
   created_at: string
+}
+
+export interface PromptExperimentOutput {
+  id: string
+  provider_id: string
+  model: string
+  status: string
+  content: string
+  prompt_tokens: number | null
+  completion_tokens: number | null
+  cost: number
+  ttft_ms: number | null
+  total_ms: number | null
+  error_code: string | null
+}
+
+export interface PromptExperiment {
+  id: string
+  template_id: string | null
+  version_id: string | null
+  system_prompt: string
+  user_prompt: string
+  variables: Record<string, string>
+  parameters: GenerationSettings
+  rating: string | null
+  note: string
+  created_at: string
+  outputs: PromptExperimentOutput[]
 }
 
 export interface DashboardCounts {
@@ -858,6 +911,100 @@ export interface UsageByKey {
   total_cost: number
   unpriced_requests: number
   buckets: UsageByKeyBucket[]
+}
+
+export interface ModelEvalQuestion {
+  id: string
+  question: string
+  reference_answer: string
+  scoring_criteria: string
+  expected_keywords: string[]
+  regex: string
+  sort_order: number
+}
+
+export interface ModelEvalDataset {
+  id: string
+  name: string
+  description: string
+  question_count: number
+  created_at: string
+  questions?: ModelEvalQuestion[]
+}
+
+export interface ModelEvalScore {
+  method: string
+  score: number | null
+  passed: boolean | null
+  reason: string
+  judge_provider_id: string | null
+  judge_model: string | null
+}
+
+export interface ModelEvalItem {
+  id: string
+  question_id: string
+  provider_id: string
+  model: string
+  question: string
+  answer: string
+  status: string
+  error_code: string | null
+  prompt_tokens: number | null
+  completion_tokens: number | null
+  cost: number
+  ttft_ms: number | null
+  latency_ms: number | null
+  scores: ModelEvalScore[]
+}
+
+export interface ModelEvalRun {
+  id: string
+  dataset_id: string
+  name: string
+  status: string
+  config: Record<string, unknown>
+  metrics: Record<string, unknown> | null
+  error_code: string | null
+  progress_total: number
+  progress_done: number
+  progress_failed: number
+  progress_running: number
+  current_model: string | null
+  started_at: string | null
+  finished_at: string | null
+  created_at: string
+  items?: ModelEvalItem[]
+}
+
+export interface ArenaResponse {
+  id: string
+  position: number
+  label: string
+  provider_id: string | null
+  model: string | null
+  status: string
+  content: string
+  prompt_tokens: number | null
+  completion_tokens: number | null
+  cost: number
+  ttft_ms: number | null
+  total_ms: number | null
+  error_code: string | null
+  feedback: 'helpful' | 'unhelpful' | null
+  attempt: number
+}
+
+export interface ArenaRound {
+  id: string
+  prompt: string
+  blind: boolean
+  revealed: boolean
+  vote_response_id: string | null
+  vote_reason: string
+  generation_settings: GenerationSettings
+  created_at: string
+  responses: ArenaResponse[]
 }
 
 export interface UsageRecentItem {

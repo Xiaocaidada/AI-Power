@@ -137,6 +137,7 @@ class InlineQueue:
         self.calls: list[object] = []
         self.unique_flags: list[bool] = []
         self.eval_calls: list[object] = []
+        self.model_eval_calls: list[object] = []
         self.workflow_calls: list[object] = []
         self.collaboration_calls: list[object] = []
         self.fail = False
@@ -157,6 +158,14 @@ class InlineQueue:
         from app.services.evaluation_runner import run_evaluation
 
         await run_evaluation(run_id)
+
+    async def enqueue_model_eval(self, run_id) -> None:
+        self.model_eval_calls.append(run_id)
+        if self.fail:
+            raise ConnectionError("queue down")
+        from app.services.model_eval import execute_model_eval_run
+
+        await execute_model_eval_run(run_id, provider_registry=_provider_registry())
 
     async def enqueue_workflow_run(self, run_id) -> None:
         self.workflow_calls.append(run_id)
@@ -213,7 +222,7 @@ def api(client: AsyncClient) -> Api:
 
 @pytest.fixture
 def fake_provider():
-    from app.providers.base import ChatChunk, ModelInfo, Usage
+    from app.providers.base import ChatChunk, CompletionResult, ModelInfo, Usage
 
     class FakeProvider:
         id = "fake"
@@ -229,6 +238,7 @@ def fake_provider():
             self.error: Exception | None = None
             self.list_models_error: Exception | None = None
             self.calls: list[tuple[list[object], str]] = []
+            self.complete_calls: list[tuple[list[object], str]] = []
             self.opts_calls: list[dict[str, object]] = []
 
         async def list_models(self):
@@ -243,6 +253,17 @@ def fake_provider():
                 raise self.error
             for chunk in self.chunks:
                 yield chunk
+
+        async def complete(self, messages, model, **opts):
+            self.complete_calls.append((list(messages), model))
+            self.opts_calls.append(dict(opts))
+            if self.error is not None:
+                raise self.error
+            content = "".join(chunk.delta for chunk in self.chunks)
+            usage = next(
+                (chunk.usage for chunk in self.chunks if chunk.usage is not None), None
+            )
+            return CompletionResult(content=content, usage=usage, finish_reason="stop")
 
     return FakeProvider()
 
