@@ -596,10 +596,17 @@ export interface WorkflowCatalogNode {
   config_fields: WorkflowCatalogField[]
 }
 
+export interface WorkflowTemplate {
+  name: string
+  description: string
+  definition: WorkflowDefinition
+}
+
 export interface WorkflowCatalog {
   nodes: WorkflowCatalogNode[]
-  limits: { max_nodes: number; max_kbs: number }
+  limits: { max_nodes: number; max_kbs?: number; linear?: boolean }
   variables: Record<string, string>
+  templates?: WorkflowTemplate[]
 }
 
 export interface AgentBuilderResult {
@@ -817,6 +824,11 @@ export interface WorkflowNodeDefinition {
     | 'database'
     | 'mcp_resource'
     | 'mcp_prompt'
+    | 'parse_document'
+    | 'clean_text'
+    | 'chunk_text'
+    | 'embed_chunks'
+    | 'index_knowledge'
   config: Record<string, unknown>
   ui?: { x: number; y: number } | null
 }
@@ -843,6 +855,7 @@ export interface Workflow {
   id: string
   name: string
   description: string
+  kind: 'agent' | 'knowledge_process' | 'knowledge_retrieval'
   versions: WorkflowVersion[]
   created_at: string
 }
@@ -860,6 +873,36 @@ export interface WorkflowNodeRun {
   created_at: string
 }
 
+export interface KnowledgeProcessBinding {
+  workflow_version_id: string | null
+  workflow_id: string | null
+  version: number | null
+  kind: string
+  name: string
+}
+
+export interface KnowledgeProcessArtifact {
+  node_id: string
+  kind: string
+  payload: Record<string, unknown>
+}
+
+export interface KnowledgeProcessDraft {
+  chunk_index: number
+  page_no: number | null
+  text: string
+  meta: Record<string, unknown>
+  embedded: boolean
+}
+
+export interface KnowledgeProcessPreview {
+  run: WorkflowRun
+  artifacts: KnowledgeProcessArtifact[]
+  drafts: KnowledgeProcessDraft[]
+  draft_count: number
+  applied: boolean
+}
+
 export interface WorkflowRun {
   id: string
   workflow_id: string
@@ -867,6 +910,9 @@ export interface WorkflowRun {
   kb_id: string | null
   status: string
   input_text: string
+  input_payload: Record<string, unknown>
+  output_payload: Record<string, unknown>
+  applied_at: string | null
   error_code: string | null
   cancel_requested_at: string | null
   prompt_tokens: number

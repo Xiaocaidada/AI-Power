@@ -150,6 +150,7 @@ class Workflow(Base):
     )
     name: Mapped[str] = mapped_column(String(120))
     description: Mapped[str] = mapped_column(String(500), default="")
+    kind: Mapped[str] = mapped_column(String(30), default="agent", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
@@ -162,6 +163,7 @@ class WorkflowVersion(Base):
         ForeignKey("workflows.id", ondelete="CASCADE"), index=True
     )
     version: Mapped[int] = mapped_column(Integer)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1)
     definition: Mapped[dict[str, object]] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -198,6 +200,9 @@ class WorkflowRun(Base):
     completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
     cost: Mapped[float] = mapped_column(Float, default=0.0)
     total_ms: Mapped[float | None] = mapped_column(Float, default=None)
+    input_payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    output_payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     checkpoint: Mapped[dict] = mapped_column(JSON, default=dict)
     paused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -361,6 +366,12 @@ class KnowledgeBase(Base):
     name: Mapped[str] = mapped_column(String(100))
     description: Mapped[str] = mapped_column(String(500), default="")
     settings: Mapped[dict[str, object] | None] = mapped_column(JSON, default=None)
+    process_workflow_version_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("workflow_versions.id", ondelete="SET NULL"), default=None
+    )
+    retrieval_workflow_version_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("workflow_versions.id", ondelete="SET NULL"), default=None
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
@@ -994,6 +1005,9 @@ class Document(Base):
     error_code: Mapped[str | None] = mapped_column(String(50), default=None)
     page_count: Mapped[int | None] = mapped_column(Integer, default=None)
     tags: Mapped[list[str]] = mapped_column(JSON, default=list)
+    process_version_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("workflow_versions.id", ondelete="SET NULL"), default=None
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
@@ -1036,6 +1050,54 @@ class ChunkEmbedding(Base):
         ForeignKey("chunks.id", ondelete="CASCADE"), primary_key=True
     )
     embedding: Mapped[list[float]] = mapped_column(EmbeddingVector(1024))
+
+
+class WorkflowArtifact(Base):
+    """Typed preview artifact produced by a workflow node."""
+
+    __tablename__ = "workflow_artifacts"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workflow_runs.id", ondelete="CASCADE"), index=True
+    )
+    node_id: Mapped[str] = mapped_column(String(80))
+    kind: Mapped[str] = mapped_column(String(30), default="json")
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("run_id", "node_id", name="uq_workflow_artifacts_run_node"),
+    )
+
+
+class KnowledgeChunkDraft(Base):
+    """Staged chunks produced by a knowledge processing run."""
+
+    __tablename__ = "knowledge_chunk_drafts"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workflow_runs.id", ondelete="CASCADE"), index=True
+    )
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    kb_id: Mapped[UUID] = mapped_column(
+        ForeignKey("knowledge_bases.id", ondelete="CASCADE"), index=True
+    )
+    document_id: Mapped[UUID] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), index=True
+    )
+    chunk_index: Mapped[int] = mapped_column(Integer)
+    page_no: Mapped[int | None] = mapped_column(Integer, default=None)
+    text: Mapped[str] = mapped_column(Text)
+    token_count: Mapped[int | None] = mapped_column(Integer, default=None)
+    chunk_meta: Mapped[dict] = mapped_column(JSON, default=dict)
+    embedding: Mapped[list[float] | None] = mapped_column(
+        EmbeddingVector(1024), default=None
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class IngestionJob(Base):

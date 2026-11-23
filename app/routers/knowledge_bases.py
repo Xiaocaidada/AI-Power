@@ -9,7 +9,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
 from app.deps import AuthContext, get_jwt_context, require_scope
-from app.models import Chunk, Document, KnowledgeBase
+from app.models import (
+    Chunk,
+    Document,
+    KnowledgeBase,
+    KnowledgeChunkDraft,
+    Workflow,
+    WorkflowArtifact,
+    WorkflowNodeRun,
+    WorkflowRun,
+    WorkflowVersion,
+)
 from app.providers.base import ProviderError
 from app.schemas import (
     ChunkOut,
@@ -20,12 +30,25 @@ from app.schemas import (
     KnowledgeBaseSettingsUpdate,
     KnowledgeBaseStatsOut,
     KnowledgeBaseUpdate,
+    KnowledgeProcessApplyOut,
+    KnowledgeProcessArtifactOut,
+    KnowledgeProcessBindingIn,
+    KnowledgeProcessBindingOut,
+    KnowledgeProcessPreviewOut,
     RetrievalHitOut,
     RetrievalSearchIn,
     RetrievalSearchOut,
     RetrievalTimingsOut,
+    WorkflowNodeRunOut,
+    WorkflowRunOut,
 )
 from app.services.access import get_owned_knowledge_base
+from app.services.knowledge.apply import (
+    KnowledgeApplyError,
+    apply_knowledge_run,
+    draft_preview,
+    run_document_id,
+)
 from app.services.knowledge_settings import KnowledgeBaseSettings, resolve_kb_settings
 from app.services.retrieval import retrieve_with_diagnostics
 
@@ -285,3 +308,199 @@ async def delete_knowledge_base(kb_id: UUID, context: JwtContext, session: Sessi
     kb.deleted_at = datetime.now(UTC)
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get(
+    "/{kb_id}/processing/binding", response_model=KnowledgeProcessBindingOut
+)
+async def get_processing_binding(
+    kb_id: UUID, context: JwtContext, session: SessionDep
+) -> KnowledgeProcessBindingOut:
+    kb = await get_owned_knowledge_base(kb_id, context.workspace.id, session)
+    if kb.process_workflow_version_id is None:
+        return KnowledgeProcessBindingOut()
+    version = await session.get(WorkflowVersion, kb.process_workflow_version_id)
+    if version is None:
+        return KnowledgeProcessBindingOut()
+    workflow = await session.get(Workflow, version.workflow_id)
+    return KnowledgeProcessBindingOut(
+        workflow_version_id=version.id,
+        workflow_id=version.workflow_id,
+        version=version.version,
+        kind=workflow.kind if workflow is not None else "knowledge_process",
+        name=workflow.name if workflow is not None else "",
+    )
+
+
+@router.put(
+    "/{kb_id}/processing/binding", response_model=KnowledgeProcessBindingOut
+)
+async def bind_processing_workflow(
+    kb_id: UUID,
+    payload: KnowledgeProcessBindingIn,
+    context: JwtContext,
+    session: SessionDep,
+) -> KnowledgeProcessBindingOut:
+    kb = await get_owned_knowledge_base(kb_id, context.workspace.id, session)
+    if payload.workflow_version_id is None:
+        kb.process_workflow_version_id = None
+        await session.commit()
+        return KnowledgeProcessBindingOut()
+    version = await session.get(WorkflowVersion, payload.workflow_version_id)
+    if version is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Workflow version not found")
+    workflow = await session.get(Workflow, version.workflow_id)
+    if (
+        workflow is None
+        or workflow.workspace_id != context.workspace.id
+        or workflow.deleted_at is not None
+        or workflow.kind != "knowledge_process"
+    ):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {"code": "invalid_workflow", "message": "Not a knowledge processing workflow"},
+        )
+    kb.process_workflow_version_id = version.id
+    await session.commit()
+    return KnowledgeProcessBindingOut(
+        workflow_version_id=version.id,
+        workflow_id=workflow.id,
+        version=version.version,
+        kind=workflow.kind,
+        name=workflow.name,
+    )
+
+
+@router.get("/{kb_id}/processing/runs", response_model=list[WorkflowRunOut])
+async def list_processing_runs(
+    kb_id: UUID,
+    context: JwtContext,
+    session: SessionDep,
+    document_id: UUID | None = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> list[WorkflowRunOut]:
+    kb = await get_owned_knowledge_base(kb_id, context.workspace.id, session)
+    statement = (
+        select(WorkflowRun)
+        .join(Workflow, Workflow.id == WorkflowRun.workflow_id)
+        .where(
+            WorkflowRun.kb_id == kb.id,
+            WorkflowRun.workspace_id == context.workspace.id,
+            Workflow.kind == "knowledge_process",
+        )
+        .order_by(WorkflowRun.id.desc())
+        .limit(limit)
+    )
+    if document_id is not None:
+        statement = statement.where(
+            WorkflowRun.input_payload["document_id"].as_string() == str(document_id)
+        )
+    runs = list((await session.execute(statement)).scalars())
+    return [WorkflowRunOut.model_validate(run) for run in runs]
+
+
+@router.get(
+    "/{kb_id}/processing/runs/{run_id}/preview",
+    response_model=KnowledgeProcessPreviewOut,
+)
+async def preview_processing_run(
+    kb_id: UUID, run_id: UUID, context: JwtContext, session: SessionDep
+) -> KnowledgeProcessPreviewOut:
+    kb = await get_owned_knowledge_base(kb_id, context.workspace.id, session)
+    run = (
+        await session.execute(
+            select(WorkflowRun).where(
+                WorkflowRun.id == run_id,
+                WorkflowRun.kb_id == kb.id,
+                WorkflowRun.workspace_id == context.workspace.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Run not found")
+    nodes = list(
+        (
+            await session.execute(
+                select(WorkflowNodeRun)
+                .where(WorkflowNodeRun.run_id == run.id)
+                .order_by(WorkflowNodeRun.created_at, WorkflowNodeRun.id)
+            )
+        ).scalars()
+    )
+    artifacts = list(
+        (
+            await session.execute(
+                select(WorkflowArtifact)
+                .where(WorkflowArtifact.run_id == run.id)
+                .order_by(WorkflowArtifact.created_at)
+            )
+        ).scalars()
+    )
+    drafts = list(
+        (
+            await session.execute(
+                select(KnowledgeChunkDraft)
+                .where(KnowledgeChunkDraft.run_id == run.id)
+                .order_by(KnowledgeChunkDraft.chunk_index)
+            )
+        ).scalars()
+    )
+    return KnowledgeProcessPreviewOut(
+        run=WorkflowRunOut(
+            **WorkflowRunOut.model_validate(run).model_dump(exclude={"nodes"}),
+            nodes=[WorkflowNodeRunOut.model_validate(node) for node in nodes],
+        ),
+        artifacts=[
+            KnowledgeProcessArtifactOut(
+                node_id=artifact.node_id,
+                kind=artifact.kind,
+                payload=artifact.payload or {},
+            )
+            for artifact in artifacts
+        ],
+        drafts=draft_preview(drafts, limit=50),
+        draft_count=len(drafts),
+        applied=run.applied_at is not None,
+    )
+
+
+@router.post(
+    "/{kb_id}/processing/runs/{run_id}/apply",
+    response_model=KnowledgeProcessApplyOut,
+)
+async def apply_processing_run(
+    kb_id: UUID, run_id: UUID, context: JwtContext, session: SessionDep
+) -> KnowledgeProcessApplyOut:
+    kb = await get_owned_knowledge_base(kb_id, context.workspace.id, session)
+    run = (
+        await session.execute(
+            select(WorkflowRun).where(
+                WorkflowRun.id == run_id,
+                WorkflowRun.kb_id == kb.id,
+                WorkflowRun.workspace_id == context.workspace.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Run not found")
+    document_id = run_document_id(run)
+    if document_id is None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {"code": "document_missing", "message": "Run has no document"},
+        )
+    document = await session.get(Document, document_id)
+    if document is None or document.kb_id != kb.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
+    try:
+        result = await apply_knowledge_run(session, run, document)
+    except KnowledgeApplyError as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {"code": exc.code, "message": exc.message},
+        ) from None
+    return KnowledgeProcessApplyOut(
+        document_id=document.id,
+        chunks=result["chunks"],
+        applied_at=run.applied_at or datetime.now(UTC),
+    )

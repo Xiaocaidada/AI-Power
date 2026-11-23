@@ -478,6 +478,7 @@ class CollaborationRunOut(BaseModel):
 class WorkflowCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=500)
+    kind: Literal["agent", "knowledge_process", "knowledge_retrieval"] = "agent"
     definition: dict[str, object]
 
     @field_validator("name", "description", mode="before")
@@ -503,14 +504,16 @@ class WorkflowOut(BaseModel):
     id: UUID
     name: str
     description: str
+    kind: str = "agent"
     created_at: datetime
     versions: list[WorkflowVersionOut] = Field(default_factory=list)
 
 
 class WorkflowRunCreate(BaseModel):
     version: int | None = None
-    input: str = Field(min_length=1, max_length=20000)
+    input: str = Field(default="", max_length=20000)
     kb_id: UUID | None = None
+    document_id: UUID | None = None
 
     @field_validator("input", mode="before")
     @classmethod
@@ -542,6 +545,9 @@ class WorkflowRunOut(BaseModel):
     kb_id: UUID | None
     status: str
     input_text: str
+    input_payload: dict = Field(default_factory=dict)
+    output_payload: dict = Field(default_factory=dict)
+    applied_at: datetime | None = None
     error_code: str | None
     cancel_requested_at: datetime | None
     prompt_tokens: int
@@ -551,6 +557,38 @@ class WorkflowRunOut(BaseModel):
     started_at: datetime
     finished_at: datetime | None
     nodes: list[WorkflowNodeRunOut] = Field(default_factory=list)
+
+
+class KnowledgeProcessBindingIn(BaseModel):
+    workflow_version_id: UUID | None = None
+
+
+class KnowledgeProcessBindingOut(BaseModel):
+    workflow_version_id: UUID | None = None
+    workflow_id: UUID | None = None
+    version: int | None = None
+    kind: str = "knowledge_process"
+    name: str = ""
+
+
+class KnowledgeProcessArtifactOut(BaseModel):
+    node_id: str
+    kind: str
+    payload: dict = Field(default_factory=dict)
+
+
+class KnowledgeProcessPreviewOut(BaseModel):
+    run: WorkflowRunOut
+    artifacts: list[KnowledgeProcessArtifactOut] = Field(default_factory=list)
+    drafts: list[dict] = Field(default_factory=list)
+    draft_count: int = 0
+    applied: bool = False
+
+
+class KnowledgeProcessApplyOut(BaseModel):
+    document_id: UUID
+    chunks: int
+    applied_at: datetime
 
 
 class RunAcceptedOut(BaseModel):
