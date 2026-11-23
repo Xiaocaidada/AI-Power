@@ -72,6 +72,7 @@ from app.services.knowledge.retrieval_pipeline import (
 )
 from app.services.knowledge.retrieval_schema import validate_knowledge_retrieval
 from app.services.knowledge_settings import KnowledgeBaseSettings, resolve_kb_settings
+from app.services.quotas import enforce_knowledge_base_creation
 from app.services.rag import fit_context
 from app.services.retrieval import build_citations, retrieve_with_diagnostics
 
@@ -87,6 +88,7 @@ RegistryDep = Annotated[ProviderRegistry, Depends(get_registry)]
 async def create_knowledge_base(
     payload: KnowledgeBaseCreate, context: JwtContext, session: SessionDep
 ) -> KnowledgeBase:
+    await enforce_knowledge_base_creation(session, context)
     kb = KnowledgeBase(
         workspace_id=context.workspace.id,
         user_id=context.user.id,

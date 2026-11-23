@@ -863,6 +863,7 @@ class ProjectCreate(BaseModel):
     default_provider_id: str | None = Field(default=None, max_length=50)
     default_model: str | None = Field(default=None, max_length=200)
     default_kb_id: UUID | None = None
+    kb_ids: list[UUID] = Field(default_factory=list, max_length=10)
     default_custom_agent_id: UUID | None = None
     default_agent: bool = False
 
@@ -882,6 +883,7 @@ class ProjectUpdate(BaseModel):
     default_provider_id: str | None = Field(default=None, max_length=50)
     default_model: str | None = Field(default=None, max_length=200)
     default_kb_id: UUID | None = None
+    kb_ids: list[UUID] | None = Field(default=None, max_length=10)
     default_custom_agent_id: UUID | None = None
     default_agent: bool | None = None
     archived: bool | None = None
@@ -903,6 +905,7 @@ class ProjectOut(BaseModel):
     default_provider_id: str | None
     default_model: str | None
     default_kb_id: UUID | None
+    kb_ids: list[UUID] = Field(default_factory=list)
     default_custom_agent_id: UUID | None = None
     default_agent: bool
     archived: bool
@@ -2434,12 +2437,21 @@ class QuotaWindowOut(BaseModel):
     reset_seconds: int
 
 
+class QuotaKnowledgeOut(BaseModel):
+    max_kbs: int
+    kb_count: int
+    max_documents_per_kb: int
+    max_kb_bytes: int
+    kb_bytes: int
+
+
 class QuotaSummaryOut(BaseModel):
     plan: str
     requests: QuotaWindowOut
     tokens: QuotaWindowOut
     max_keys: int
     active_keys: int
+    knowledge: QuotaKnowledgeOut
 
 
 class TraceOut(BaseModel):

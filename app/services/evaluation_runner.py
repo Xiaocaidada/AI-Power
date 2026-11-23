@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db import SessionLocal
+from app.metrics import metrics
 from app.models import EvalQuestion, EvalRun, EvalRunItem, Workflow, WorkflowVersion
 from app.providers.base import ChatMessage, LLMProvider, ProviderError, Usage
 from app.providers.embedding import EmbeddingProvider
@@ -215,6 +216,11 @@ async def run_evaluation(
             run.error_code = None
             run.finished_at = datetime.now(UTC)
             await session.commit()
+            metrics.inc_counter(
+                "ai_power_knowledge_eval_runs_total",
+                status="completed",
+                mode=str(run.metrics.get("retrieval_mode") or "builtin"),
+            )
         except ProviderError as exc:
             await session.rollback()
             logger.warning("evaluation run %s failed: %s", run_id, exc.code)
@@ -533,3 +539,6 @@ async def _mark_failed(session: AsyncSession, run_id: UUID, code: str) -> None:
         run.error_code = code
         run.finished_at = datetime.now(UTC)
     await session.commit()
+    metrics.inc_counter(
+        "ai_power_knowledge_eval_runs_total", status="failed", code=code
+    )

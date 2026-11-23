@@ -17,7 +17,7 @@ import { Button } from '../../components/ui/button'
 import { EmptyState } from '../../components/ui/empty-state'
 import { Input } from '../../components/ui/input'
 import { Spinner } from '../../components/ui/spinner'
-import { formatTime } from '../../lib/format'
+import { formatBytes, formatTime } from '../../lib/format'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
 import { mergePages, pageFromItems } from '../../lib/pagination'
@@ -214,6 +214,18 @@ export function UsagePage() {
               {t('quota.keysValue', {
                 used: quota.data.active_keys,
                 limit: quota.data.max_keys,
+              })}
+            </p>
+            <p className="mt-1 text-xs text-ink-muted">
+              {t('quota.knowledge')}:{' '}
+              {t('quota.kbValue', {
+                used: quota.data.knowledge.kb_count,
+                limit: quota.data.knowledge.max_kbs,
+              })}{' '}
+              · {formatBytes(quota.data.knowledge.kb_bytes)} /{' '}
+              {formatBytes(quota.data.knowledge.max_kb_bytes)} ·{' '}
+              {t('quota.docsPerKb', {
+                count: quota.data.knowledge.max_documents_per_kb,
               })}
             </p>
           </section>

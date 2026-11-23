@@ -16,6 +16,12 @@ def quota_settings(monkeypatch):
         quota_pro_max_keys=5,
         quota_free_daily_cost_usd=1,
         quota_pro_daily_cost_usd=50,
+        quota_free_max_kbs=10,
+        quota_pro_max_kbs=100,
+        quota_free_max_documents_per_kb=200,
+        quota_pro_max_documents_per_kb=5000,
+        quota_free_max_kb_bytes=100_000_000,
+        quota_pro_max_kb_bytes=10_000_000_000,
     )
     monkeypatch.setattr(quotas, "get_settings", lambda: settings)
     return settings

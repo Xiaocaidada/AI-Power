@@ -353,6 +353,8 @@ export const en: Dictionary = {
     defaultModel: 'Default model',
     defaultKb: 'Default knowledge base',
     defaultCustomAgent: 'Default custom agent',
+    kbIds: 'Linked knowledge bases',
+    kbIdsHint: 'New conversations in this project inherit these KBs (max 10).',
     noDefaultCustomAgent: 'No custom agent',
     customAgentBadge: 'Project agent',
     defaultAgent: 'Enable multi-agent by default',
@@ -1019,6 +1021,9 @@ export const en: Dictionary = {
     keys: 'API keys',
     keysValue: '{used} / {limit}',
     activeKeys: 'Active keys: {count}',
+    knowledge: 'Knowledge bases',
+    kbValue: '{used} / {limit}',
+    docsPerKb: '{count} docs per KB',
   },
   trace: {
     title: 'Request details',

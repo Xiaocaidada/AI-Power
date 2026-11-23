@@ -350,6 +350,8 @@ export const zh = {
     defaultModel: '默认模型',
     defaultKb: '默认知识库',
     defaultCustomAgent: '默认自定义 Agent',
+    kbIds: '关联知识库',
+    kbIdsHint: '项目内新建会话会继承这些知识库（最多 10 个）。',
     noDefaultCustomAgent: '不绑定自定义 Agent',
     customAgentBadge: '项目 Agent',
     defaultAgent: '默认启用多 Agent',
@@ -1015,6 +1017,9 @@ export const zh = {
     keys: 'API Key',
     keysValue: '{used} / {limit}',
     activeKeys: '有效 Key：{count}',
+    knowledge: '知识库',
+    kbValue: '{used} / {limit}',
+    docsPerKb: '单库文档上限 {count}',
   },
   trace: {
     title: '请求详情',

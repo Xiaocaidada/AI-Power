@@ -23,6 +23,7 @@ from app.clients import RedisLike, get_redis
 from app.config import get_settings
 from app.db import get_session
 from app.deps import AuthContext, get_jwt_context, require_scope
+from app.metrics import metrics
 from app.models import Chunk, ChunkEmbedding, Document, IngestionJob, KnowledgeBase
 from app.schemas import (
     DocumentFolderOut,
@@ -40,7 +41,7 @@ from app.schemas import (
 from app.services.access import get_owned_document, get_owned_knowledge_base
 from app.services.parsing import UnsupportedDocumentType, detect_mime, parser_for_mime
 from app.services.queue import JobQueue, get_queue
-from app.services.quotas import enforce_quota
+from app.services.quotas import enforce_kb_document_quota, enforce_quota
 from app.services.storage import EmptyUpload, UploadTooLarge, save_upload
 from app.services.url_import import (
     FetchedUrl,
@@ -124,6 +125,13 @@ async def upload_document(
         raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "File too large") from None
     except EmptyUpload:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Empty file") from None
+    try:
+        await enforce_kb_document_quota(
+            session, context, kb_id=kb_id, additional_bytes=saved.size_bytes
+        )
+    except HTTPException:
+        saved.path.unlink(missing_ok=True)
+        raise
 
     existing_result = await session.execute(
         select(Document).where(
@@ -137,6 +145,9 @@ async def upload_document(
     if existing is not None:
         saved.path.unlink(missing_ok=True)
         response.status_code = status.HTTP_200_OK
+        metrics.inc_counter(
+            "ai_power_knowledge_imports_total", kind="upload", status="duplicate"
+        )
         return DocumentUploadOut(id=existing.id, status=existing.status, duplicate=True)
 
     document = Document(
@@ -164,6 +175,9 @@ async def upload_document(
         raise
 
     await _enqueue_or_fail(session, document, job, queue)
+    metrics.inc_counter(
+        "ai_power_knowledge_imports_total", kind="upload", status="created"
+    )
     return DocumentUploadOut(id=document.id, status=document.status, duplicate=False)
 
 
@@ -202,6 +216,9 @@ async def _import_fetched_document(
         raise HTTPException(
             status.HTTP_413_CONTENT_TOO_LARGE, "URL content too large"
         )
+    await enforce_kb_document_quota(
+        session, context, kb_id=kb_id, additional_bytes=len(fetched.content)
+    )
     content_hash = hashlib.sha256(fetched.content).hexdigest()
     existing = (
         await session.execute(
@@ -306,6 +323,11 @@ async def import_document_from_url(
         source_url=payload.url,
         settings=settings,
     )
+    metrics.inc_counter(
+        "ai_power_knowledge_imports_total",
+        kind="url",
+        status="duplicate" if result.duplicate else "created",
+    )
     if result.duplicate:
         response.status_code = status.HTTP_200_OK
     return result
@@ -374,10 +396,22 @@ async def import_documents_from_site(
                 )
             )
             continue
+        metrics.inc_counter(
+            "ai_power_knowledge_imports_total",
+            kind="site",
+            status="duplicate" if result.duplicate else "created",
+        )
         if result.duplicate:
             duplicates.append(result)
         else:
             created.append(result)
+    for item in failed:
+        metrics.inc_counter(
+            "ai_power_knowledge_imports_total",
+            kind="site",
+            status="failed",
+            code=item.code,
+        )
     return SiteImportOut(
         pages=len(outcome.pages),
         created=created,

@@ -26,6 +26,7 @@ interface Draft {
   defaultAgent: boolean
   customAgentId: string
   kbId: string
+  kbIds: string[]
 }
 
 function draftFrom(project: Project | null): Draft {
@@ -38,6 +39,7 @@ function draftFrom(project: Project | null): Draft {
       defaultAgent: false,
       customAgentId: '',
       kbId: '',
+      kbIds: [],
     }
   }
   let modelChoice = 'auto'
@@ -52,6 +54,7 @@ function draftFrom(project: Project | null): Draft {
     defaultAgent: project.default_agent,
     customAgentId: project.default_custom_agent_id ?? '',
     kbId: project.default_kb_id ?? '',
+    kbIds: project.kb_ids ?? [],
   }
 }
 
@@ -234,6 +237,7 @@ function ProjectForm({
       default_custom_agent_id:
         draft.customAgentId === '' ? null : draft.customAgentId,
       default_kb_id: draft.kbId === '' ? null : draft.kbId,
+      kb_ids: draft.kbIds,
     }
     try {
       if (initial === null) {
@@ -335,6 +339,30 @@ function ProjectForm({
                   </option>
                 ))}
               </select>
+            </Field>
+            <Field label={t('projects.kbIds')}>
+              <select
+                multiple
+                className="h-28 w-full rounded-lg border border-border bg-surface px-2 py-1 text-sm text-ink"
+                value={draft.kbIds}
+                onChange={(event) =>
+                  update(
+                    'kbIds',
+                    Array.from(event.target.selectedOptions).map(
+                      (option) => option.value,
+                    ),
+                  )
+                }
+              >
+                {(kbs.data ?? []).map((kb) => (
+                  <option key={kb.id} value={kb.id}>
+                    {kb.name}
+                  </option>
+                ))}
+              </select>
+              <span className="mt-1 block text-[11px] text-ink-muted">
+                {t('projects.kbIdsHint')}
+              </span>
             </Field>
           </div>
           <Field label={t('projects.defaultCustomAgent')}>

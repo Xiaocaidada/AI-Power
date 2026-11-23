@@ -11,6 +11,7 @@ from app.db import get_session
 from app.deps import AuthContext, get_jwt_context
 from app.models import ApiKey, Message, Trace, UsageEvent
 from app.schemas import (
+    QuotaKnowledgeOut,
     QuotaSummaryOut,
     QuotaWindowOut,
     UsageBucketOut,
@@ -89,6 +90,13 @@ async def quota_summary(
         ),
         max_keys=snapshot.max_keys,
         active_keys=snapshot.active_keys,
+        knowledge=QuotaKnowledgeOut(
+            max_kbs=snapshot.max_kbs,
+            kb_count=snapshot.kb_count,
+            max_documents_per_kb=snapshot.max_documents_per_kb,
+            max_kb_bytes=snapshot.max_kb_bytes,
+            kb_bytes=snapshot.kb_bytes,
+        ),
     )
 
 
