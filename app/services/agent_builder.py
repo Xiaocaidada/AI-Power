@@ -13,6 +13,7 @@ from app.models import (
     AgentBuilderSession,
     CustomAgent,
     KnowledgeBase,
+    McpServer,
     ModelCatalog,
     PluginConfig,
     PluginDefinition,
@@ -112,6 +113,13 @@ async def _resource_catalog(
             )
         ).scalars()
     )
+    mcp_servers = list(
+        (
+            await session.execute(
+                select(McpServer).where(McpServer.enabled.is_(True)).order_by(McpServer.name)
+            )
+        ).scalars()
+    )
     models = [
         {
             "provider_id": item.provider_id,
@@ -147,9 +155,14 @@ async def _resource_catalog(
             {"id": str(item.id), "name": item.name, "description": item.description}
             for item in plugins
         ],
+        "mcp_servers": [
+            {"id": str(item.id), "name": item.name, "description": item.description}
+            for item in mcp_servers
+        ],
         "allowed_pairs": {(item["provider_id"], item["model"]) for item in models},
         "allowed_kbs": {str(item.id) for item in kbs},
         "allowed_agents": {str(item.id) for item in agents},
+        "allowed_mcp": {str(item.id) for item in mcp_servers},
     }
 
 
@@ -171,7 +184,7 @@ def _parse_json(text: str) -> dict[str, Any] | None:
 def _prompt_catalog(catalog: dict[str, Any]) -> dict[str, Any]:
     return {
         key: catalog[key]
-        for key in ("models", "knowledge_bases", "agents", "plugins")
+        for key in ("models", "knowledge_bases", "agents", "plugins", "mcp_servers")
     }
 
 
@@ -184,6 +197,7 @@ def _missing_resources(
     allowed_pairs = catalog["allowed_pairs"]
     allowed_kbs = catalog["allowed_kbs"]
     allowed_agents = catalog["allowed_agents"]
+    allowed_mcp = catalog["allowed_mcp"]
     for node in definition.get("nodes", []):
         if not isinstance(node, dict):
             continue
@@ -205,6 +219,9 @@ def _missing_resources(
         agent_id = config.get("agent_id")
         if agent_id is not None and str(agent_id) not in allowed_agents:
             missing.append(f"Agent {agent_id}")
+        server_id = config.get("server_id")
+        if server_id is not None and str(server_id) not in allowed_mcp:
+            missing.append(f"MCP 服务器 {server_id}")
     return list(dict.fromkeys(missing))
 
 

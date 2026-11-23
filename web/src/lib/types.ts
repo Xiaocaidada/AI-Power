@@ -386,6 +386,9 @@ export interface CustomAgent {
   workflow_id: string | null
   visibility: 'private' | 'shared'
   enabled: boolean
+  memory_enabled: boolean
+  rating_avg: number
+  rating_count: number
   archived: boolean
   owned: boolean
   builtin: boolean
@@ -421,8 +424,136 @@ export interface AgentMarketSummary {
   usage_count: number
   favorite_count: number
   copy_count: number
+  rating_avg: number
+  rating_count: number
   allow_copy: boolean
   published_at: string | null
+}
+
+export interface AgentReview {
+  id: string
+  rating: number
+  content: string
+  author: string
+  created_at: string
+  updated_at: string
+}
+
+export interface AgentReviewList {
+  rating_avg: number
+  rating_count: number
+  reviews: AgentReview[]
+}
+
+export type AgentReportReason = 'spam' | 'abuse' | 'copyright' | 'misleading' | 'other'
+
+export interface AdminAgentReview {
+  id: string
+  agent_id: string
+  agent_name: string
+  author: string
+  rating: number
+  content: string
+  status: string
+  created_at: string
+  updated_at: string
+}
+
+export interface AgentReport {
+  id: string
+  agent_id: string
+  agent_name: string
+  reporter: string
+  reason: string
+  detail: string
+  status: string
+  resolution: string
+  created_at: string
+  handled_at: string | null
+}
+
+export interface WorkflowReview {
+  id: string
+  run_id: string
+  node_id: string
+  status: string
+  prompt: string
+  decision: string
+  comment: string
+  output: string
+  reviewer_user_id: string | null
+  created_at: string
+  expires_at: string | null
+  resolved_at: string | null
+}
+
+export interface AgentMemory {
+  id: string
+  agent_id: string | null
+  scope: 'user' | 'workspace'
+  kind: 'fact' | 'preference' | 'summary'
+  title: string
+  content: string
+  importance: number
+  source: string
+  last_used_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface McpServer {
+  id: string
+  name: string
+  description: string
+  endpoint_url: string
+  enabled: boolean
+  timeout_seconds: number
+  auth_hint: string
+  created_at: string
+  updated_at: string
+}
+
+export interface DatabaseConnection {
+  id: string
+  name: string
+  description: string
+  enabled: boolean
+  max_rows: number
+  timeout_seconds: number
+  dsn_hint: string
+  created_at: string
+  updated_at: string
+}
+
+export interface DatabaseConnectionOption {
+  id: string
+  name: string
+  description: string
+}
+
+export interface McpServerOption {
+  id: string
+  name: string
+  description: string
+}
+
+export interface McpResource {
+  uri: string
+  name: string
+  description: string
+  mime_type: string
+}
+
+export interface McpPrompt {
+  name: string
+  description: string
+  arguments: unknown[]
+}
+
+export interface McpTool {
+  name: string
+  description: string
+  input_schema: Record<string, unknown>
 }
 
 export interface AgentMarketDetail extends AgentMarketSummary {
@@ -440,7 +571,18 @@ export interface AgentMarketDetail extends AgentMarketSummary {
 export interface WorkflowCatalogField {
   name: string
   label: string
-  kind: 'text' | 'textarea' | 'number' | 'select' | 'json' | 'provider' | 'model' | 'agent' | 'kb_multi'
+  kind:
+    | 'text'
+    | 'textarea'
+    | 'number'
+    | 'select'
+    | 'json'
+    | 'provider'
+    | 'model'
+    | 'agent'
+    | 'kb_multi'
+    | 'mcp_server'
+    | 'db_connection'
   required?: boolean
   hint?: string
   options?: string[]
@@ -665,6 +807,16 @@ export interface WorkflowNodeDefinition {
     | 'parallel'
     | 'join'
     | 'output'
+    | 'review'
+    | 'loop'
+    | 'http'
+    | 'mcp'
+    | 'memory_read'
+    | 'memory_write'
+    | 'code'
+    | 'database'
+    | 'mcp_resource'
+    | 'mcp_prompt'
   config: Record<string, unknown>
   ui?: { x: number; y: number } | null
 }

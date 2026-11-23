@@ -20,6 +20,8 @@ class JobQueue(Protocol):
 
     async def enqueue_workflow_run(self, run_id: UUID) -> None: ...
 
+    async def enqueue_workflow_resume(self, run_id: UUID) -> None: ...
+
     async def enqueue_collaboration_run(self, run_id: UUID) -> None: ...
 
 
@@ -54,6 +56,15 @@ class ArqJobQueue:
             "run_workflow_job",
             str(run_id),
             _job_id=f"wfrun:{run_id}",
+        )
+
+    async def enqueue_workflow_resume(self, run_id: UUID) -> None:
+        # A paused run may still have the original job id retained by Arq, so
+        # resumes use a fresh id and rely on the DB claim for idempotency.
+        await self._pool.enqueue_job(
+            "run_workflow_job",
+            str(run_id),
+            _job_id=f"wfrun:{run_id}:{uuid4().hex[:12]}",
         )
 
     async def enqueue_collaboration_run(self, run_id: UUID) -> None:

@@ -1,6 +1,6 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Copy } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { Badge } from '../../components/ui/badge'
@@ -9,20 +9,50 @@ import { Spinner } from '../../components/ui/spinner'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
 import { hasSession } from '../../lib/tokens'
-import type { AgentMarketDetail, CustomAgent } from '../../lib/types'
+import type {
+  AgentMarketDetail,
+  AgentReportReason,
+  AgentReview,
+  AgentReviewList,
+  CustomAgent,
+} from '../../lib/types'
 
 export function AgentMarketDetailPage() {
   const { slug = '' } = useParams<{ slug: string }>()
   const { t } = useI18n()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [copying, setCopying] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [rating, setRating] = useState(5)
+  const [reviewText, setReviewText] = useState('')
+  const [reportReason, setReportReason] = useState<AgentReportReason>('spam')
+  const [reportDetail, setReportDetail] = useState('')
+  const [reportSent, setReportSent] = useState(false)
+  const [reviewBusy, setReviewBusy] = useState(false)
   const agent = useQuery({
     queryKey: ['market-agent', slug],
     queryFn: () =>
       apiRequest<AgentMarketDetail>(`/market/agents/${slug}`, { auth: false }),
     enabled: slug !== '',
   })
+  const reviewsQuery = useQuery({
+    queryKey: ['market-agent-reviews', slug],
+    queryFn: () =>
+      apiRequest<AgentReviewList>(`/market/agents/${slug}/reviews`, { auth: false }),
+    enabled: slug !== '',
+  })
+  const mineQuery = useQuery({
+    queryKey: ['market-agent-my-review', slug, agent.data?.id ?? ''],
+    queryFn: () => apiRequest<AgentReview | null>(`/agents/${agent.data?.id}/review`),
+    enabled: agent.data !== undefined && hasSession(),
+  })
+
+  useEffect(() => {
+    if (mineQuery.data === null || mineQuery.data === undefined) return
+    setRating(mineQuery.data.rating)
+    setReviewText(mineQuery.data.content)
+  }, [mineQuery.data])
 
   if (agent.isLoading) {
     return (
@@ -62,6 +92,62 @@ export function AgentMarketDetailPage() {
     }
   }
 
+  const submitReview = async () => {
+    if (!hasSession()) {
+      navigate(`/login?next=${encodeURIComponent(`/market/agents/${slug}`)}`)
+      return
+    }
+    setReviewBusy(true)
+    setError(null)
+    try {
+      await apiRequest(`/agents/${detail.id}/review`, {
+        method: 'PUT',
+        body: { rating, content: reviewText },
+      })
+      await queryClient.invalidateQueries({ queryKey: ['market-agent-reviews', slug] })
+      await queryClient.invalidateQueries({ queryKey: ['market-agent', slug] })
+      await queryClient.invalidateQueries({ queryKey: ['market-agent-my-review'] })
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('errors.generic'))
+    } finally {
+      setReviewBusy(false)
+    }
+  }
+
+  const removeReview = async () => {
+    setReviewBusy(true)
+    setError(null)
+    try {
+      await apiRequest(`/agents/${detail.id}/review`, { method: 'DELETE' })
+      await queryClient.invalidateQueries({ queryKey: ['market-agent-reviews', slug] })
+      await queryClient.invalidateQueries({ queryKey: ['market-agent', slug] })
+      await queryClient.invalidateQueries({ queryKey: ['market-agent-my-review'] })
+      setReviewText('')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('errors.generic'))
+    } finally {
+      setReviewBusy(false)
+    }
+  }
+
+  const sendReport = async () => {
+    if (!hasSession()) {
+      navigate(`/login?next=${encodeURIComponent(`/market/agents/${slug}`)}`)
+      return
+    }
+    setError(null)
+    try {
+      await apiRequest(`/agents/${detail.id}/report`, {
+        method: 'POST',
+        body: { reason: reportReason, detail: reportDetail },
+      })
+      setReportSent(true)
+      setReportDetail('')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('errors.generic'))
+    }
+  }
+
   return (
     <div className="mx-auto w-full max-w-5xl px-6 py-10">
       <Link
@@ -87,6 +173,9 @@ export function AgentMarketDetailPage() {
             <span>{detail.usage_count} uses</span>
             <span>{detail.favorite_count} favorites</span>
             <span>{detail.copy_count} copies</span>
+            <span>
+              ★ {(detail.rating_avg ?? 0).toFixed(1)} ({detail.rating_count ?? 0})
+            </span>
             {detail.model_hint && <span>{detail.model_hint}</span>}
           </div>
         </div>
@@ -169,6 +258,121 @@ export function AgentMarketDetailPage() {
           )}
         </section>
       </div>
+
+      <section className="mt-6 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+        <div className="rounded-card border border-border bg-surface p-5">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-medium text-ink">{t('market.reviews')}</h2>
+            <span className="text-xs text-ink-muted">
+              ★ {(reviewsQuery.data?.rating_avg ?? detail.rating_avg ?? 0).toFixed(1)} (
+              {reviewsQuery.data?.rating_count ?? detail.rating_count ?? 0})
+            </span>
+          </div>
+          {(reviewsQuery.data?.reviews.length ?? 0) === 0 ? (
+            <p className="mt-2 text-xs text-ink-muted">{t('market.noReviews')}</p>
+          ) : (
+            <ul className="mt-3 space-y-3">
+              {(reviewsQuery.data?.reviews ?? []).map((review) => (
+                <li key={review.id} className="rounded-lg bg-surface-muted px-3 py-2">
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="text-warning">{'★'.repeat(review.rating)}</span>
+                    <span className="text-ink-muted">{review.author}</span>
+                    <span className="ml-auto text-[10px] text-ink-muted">
+                      {new Date(review.updated_at).toLocaleDateString()}
+                    </span>
+                  </div>
+                  {review.content && (
+                    <p className="mt-1 whitespace-pre-wrap text-xs text-ink">
+                      {review.content}
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {hasSession() && (
+            <div className="mt-4 border-t border-border pt-3">
+              <p className="text-xs font-medium text-ink">
+                {mineQuery.data ? t('market.updateReview') : t('market.writeReview')}
+              </p>
+              <div className="mt-2 flex items-center gap-1">
+                {[1, 2, 3, 4, 5].map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-label={`${value} stars`}
+                    onClick={() => setRating(value)}
+                    className={
+                      value <= rating ? 'text-warning' : 'text-ink-muted/40'
+                    }
+                  >
+                    ★
+                  </button>
+                ))}
+              </div>
+              <textarea
+                value={reviewText}
+                onChange={(event) => setReviewText(event.target.value)}
+                placeholder={
+                  mineQuery.data?.content ?? t('market.reviewPlaceholder')
+                }
+                className="mt-2 min-h-16 w-full rounded-lg border border-border bg-surface px-3 py-2 text-xs text-ink"
+              />
+              <div className="mt-2 flex gap-2">
+                <Button size="sm" disabled={reviewBusy} onClick={() => void submitReview()}>
+                  {t('market.submitReview')}
+                </Button>
+                {mineQuery.data && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={reviewBusy}
+                    onClick={() => void removeReview()}
+                  >
+                    {t('market.deleteReview')}
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-card border border-border bg-surface p-5">
+          <h2 className="text-sm font-medium text-ink">{t('market.report')}</h2>
+          <p className="mt-1 text-[11px] text-ink-muted">{t('market.reportLead')}</p>
+          {reportSent ? (
+            <p className="mt-3 text-xs text-success">{t('market.reportThanks')}</p>
+          ) : (
+            <div className="mt-3 space-y-2">
+              <select
+                value={reportReason}
+                onChange={(event) =>
+                  setReportReason(event.target.value as AgentReportReason)
+                }
+                className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-xs text-ink"
+              >
+                {(['spam', 'abuse', 'copyright', 'misleading', 'other'] as const).map(
+                  (reason) => (
+                    <option key={reason} value={reason}>
+                      {t(`market.reportReason.${reason}`)}
+                    </option>
+                  ),
+                )}
+              </select>
+              <textarea
+                value={reportDetail}
+                onChange={(event) => setReportDetail(event.target.value)}
+                placeholder={t('market.reportDetail')}
+                className="min-h-16 w-full rounded-lg border border-border bg-surface px-3 py-2 text-xs text-ink"
+              />
+              <Button size="sm" variant="secondary" onClick={() => void sendReport()}>
+                {t('market.submitReport')}
+              </Button>
+            </div>
+          )}
+        </div>
+      </section>
     </div>
   )
 }

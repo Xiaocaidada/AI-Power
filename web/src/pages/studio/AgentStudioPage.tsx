@@ -19,6 +19,8 @@ import { useI18n } from '../../lib/i18n'
 import type {
   CustomAgent,
   KnowledgeBase,
+  DatabaseConnectionOption,
+  McpServerOption,
   ModelEntry,
   PersonalModel,
   Plugin,
@@ -99,6 +101,16 @@ export function AgentStudioPage() {
     queryKey: ['agents'],
     queryFn: () => apiRequest<CustomAgent[]>('/agents'),
     staleTime: 30_000,
+  })
+  const mcpServersQuery = useQuery({
+    queryKey: ['mcp-servers'],
+    queryFn: () => apiRequest<McpServerOption[]>('/mcp-servers'),
+    staleTime: 60_000,
+  })
+  const databaseConnectionsQuery = useQuery({
+    queryKey: ['database-connections'],
+    queryFn: () => apiRequest<DatabaseConnectionOption[]>('/database-connections'),
+    staleTime: 60_000,
   })
   const workflowQuery = useQuery({
     queryKey: ['studio-workflow', agentQuery.data?.workflow_id ?? ''],
@@ -204,6 +216,7 @@ export function AgentStudioPage() {
           visibility: draft.visibility,
           allow_copy: draft.allowCopy,
           show_structure: draft.showStructure,
+          memory_enabled: draft.memoryEnabled,
         },
       })
       await queryClient.invalidateQueries({ queryKey: ['studio-agent', id] })
@@ -360,6 +373,8 @@ export function AgentStudioPage() {
               knowledgeBases: knowledgeQuery.data ?? [],
               agents: (agentsQuery.data ?? []).filter((item) => !item.builtin),
               plugins: pluginsQuery.data ?? [],
+              mcpServers: mcpServersQuery.data ?? [],
+              databaseConnections: databaseConnectionsQuery.data ?? [],
             }}
             saving={savingCanvas}
             error={canvasError}

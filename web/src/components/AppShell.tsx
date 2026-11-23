@@ -3,7 +3,9 @@ import {
   BarChart3,
   BookOpen,
   Bot,
+  Brain,
   ClipboardList,
+  Database,
   FileText,
   FlaskConical,
   FolderOpen,
@@ -15,6 +17,7 @@ import {
   Plug,
   Puzzle,
   Search,
+  Server,
   Settings,
   Shield,
   Sun,
@@ -56,6 +59,7 @@ const buildNav = [
 const bottomNav = [
   { to: '/dashboard', labelKey: 'nav.dashboard', icon: LayoutDashboard },
   { to: '/usage', labelKey: 'nav.usage', icon: BarChart3 },
+  { to: '/memory', labelKey: 'nav.memory', icon: Brain },
   { to: '/plugins', labelKey: 'nav.plugins', icon: Plug },
   { to: '/settings', labelKey: 'nav.settings', icon: Settings },
 ]
@@ -142,6 +146,8 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
           { to: '/admin', labelKey: 'nav.admin', icon: Shield },
           { to: '/admin/content', labelKey: 'nav.contentAdmin', icon: Megaphone },
           { to: '/admin/plugins', labelKey: 'nav.pluginAdmin', icon: Puzzle },
+          { to: '/admin/mcp', labelKey: 'nav.mcpAdmin', icon: Server },
+          { to: '/admin/databases', labelKey: 'nav.dbAdmin', icon: Database },
           { to: '/admin/prompts', labelKey: 'nav.promptAdmin', icon: BookOpen },
         ]
       : []

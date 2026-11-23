@@ -30,6 +30,9 @@ const agent = {
   workflow_id: 'wf-1',
   visibility: 'private',
   enabled: true,
+  memory_enabled: false,
+  rating_avg: 0,
+  rating_count: 0,
   archived: false,
   owned: true,
   builtin: false,
@@ -88,6 +91,9 @@ async function mockBase(page: import('@playwright/test').Page) {
     }),
   )
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [workspace] }))
+  await page.route('**/api/mcp-servers', (route) => route.fulfill({ json: [] }))
+  await page.route('**/api/database-connections', (route) => route.fulfill({ json: [] }))
+  await page.route('**/api/memories**', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/models', (route) =>
     route.fulfill({
       json: [
@@ -272,6 +278,8 @@ test('Agent plaza lists and opens a public agent', async ({ page }) => {
     usage_count: 3,
     favorite_count: 1,
     copy_count: 2,
+    rating_avg: 4.5,
+    rating_count: 1,
     allow_copy: true,
     published_at: '2026-11-23T00:00:00Z',
   }
@@ -294,10 +302,34 @@ test('Agent plaza lists and opens a public agent', async ({ page }) => {
       },
     }),
   )
+  await page.route('**/api/market/agents/public-agent/reviews', (route) =>
+    route.fulfill({
+      json: {
+        rating_avg: 4.5,
+        rating_count: 1,
+        reviews: [
+          {
+            id: 'review-1',
+            rating: 5,
+            content: 'Very useful agent.',
+            author: 'e***@example.com',
+            created_at: '2026-11-23T00:00:00Z',
+            updated_at: '2026-11-23T00:00:00Z',
+          },
+        ],
+      },
+    }),
+  )
+  await page.route('**/api/agents/public-1/review', (route) =>
+    route.fulfill({ json: null }),
+  )
   await page.goto('/market/agents')
   await expect(page.getByRole('heading', { name: 'Agent 广场' })).toBeVisible()
   await expect(page.getByText('精选').first()).toBeVisible()
   await page.getByText('Public Agent').click()
   await expect(page.getByRole('heading', { name: 'Public Agent' })).toBeVisible()
   await expect(page.getByRole('button', { name: '复制到我的工作区' })).toBeVisible()
+  await expect(page.getByText('用户评价')).toBeVisible()
+  await expect(page.getByText('Very useful agent.')).toBeVisible()
+  await expect(page.getByText('★ 4.5 (1)').first()).toBeVisible()
 })

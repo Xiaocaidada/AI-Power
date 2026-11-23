@@ -794,6 +794,7 @@ class CustomAgentCreate(BaseModel):
     visibility: Literal["private", "shared"] = "private"
     allow_copy: bool = True
     show_structure: bool = True
+    memory_enabled: bool = False
 
     @field_validator(
         "name", "description", "instructions", "category", "default_provider_id",
@@ -826,6 +827,7 @@ class CustomAgentUpdate(BaseModel):
     enabled: bool | None = None
     allow_copy: bool | None = None
     show_structure: bool | None = None
+    memory_enabled: bool | None = None
 
     @field_validator(
         "name", "description", "instructions", "category", "default_provider_id",
@@ -857,6 +859,9 @@ class CustomAgentOut(BaseModel):
     workflow_id: UUID | None = None
     visibility: str
     enabled: bool
+    memory_enabled: bool = False
+    rating_avg: float = 0.0
+    rating_count: int = 0
     archived: bool
     owned: bool
     builtin: bool
@@ -918,8 +923,216 @@ class AgentMarketOut(BaseModel):
     usage_count: int = 0
     favorite_count: int = 0
     copy_count: int = 0
+    rating_avg: float = 0.0
+    rating_count: int = 0
     allow_copy: bool = True
     published_at: datetime | None = None
+
+
+class AgentReviewIn(BaseModel):
+    rating: int = Field(ge=1, le=5)
+    content: str = Field(default="", max_length=2000)
+
+
+class AgentReviewOut(BaseModel):
+    id: UUID
+    rating: int
+    content: str
+    author: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class AdminReviewOut(BaseModel):
+    id: UUID
+    agent_id: UUID
+    agent_name: str
+    author: str
+    rating: int
+    content: str
+    status: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class ReviewVisibilityIn(BaseModel):
+    visible: bool
+
+
+class AgentReviewListOut(BaseModel):
+    rating_avg: float
+    rating_count: int
+    reviews: list[AgentReviewOut] = Field(default_factory=list)
+
+
+class AgentReportIn(BaseModel):
+    reason: Literal["spam", "abuse", "copyright", "misleading", "other"]
+    detail: str = Field(default="", max_length=2000)
+
+
+class AgentReportOut(BaseModel):
+    id: UUID
+    agent_id: UUID
+    agent_name: str
+    reporter: str
+    reason: str
+    detail: str
+    status: str
+    resolution: str = ""
+    created_at: datetime
+    handled_at: datetime | None = None
+
+
+class AgentReportResolveIn(BaseModel):
+    action: Literal["dismiss", "unpublish"]
+    resolution: str = Field(default="", max_length=500)
+
+
+class WorkflowReviewOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    run_id: UUID
+    node_id: str
+    status: str
+    prompt: str
+    decision: str
+    comment: str
+    output: str
+    reviewer_user_id: UUID | None = None
+    created_at: datetime
+    expires_at: datetime | None = None
+    resolved_at: datetime | None = None
+
+
+class WorkflowReviewRespondIn(BaseModel):
+    decision: Literal["approved", "rejected"]
+    comment: str = Field(default="", max_length=2000)
+    output: str = Field(default="", max_length=20000)
+
+
+class MemoryIn(BaseModel):
+    content: str = Field(min_length=1, max_length=10000)
+    title: str = Field(default="", max_length=120)
+    scope: Literal["user", "workspace"] = "user"
+    kind: Literal["fact", "preference", "summary"] = "fact"
+    agent_id: UUID | None = None
+    importance: int = Field(default=3, ge=1, le=5)
+
+
+class MemoryUpdate(BaseModel):
+    content: str | None = Field(default=None, min_length=1, max_length=10000)
+    title: str | None = Field(default=None, max_length=120)
+    scope: Literal["user", "workspace"] | None = None
+    kind: Literal["fact", "preference", "summary"] | None = None
+    importance: int | None = Field(default=None, ge=1, le=5)
+
+
+class MemoryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    agent_id: UUID | None = None
+    scope: str
+    kind: str
+    title: str
+    content: str
+    importance: int
+    source: str
+    last_used_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class McpServerIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=500)
+    endpoint_url: str = Field(min_length=1, max_length=1000)
+    auth_token: str | None = Field(default=None, max_length=500)
+    enabled: bool = True
+    timeout_seconds: int = Field(default=20, ge=1, le=120)
+
+
+class McpServerUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+    endpoint_url: str | None = Field(default=None, min_length=1, max_length=1000)
+    auth_token: str | None = Field(default=None, max_length=500)
+    enabled: bool | None = None
+    timeout_seconds: int | None = Field(default=None, ge=1, le=120)
+
+
+class McpServerOut(BaseModel):
+    id: UUID
+    name: str
+    description: str
+    endpoint_url: str
+    enabled: bool
+    timeout_seconds: int
+    auth_hint: str = ""
+    created_at: datetime
+    updated_at: datetime
+
+
+class DatabaseConnectionIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=500)
+    dsn: str = Field(min_length=1, max_length=2000)
+    enabled: bool = True
+    max_rows: int = Field(default=100, ge=1, le=500)
+    timeout_seconds: int = Field(default=15, ge=1, le=120)
+
+
+class DatabaseConnectionUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+    dsn: str | None = Field(default=None, min_length=1, max_length=2000)
+    enabled: bool | None = None
+    max_rows: int | None = Field(default=None, ge=1, le=500)
+    timeout_seconds: int | None = Field(default=None, ge=1, le=120)
+
+
+class DatabaseConnectionOut(BaseModel):
+    id: UUID
+    name: str
+    description: str
+    enabled: bool
+    max_rows: int
+    timeout_seconds: int
+    dsn_hint: str = ""
+    created_at: datetime
+    updated_at: datetime
+
+
+class DatabaseConnectionOptionOut(BaseModel):
+    id: UUID
+    name: str
+    description: str = ""
+
+
+class McpResourceOut(BaseModel):
+    uri: str
+    name: str = ""
+    description: str = ""
+    mime_type: str = ""
+
+
+class McpPromptOut(BaseModel):
+    name: str
+    description: str = ""
+    arguments: list = Field(default_factory=list)
+
+
+class McpServerOptionOut(BaseModel):
+    id: UUID
+    name: str
+    description: str = ""
+
+
+class McpToolOut(BaseModel):
+    name: str
+    description: str = ""
+    input_schema: dict = Field(default_factory=dict)
 
 
 class AgentMarketDetail(AgentMarketOut):

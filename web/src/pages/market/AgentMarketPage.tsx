@@ -102,6 +102,9 @@ export function AgentMarketPage() {
                   <span>{agent.usage_count} uses</span>
                   <span>{agent.favorite_count} favorites</span>
                   <span>{agent.copy_count} copies</span>
+                  <span>
+                    ★ {(agent.rating_avg ?? 0).toFixed(1)} ({agent.rating_count ?? 0})
+                  </span>
                 </div>
               </div>
             </div>

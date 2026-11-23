@@ -198,6 +198,15 @@ export function StudioConfigPanel({
               ))}
             </div>
           </div>
+          <label className="mt-3 flex items-center gap-2 text-xs text-ink">
+            <input
+              type="checkbox"
+              checked={draft.memoryEnabled}
+              onChange={(event) => onChange({ memoryEnabled: event.target.checked })}
+            />
+            {t('studio.memoryEnabled')}
+          </label>
+          <p className="mt-1 text-[10px] text-ink-muted">{t('studio.memoryHint')}</p>
           <div className="mt-3">
             <MultiPopoverSelect
               label={t('studio.plugins')}

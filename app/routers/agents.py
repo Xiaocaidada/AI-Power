@@ -13,6 +13,9 @@ from app.providers.registry import ProviderRegistry
 from app.schemas import (
     AgentFavoriteOut,
     AgentPublishIn,
+    AgentReportIn,
+    AgentReviewIn,
+    AgentReviewOut,
     AgentRunOut,
     AgentUseOut,
     CustomAgentCreate,
@@ -20,6 +23,15 @@ from app.schemas import (
     CustomAgentUpdate,
 )
 from app.services.access import get_owned_knowledge_base
+from app.services.agent_reviews import (
+    AgentReviewError,
+    create_report,
+    delete_review,
+    get_review,
+    mask_email,
+    require_published_agent,
+    upsert_review,
+)
 from app.services.custom_agents import (
     BUILTIN_AGENT_IDS,
     BUILTIN_AGENTS,
@@ -72,6 +84,9 @@ def _custom_out(
         workflow_id=agent.workflow_id,
         visibility=agent.visibility,
         enabled=agent.enabled,
+        memory_enabled=agent.memory_enabled,
+        rating_avg=agent.rating_avg,
+        rating_count=agent.rating_count,
         archived=agent.archived_at is not None,
         owned=can_manage(agent, context.user.id, context.role),
         builtin=False,
@@ -582,3 +597,97 @@ async def unfavorite_agent(
     favorite = await set_agent_favorite(session, agent, context.user.id, False)
     await session.commit()
     return AgentFavoriteOut(favorite=favorite)
+
+
+def _review_error(exc: AgentReviewError) -> HTTPException:
+    code = (
+        status.HTTP_404_NOT_FOUND
+        if exc.code in {"not_found"}
+        else status.HTTP_409_CONFLICT
+        if exc.code in {"duplicate_report"}
+        else status.HTTP_422_UNPROCESSABLE_CONTENT
+    )
+    return HTTPException(code, {"code": exc.code, "message": exc.message})
+
+
+@router.put("/{agent_id}/review", response_model=AgentReviewOut)
+async def submit_agent_review(
+    agent_id: UUID,
+    payload: AgentReviewIn,
+    context: JwtContext,
+    session: SessionDep,
+) -> AgentReviewOut:
+    try:
+        agent = await require_published_agent(session, agent_id)
+        review = await upsert_review(
+            session,
+            agent,
+            workspace_id=context.workspace.id,
+            user_id=context.user.id,
+            rating=payload.rating,
+            content=payload.content,
+        )
+    except AgentReviewError as exc:
+        raise _review_error(exc) from None
+    await session.commit()
+    await session.refresh(review)
+    return AgentReviewOut(
+        id=review.id,
+        rating=review.rating,
+        content=review.content,
+        author=mask_email(context.user.email),
+        created_at=review.created_at,
+        updated_at=review.updated_at,
+    )
+
+
+@router.delete("/{agent_id}/review", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_agent_review(
+    agent_id: UUID, context: JwtContext, session: SessionDep
+) -> Response:
+    try:
+        agent = await require_published_agent(session, agent_id)
+        await delete_review(session, agent, context.user.id)
+    except AgentReviewError as exc:
+        raise _review_error(exc) from None
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{agent_id}/review", response_model=AgentReviewOut | None)
+async def get_my_agent_review(
+    agent_id: UUID, context: JwtContext, session: SessionDep
+) -> AgentReviewOut | None:
+    review = await get_review(session, agent_id, context.user.id)
+    if review is None or review.status != "visible":
+        return None
+    return AgentReviewOut(
+        id=review.id,
+        rating=review.rating,
+        content=review.content,
+        author=mask_email(context.user.email),
+        created_at=review.created_at,
+        updated_at=review.updated_at,
+    )
+
+
+@router.post("/{agent_id}/report", status_code=status.HTTP_201_CREATED)
+async def report_agent(
+    agent_id: UUID,
+    payload: AgentReportIn,
+    context: JwtContext,
+    session: SessionDep,
+) -> dict[str, str]:
+    try:
+        agent = await require_published_agent(session, agent_id)
+        report = await create_report(
+            session,
+            agent,
+            reporter_user_id=context.user.id,
+            reason=payload.reason,
+            detail=payload.detail,
+        )
+    except AgentReviewError as exc:
+        raise _review_error(exc) from None
+    await session.commit()
+    return {"id": str(report.id), "status": report.status}

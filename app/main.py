@@ -22,12 +22,15 @@ from app.routers import (
     content,
     conversations,
     dashboard,
+    database_connections,
     documents,
     evaluations,
     files,
     health,
     knowledge_bases,
     market,
+    mcp_servers,
+    memories,
     model_eval,
     models,
     plugins,
@@ -40,6 +43,7 @@ from app.routers import (
     traces,
     usage,
     webhooks,
+    workflow_reviews,
     workflows,
     workspaces,
 )
@@ -141,9 +145,16 @@ app.include_router(projects.router)
 app.include_router(agents.router)
 app.include_router(agent_market.router)
 app.include_router(agent_market.admin_router)
+app.include_router(agent_market.reports_router)
+app.include_router(agent_market.reviews_admin_router)
 app.include_router(agent_builder.router)
 app.include_router(plugins.router)
 app.include_router(plugins.admin_router)
+app.include_router(database_connections.router)
+app.include_router(database_connections.admin_router)
+app.include_router(mcp_servers.router)
+app.include_router(mcp_servers.admin_router)
+app.include_router(memories.router)
 app.include_router(dashboard.router)
 app.include_router(search.router)
 app.include_router(files.router)
@@ -160,6 +171,7 @@ app.include_router(webhooks.router)
 app.include_router(prompts.router)
 app.include_router(prompts.admin_router)
 app.include_router(admin.router)
+app.include_router(workflow_reviews.router)
 app.include_router(workflows.router)
 app.include_router(collaborations.router)
 app.include_router(metrics_router.router)

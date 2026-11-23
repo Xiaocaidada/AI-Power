@@ -2,6 +2,8 @@ import type {
   AgentMode,
   CustomAgent,
   KnowledgeBase,
+  DatabaseConnectionOption,
+  McpServerOption,
   Plugin,
   WorkflowDefinition,
   WorkflowNodeDefinition,
@@ -36,6 +38,7 @@ export interface StudioAgentDraft {
   visibility: 'private' | 'shared'
   allowCopy: boolean
   showStructure: boolean
+  memoryEnabled: boolean
 }
 
 export interface StudioResources {
@@ -43,6 +46,8 @@ export interface StudioResources {
   knowledgeBases: KnowledgeBase[]
   agents: CustomAgent[]
   plugins: Plugin[]
+  mcpServers: McpServerOption[]
+  databaseConnections: DatabaseConnectionOption[]
 }
 
 export function draftFromAgent(agent: CustomAgent): StudioAgentDraft {
@@ -68,6 +73,7 @@ export function draftFromAgent(agent: CustomAgent): StudioAgentDraft {
     visibility: agent.visibility,
     allowCopy: agent.allow_copy,
     showStructure: agent.show_structure,
+    memoryEnabled: agent.memory_enabled,
   }
 }
 
