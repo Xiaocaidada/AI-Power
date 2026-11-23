@@ -51,6 +51,7 @@ from app.services.custom_agents import (
     unpublish_custom_agent,
     update_custom_agent,
 )
+from app.services.memory_permissions import normalize_agent_permissions
 from app.services.provider_configs import ProviderConfigError, ensure_model_capability
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -63,6 +64,9 @@ RegistryDep = Annotated[ProviderRegistry, Depends(get_scoped_registry)]
 def _custom_out(
     agent, count: int, context: AuthContext, *, favorite: bool = False
 ) -> CustomAgentOut:
+    permissions = normalize_agent_permissions(
+        agent.memory_permissions, agent.memory_enabled
+    )
     return CustomAgentOut(
         id=str(agent.id),
         name=agent.name,
@@ -85,6 +89,12 @@ def _custom_out(
         visibility=agent.visibility,
         enabled=agent.enabled,
         memory_enabled=agent.memory_enabled,
+        memory_read_global=bool(permissions["read_global"]),
+        memory_read_project=bool(permissions["read_project"]),
+        memory_read_agent=bool(permissions["read_agent"]),
+        memory_write=bool(permissions["write"]),
+        memory_write_scope=str(permissions["write_scope"]),
+        memory_write_mode=str(permissions["write_mode"]),
         rating_avg=agent.rating_avg,
         rating_count=agent.rating_count,
         archived=agent.archived_at is not None,
@@ -301,6 +311,17 @@ async def create_agent(
     values["default_provider_id"] = provider_id
     values["default_model"] = model
     values["plugin_ids"] = [str(item) for item in plugin_ids]
+    values["memory_permissions"] = normalize_agent_permissions(
+        {
+            "read_global": values.pop("memory_read_global", True),
+            "read_project": values.pop("memory_read_project", True),
+            "read_agent": values.pop("memory_read_agent", True),
+            "write": values.pop("memory_write", False),
+            "write_scope": values.pop("memory_write_scope", "agent"),
+            "write_mode": values.pop("memory_write_mode", "candidate"),
+        },
+        bool(values.get("memory_enabled", False)),
+    )
     try:
         agent = await create_custom_agent(
             session,
@@ -336,6 +357,37 @@ async def update_agent(
     if not can_manage(agent, context.user.id, context.role):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the agent owner can edit")
     data = payload.model_dump(exclude_unset=True)
+    memory_keys = (
+        "memory_enabled",
+        "memory_read_global",
+        "memory_read_project",
+        "memory_read_agent",
+        "memory_write",
+        "memory_write_scope",
+        "memory_write_mode",
+    )
+    if any(key in data for key in memory_keys):
+        current = normalize_agent_permissions(
+            agent.memory_permissions, agent.memory_enabled
+        )
+        enabled = data.get("memory_enabled", agent.memory_enabled)
+        data["memory_permissions"] = normalize_agent_permissions(
+            {
+                "read_global": data.pop(
+                    "memory_read_global", current["read_global"]
+                ),
+                "read_project": data.pop(
+                    "memory_read_project", current["read_project"]
+                ),
+                "read_agent": data.pop("memory_read_agent", current["read_agent"]),
+                "write": data.pop("memory_write", current["write"]),
+                "write_scope": data.pop(
+                    "memory_write_scope", current["write_scope"]
+                ),
+                "write_mode": data.pop("memory_write_mode", current["write_mode"]),
+            },
+            bool(enabled),
+        )
     provider_id = data.get("default_provider_id", agent.default_provider_id)
     model = data.get("default_model", agent.default_model)
     kb_id = data.get("default_kb_id", agent.default_kb_id)

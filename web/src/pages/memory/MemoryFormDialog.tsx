@@ -41,13 +41,17 @@ interface Draft {
   validUntil: string
 }
 
-function draftFrom(memory: AgentMemory | null): Draft {
+function draftFrom(
+  memory: AgentMemory | null,
+  defaultScopeType: MemoryScopeType = 'global',
+  defaultProjectId = '',
+): Draft {
   return {
     title: memory?.title ?? '',
     content: memory?.content ?? '',
     category: memory?.category ?? 'preference',
-    scopeType: memory?.scope_type ?? 'global',
-    projectId: memory?.project_id ?? '',
+    scopeType: memory?.scope_type ?? defaultScopeType,
+    projectId: memory?.project_id ?? defaultProjectId,
     agentId: memory?.agent_id ?? '',
     importance: memory?.importance ?? 3,
     tags: (memory?.tags ?? []).join(', '),
@@ -64,6 +68,8 @@ interface MemoryFormDialogProps {
   initial: AgentMemory | null
   projects: Project[]
   agents: CustomAgent[]
+  defaultScopeType?: MemoryScopeType
+  defaultProjectId?: string
   onClose: () => void
   onSaved: () => void
 }
@@ -73,11 +79,15 @@ export function MemoryFormDialog({
   initial,
   projects,
   agents,
+  defaultScopeType = 'global',
+  defaultProjectId = '',
   onClose,
   onSaved,
 }: MemoryFormDialogProps) {
   const { t } = useI18n()
-  const [draft, setDraft] = useState<Draft>(() => draftFrom(initial))
+  const [draft, setDraft] = useState<Draft>(() =>
+    draftFrom(initial, defaultScopeType, defaultProjectId),
+  )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 

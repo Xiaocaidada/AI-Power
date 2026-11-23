@@ -178,7 +178,9 @@ test('Memory hub renders overview, list, detail and settings', async ({ page }) 
   await expect(page.getByText('回答风格')).toBeVisible()
   await page.getByText('回答风格').click()
   await expect(page.getByText('历史版本')).toBeVisible()
-  await expect(page.getByText('v2', { exact: true })).toBeVisible()
+  await expect(
+    page.getByRole('dialog').getByText('v2', { exact: true }),
+  ).toBeVisible()
   await page.getByRole('button', { name: '关闭' }).click()
   await page.getByRole('button', { name: '规则设置' }).click()
   await expect(page.getByText('记忆规则')).toBeVisible()

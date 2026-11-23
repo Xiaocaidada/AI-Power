@@ -43,10 +43,14 @@ from app.services.mcp import (
 from app.services.memories import (
     MemoryError,
     create_memory,
+    find_memory_by_title,
     get_memory_settings,
     record_memory_usage,
     select_memories,
+    update_memory,
+    validate_memory_targets,
 )
+from app.services.memory_permissions import agent_memory_access
 from app.services.outbound import OutboundError, request_outbound
 from app.services.plugins import build_plugin_tools_for_ids, plugin_tool_names
 from app.services.sandbox import SandboxError, evaluate_expression
@@ -563,6 +567,7 @@ class WorkflowRunner:
         plugin_tools = []
         agent_registry = self._agents
         root_agent = None
+        bound_agent = None
         extra_tools = list(config.tools)
         if config.agent_id is not None:
             async with SessionLocal() as session:
@@ -575,6 +580,16 @@ class WorkflowRunner:
                     )
                 except CustomAgentError as exc:
                     raise NodeFailure(exc.code, exc.message) from None
+                bound_agent = agent
+                if config.project_id is not None:
+                    try:
+                        await validate_memory_targets(
+                            session,
+                            self._workspace_id,
+                            project_id=config.project_id,
+                        )
+                    except MemoryError as exc:
+                        raise NodeFailure(exc.code, exc.message) from None
                 plugin_tools = await build_plugin_tools_for_ids(
                     session, self._workspace_id, list(agent.plugin_ids)
                 )
@@ -605,6 +620,13 @@ class WorkflowRunner:
                 user_id=self._user_id,
                 kb_id=self._kb_id,
                 kb_ids=kb_ids or None,
+                agent_id=bound_agent.id if bound_agent is not None else None,
+                project_id=config.project_id,
+                memory_access=(
+                    agent_memory_access(bound_agent)
+                    if bound_agent is not None
+                    else None
+                ),
                 redis=self._redis,
             ),
             quota_guard=self._quota_guard,
@@ -907,6 +929,14 @@ class WorkflowRunner:
         self, config: MemoryReadNodeConfig
     ) -> tuple[str, str]:
         query = self._render(config.query) if config.query.strip() else self._input
+        if config.scope_type == "all":
+            allowed_scopes = {"global"}
+            if config.project_id is not None:
+                allowed_scopes.add("project")
+            if config.agent_id is not None:
+                allowed_scopes.add("agent")
+        else:
+            allowed_scopes = {config.scope_type}
         async with SessionLocal() as session:
             try:
                 memory_settings = await get_memory_settings(
@@ -915,17 +945,25 @@ class WorkflowRunner:
                 if not memory_settings.enabled:
                     await session.commit()
                     return "(memory disabled)", query
+                await validate_memory_targets(
+                    session,
+                    self._workspace_id,
+                    project_id=config.project_id,
+                    agent_id=config.agent_id,
+                )
                 selection = await select_memories(
                     session,
                     workspace_id=self._workspace_id,
                     user_id=self._user_id,
-                    agent_id=None,
+                    agent_id=config.agent_id,
+                    project_id=config.project_id,
                     query=query,
                     limit=min(config.limit, memory_settings.max_inject_items),
                     max_chars=min(
                         self._settings.agent_memory_inject_chars,
                         memory_settings.max_inject_chars,
                     ),
+                    allowed_scopes=allowed_scopes,
                 )
                 if selection.items:
                     await record_memory_usage(
@@ -952,6 +990,9 @@ class WorkflowRunner:
     ) -> tuple[str, str]:
         title = self._render(config.title) if config.title else ""
         content = self._render(config.content)
+        scope_type = config.scope_type
+        project_id = config.project_id if scope_type == "project" else None
+        agent_id = config.agent_id if scope_type == "agent" else None
         async with SessionLocal() as session:
             try:
                 memory_settings = await get_memory_settings(
@@ -961,21 +1002,58 @@ class WorkflowRunner:
                     raise MemoryError(
                         "memory_disabled", "Memory hub is disabled for this user"
                     )
-                memory = await create_memory(
+                await validate_memory_targets(
                     session,
-                    workspace_id=self._workspace_id,
-                    user_id=self._user_id,
-                    content=content,
-                    title=title,
-                    scope=config.scope,
-                    kind=config.kind,
-                    source="workflow",
+                    self._workspace_id,
+                    project_id=project_id,
+                    agent_id=agent_id,
                 )
+                existing = None
+                if config.upsert:
+                    existing = await find_memory_by_title(
+                        session,
+                        workspace_id=self._workspace_id,
+                        user_id=self._user_id,
+                        title=title,
+                        scope_type=scope_type,
+                        project_id=project_id,
+                        agent_id=agent_id,
+                    )
+                if existing is not None:
+                    memory = await update_memory(
+                        session,
+                        existing,
+                        title=title or existing.title,
+                        content=content,
+                        status=config.status,
+                        change_reason="workflow update",
+                        changed_by=self._user_id,
+                    )
+                    action = "updated"
+                else:
+                    memory = await create_memory(
+                        session,
+                        workspace_id=self._workspace_id,
+                        user_id=self._user_id,
+                        content=content,
+                        title=title,
+                        kind=config.kind,
+                        scope_type=scope_type,
+                        project_id=project_id,
+                        agent_id=agent_id,
+                        status=config.status,
+                        source="workflow",
+                        source_type="workflow",
+                        source_id=str(self._run_id),
+                    )
+                    action = "saved"
                 saved_title = memory.title
                 await session.commit()
             except MemoryError as exc:
                 raise NodeFailure(exc.code, exc.message) from None
-        return f"memory saved: {saved_title}", content
+        if config.status == "candidate":
+            return f"memory candidate {action}: {saved_title}", content
+        return f"memory {action}: {saved_title}", content
 
     async def _code_node(self, config: CodeNodeConfig) -> tuple[str, str]:
         limit = min(config.max_output_chars, self._settings.code_node_max_output_chars)

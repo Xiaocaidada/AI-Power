@@ -11,6 +11,7 @@ from app.providers.base import ProviderError
 from app.providers.registry import ProviderRegistry
 from app.schemas import ProjectCreate, ProjectOut, ProjectUpdate
 from app.services.access import get_owned_knowledge_base
+from app.services.memory_permissions import normalize_project_permissions
 from app.services.projects import (
     ProjectError,
     archive_project,
@@ -31,6 +32,7 @@ RegistryDep = Annotated[ProviderRegistry, Depends(get_scoped_registry)]
 
 
 def _project_out(project: Project, count: int, context: AuthContext) -> ProjectOut:
+    permissions = normalize_project_permissions(project.memory_permissions)
     return ProjectOut(
         id=project.id,
         name=project.name,
@@ -42,6 +44,9 @@ def _project_out(project: Project, count: int, context: AuthContext) -> ProjectO
         kb_ids=[UUID(item) for item in project.kb_ids],
         default_custom_agent_id=project.default_custom_agent_id,
         default_agent=project.default_agent,
+        memory_enabled=permissions["enabled"],
+        allow_global_memory=bool(permissions["allow_global"]),
+        allow_agent_writes=bool(permissions["allow_agent_writes"]),
         archived=project.archived_at is not None,
         conversation_count=count,
         owned=can_manage(project, context.user.id, context.role),
@@ -157,6 +162,13 @@ async def create_workspace_project(
     values["default_provider_id"] = provider_id
     values["default_model"] = model
     values["kb_ids"] = [str(item) for item in dict.fromkeys(payload.kb_ids)]
+    values["memory_permissions"] = normalize_project_permissions(
+        {
+            "enabled": values.pop("memory_enabled", None),
+            "allow_global": values.pop("allow_global_memory", True),
+            "allow_agent_writes": values.pop("allow_agent_writes", False),
+        }
+    )
     project = await create_project(
         session,
         workspace_id=context.workspace.id,
@@ -200,6 +212,20 @@ async def update_workspace_project(
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the project owner can edit")
 
     data = payload.model_dump(exclude_unset=True)
+    memory_keys = ("memory_enabled", "allow_global_memory", "allow_agent_writes")
+    if any(key in data for key in memory_keys):
+        current = normalize_project_permissions(project.memory_permissions)
+        data["memory_permissions"] = normalize_project_permissions(
+            {
+                "enabled": data.pop("memory_enabled", current["enabled"]),
+                "allow_global": data.pop(
+                    "allow_global_memory", current["allow_global"]
+                ),
+                "allow_agent_writes": data.pop(
+                    "allow_agent_writes", current["allow_agent_writes"]
+                ),
+            }
+        )
     provider_id = data.get("default_provider_id", project.default_provider_id)
     model = data.get("default_model", project.default_model)
     agent = data.get("default_agent", project.default_agent)

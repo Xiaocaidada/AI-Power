@@ -5,6 +5,7 @@ import type {
   DatabaseConnectionOption,
   McpServerOption,
   Plugin,
+  Project,
   WorkflowDefinition,
   WorkflowNodeDefinition,
 } from '../../lib/types'
@@ -39,6 +40,12 @@ export interface StudioAgentDraft {
   allowCopy: boolean
   showStructure: boolean
   memoryEnabled: boolean
+  memoryReadGlobal: boolean
+  memoryReadProject: boolean
+  memoryReadAgent: boolean
+  memoryWrite: boolean
+  memoryWriteScope: 'global' | 'project' | 'agent'
+  memoryWriteMode: 'candidate' | 'create' | 'upsert'
 }
 
 export interface StudioResources {
@@ -46,6 +53,7 @@ export interface StudioResources {
   knowledgeBases: KnowledgeBase[]
   agents: CustomAgent[]
   plugins: Plugin[]
+  projects: Project[]
   mcpServers: McpServerOption[]
   databaseConnections: DatabaseConnectionOption[]
 }
@@ -74,6 +82,12 @@ export function draftFromAgent(agent: CustomAgent): StudioAgentDraft {
     allowCopy: agent.allow_copy,
     showStructure: agent.show_structure,
     memoryEnabled: agent.memory_enabled,
+    memoryReadGlobal: agent.memory_read_global,
+    memoryReadProject: agent.memory_read_project,
+    memoryReadAgent: agent.memory_read_agent,
+    memoryWrite: agent.memory_write,
+    memoryWriteScope: agent.memory_write_scope,
+    memoryWriteMode: agent.memory_write_mode,
   }
 }
 

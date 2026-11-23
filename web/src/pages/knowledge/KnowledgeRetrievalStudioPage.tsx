@@ -320,6 +320,7 @@ export function KnowledgeRetrievalStudioPage() {
                   knowledgeBases: [],
                   agents: [],
                   plugins: [],
+                  projects: [],
                   mcpServers: [],
                   databaseConnections: [],
                 }}

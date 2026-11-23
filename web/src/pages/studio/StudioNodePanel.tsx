@@ -151,6 +151,40 @@ export function StudioNodePanel({
               />
             )
           }
+          if (field.kind === 'boolean') {
+            return (
+              <label
+                key={field.name}
+                className="flex items-center gap-2 text-xs text-ink"
+              >
+                <input
+                  type="checkbox"
+                  checked={value === true}
+                  onChange={(event) => set(field.name, event.target.checked)}
+                />
+                {field.label}
+              </label>
+            )
+          }
+          if (field.kind === 'project') {
+            return (
+              <div key={field.name} className="text-xs text-ink-muted">
+                {field.label}
+                <PopoverSelect
+                  label={field.label}
+                  value={typeof value === 'string' ? value : ''}
+                  options={[
+                    { value: '', label: t('studio.noProject') },
+                    ...resources.projects.map((project) => ({
+                      value: project.id,
+                      label: project.name,
+                    })),
+                  ]}
+                  onChange={(next) => set(field.name, next === '' ? undefined : next)}
+                />
+              </div>
+            )
+          }
           if (field.kind === 'provider') {
             return (
               <div key={field.name} className="text-xs text-ink-muted">
