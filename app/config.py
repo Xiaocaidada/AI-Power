@@ -95,6 +95,24 @@ class Settings(BaseSettings):
     http_node_max_response_chars: int = 8000
     http_node_allowed_hosts: str = ""
     http_node_allow_private_hosts: bool = False
+    url_import_enabled: bool = True
+    url_import_timeout_seconds: float = 20.0
+    url_import_max_bytes: int = 5_000_000
+    url_import_allowed_hosts: str = ""
+    url_import_allow_private_hosts: bool = False
+    url_import_max_redirects: int = 3
+    url_import_crawl_max_pages: int = 20
+    ocr_enabled: bool = False
+    ocr_base_url: str = ""
+    ocr_api_key: str = ""
+    ocr_model: str = ""
+    ocr_timeout_seconds: float = 60.0
+    ocr_max_image_bytes: int = 10_000_000
+    ocr_max_output_chars: int = 20000
+    ocr_prompt: str = (
+        "Extract all readable text from this image. "
+        "Preserve line breaks and tables as plain text. Return text only."
+    )
     mcp_timeout_seconds: float = 20.0
     mcp_max_response_chars: int = 8000
     agent_memory_inject_limit: int = 5
@@ -190,6 +208,22 @@ class Settings(BaseSettings):
             raise ValueError("HTTP_NODE_TIMEOUT_SECONDS must be > 0")
         if self.http_node_max_response_chars < 1:
             raise ValueError("HTTP_NODE_MAX_RESPONSE_CHARS must be >= 1")
+        if self.url_import_timeout_seconds <= 0:
+            raise ValueError("URL_IMPORT_TIMEOUT_SECONDS must be > 0")
+        if self.url_import_max_bytes < 1:
+            raise ValueError("URL_IMPORT_MAX_BYTES must be >= 1")
+        if self.url_import_max_redirects < 0:
+            raise ValueError("URL_IMPORT_MAX_REDIRECTS must be >= 0")
+        if self.url_import_crawl_max_pages < 1:
+            raise ValueError("URL_IMPORT_CRAWL_MAX_PAGES must be >= 1")
+        if self.ocr_timeout_seconds <= 0:
+            raise ValueError("OCR_TIMEOUT_SECONDS must be > 0")
+        if self.ocr_max_image_bytes < 1:
+            raise ValueError("OCR_MAX_IMAGE_BYTES must be >= 1")
+        if self.ocr_enabled and (
+            not self.ocr_base_url.strip() or not self.ocr_model.strip()
+        ):
+            raise ValueError("OCR_ENABLED requires OCR_BASE_URL and OCR_MODEL")
         if self.mcp_timeout_seconds <= 0:
             raise ValueError("MCP_TIMEOUT_SECONDS must be > 0")
         if self.mcp_max_response_chars < 1:

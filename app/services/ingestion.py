@@ -23,7 +23,12 @@ from app.providers.base import ProviderError
 from app.services.chunking import chunk_pages
 from app.services.kb_models import build_kb_embedder
 from app.services.knowledge_settings import resolve_kb_settings
-from app.services.parsing import DocumentParser, UnsupportedDocumentType, parser_for_mime
+from app.services.parsing import (
+    DocumentParser,
+    OcrParseError,
+    UnsupportedDocumentType,
+    parser_for_mime,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -194,6 +199,8 @@ def _parse(document: Document, settings) -> object:
         return parser.parse(Path(settings.upload_dir) / document.storage_path, document.mime)
     except IngestionError:
         raise
+    except OcrParseError as exc:
+        raise IngestionError("ocr_failed", exc.message) from exc
     except Exception as exc:
         raise IngestionError("parse_failed", "Document parsing failed") from exc
 

@@ -261,11 +261,21 @@ async def retrieve_with_diagnostics(
     vector_started = time.perf_counter()
     if session.get_bind().dialect.name == "postgresql":
         vector_results = await _search_with_distance(
-            session, workspace_id, active_ids, vector, vector_limit
+            session,
+            workspace_id,
+            active_ids,
+            vector,
+            vector_limit,
+            kb_settings.retrieval.metadata_filter,
         )
     else:
         vector_results = await _search_in_python(
-            session, workspace_id, active_ids, vector, vector_limit
+            session,
+            workspace_id,
+            active_ids,
+            vector,
+            vector_limit,
+            kb_settings.retrieval.metadata_filter,
         )
     vector_results = [
         replace(chunk, vector_rank=index) for index, chunk in enumerate(vector_results, start=1)
@@ -277,11 +287,21 @@ async def retrieve_with_diagnostics(
         lexical_started = time.perf_counter()
         if session.get_bind().dialect.name == "postgresql":
             lexical_results = await _lexical_search_postgres(
-                session, workspace_id, active_ids, question, options.candidate_k
+                session,
+                workspace_id,
+                active_ids,
+                question,
+                options.candidate_k,
+                kb_settings.retrieval.metadata_filter,
             )
         else:
             lexical_results = await _lexical_search_python(
-                session, workspace_id, active_ids, question, options.candidate_k
+                session,
+                workspace_id,
+                active_ids,
+                question,
+                options.candidate_k,
+                kb_settings.retrieval.metadata_filter,
             )
         timings["lexical_ms"] = _elapsed_ms(lexical_started)
 
@@ -379,13 +399,28 @@ def build_citations(chunks: Sequence[RetrievedChunk]) -> list[Citation]:
     ]
 
 
-def _filters(workspace_id: UUID, kb_ids: Sequence[UUID]) -> tuple:
-    return (
+def _filters(
+    session: AsyncSession,
+    workspace_id: UUID,
+    kb_ids: Sequence[UUID],
+    metadata_filter: dict[str, str] | None = None,
+) -> tuple:
+    conditions: list = [
         Chunk.workspace_id == workspace_id,
         Chunk.kb_id.in_(list(kb_ids)),
         Document.status == "ready",
         Document.deleted_at.is_(None),
-    )
+    ]
+    if metadata_filter:
+        if session.get_bind().dialect.name == "postgresql":
+            for key, value in metadata_filter.items():
+                conditions.append(Document.doc_metadata[key].astext == value)
+        else:
+            for key, value in metadata_filter.items():
+                conditions.append(
+                    func.json_extract(Document.doc_metadata, f"$.{key}") == value
+                )
+    return tuple(conditions)
 
 
 async def _search_with_distance(
@@ -394,13 +429,14 @@ async def _search_with_distance(
     kb_ids: Sequence[UUID],
     vector: list[float],
     limit: int,
+    metadata_filter: dict[str, str] | None = None,
 ) -> list[RetrievedChunk]:
     distance = ChunkEmbedding.embedding.l2_distance(vector).label("distance")
     statement = (
         select(Chunk, Document.filename, distance)
         .join(ChunkEmbedding, ChunkEmbedding.chunk_id == Chunk.id)
         .join(Document, Document.id == Chunk.document_id)
-        .where(*_filters(workspace_id, kb_ids))
+        .where(*_filters(session, workspace_id, kb_ids, metadata_filter))
         .order_by(distance, Chunk.chunk_index, Chunk.id)
         .limit(limit)
     )
@@ -416,13 +452,14 @@ async def _search_in_python(
     kb_ids: Sequence[UUID],
     vector: list[float],
     limit: int,
+    metadata_filter: dict[str, str] | None = None,
 ) -> list[RetrievedChunk]:
     """SQLite fallback: no vector operators, so score candidates in Python."""
     statement = (
         select(Chunk, Document.filename, ChunkEmbedding.embedding)
         .join(ChunkEmbedding, ChunkEmbedding.chunk_id == Chunk.id)
         .join(Document, Document.id == Chunk.document_id)
-        .where(*_filters(workspace_id, kb_ids))
+        .where(*_filters(session, workspace_id, kb_ids, metadata_filter))
     )
     rows = (await session.execute(statement)).all()
     scored = [
@@ -438,6 +475,7 @@ async def _lexical_search_postgres(
     kb_ids: Sequence[UUID],
     query: str,
     limit: int,
+    metadata_filter: dict[str, str] | None = None,
 ) -> list[RetrievedChunk]:
     """Trigram / substring / word similarity; requires pg_trgm."""
     contains = Chunk.text.contains(query, autoescape=True)
@@ -452,7 +490,7 @@ async def _lexical_search_postgres(
         select(Chunk, Document.filename, score)
         .join(Document, Document.id == Chunk.document_id)
         .where(
-            *_filters(workspace_id, kb_ids),
+            *_filters(session, workspace_id, kb_ids, metadata_filter),
             or_(
                 contains,
                 word_score > LEXICAL_WORD_MIN,
@@ -475,12 +513,13 @@ async def _lexical_search_python(
     kb_ids: Sequence[UUID],
     query: str,
     limit: int,
+    metadata_filter: dict[str, str] | None = None,
 ) -> list[RetrievedChunk]:
     """SQLite fallback: character-bigram lexical score, no vector needed."""
     statement = (
         select(Chunk, Document.filename)
         .join(Document, Document.id == Chunk.document_id)
-        .where(*_filters(workspace_id, kb_ids))
+        .where(*_filters(session, workspace_id, kb_ids, metadata_filter))
     )
     rows = (await session.execute(statement)).all()
     scored = [(chunk, filename, _lexical_score(query, chunk.text)) for chunk, filename in rows]
@@ -611,11 +650,21 @@ async def vector_search_chunks(
     limit = max(1, top_k)
     if session.get_bind().dialect.name == "postgresql":
         results = await _search_with_distance(
-            session, workspace_id, [item.id for item in kbs], vectors[0], limit
+            session,
+            workspace_id,
+            [item.id for item in kbs],
+            vectors[0],
+            limit,
+            kb_settings.retrieval.metadata_filter,
         )
     else:
         results = await _search_in_python(
-            session, workspace_id, [item.id for item in kbs], vectors[0], limit
+            session,
+            workspace_id,
+            [item.id for item in kbs],
+            vectors[0],
+            limit,
+            kb_settings.retrieval.metadata_filter,
         )
     return [
         replace(chunk, vector_rank=index)
@@ -647,14 +696,25 @@ async def lexical_search_chunks(
     )
     if not kbs:
         return []
+    kb_settings = resolve_kb_settings(kbs[0])
     limit = max(1, top_k)
     if session.get_bind().dialect.name == "postgresql":
         results = await _lexical_search_postgres(
-            session, workspace_id, [item.id for item in kbs], query.strip(), limit
+            session,
+            workspace_id,
+            [item.id for item in kbs],
+            query.strip(),
+            limit,
+            kb_settings.retrieval.metadata_filter,
         )
     else:
         results = await _lexical_search_python(
-            session, workspace_id, [item.id for item in kbs], query.strip(), limit
+            session,
+            workspace_id,
+            [item.id for item in kbs],
+            query.strip(),
+            limit,
+            kb_settings.retrieval.metadata_filter,
         )
     return [
         replace(chunk, lexical_rank=index)

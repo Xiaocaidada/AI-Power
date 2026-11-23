@@ -35,7 +35,7 @@ from app.services.knowledge.schema import (
     ParseDocumentConfig,
 )
 from app.services.knowledge_settings import KnowledgeBaseSettings, resolve_kb_settings
-from app.services.parsing import ParsedPage, parser_for_mime
+from app.services.parsing import OcrParseError, ParsedPage, parser_for_mime
 
 logger = logging.getLogger(__name__)
 
@@ -335,6 +335,8 @@ class KnowledgeProcessRunner:
             ) from None
         try:
             parsed = parser.parse(path, self._document.mime)
+        except OcrParseError as exc:
+            raise KnowledgePipelineError("ocr_failed", exc.message) from None
         except Exception as exc:
             raise KnowledgePipelineError(
                 "parse_failed", f"Document parsing failed: {type(exc).__name__}"
