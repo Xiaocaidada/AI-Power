@@ -21,7 +21,7 @@ from app.clients import RedisLike, get_redis
 from app.config import get_settings
 from app.db import get_session
 from app.deps import AuthContext, get_jwt_context, require_scope
-from app.models import Chunk, ChunkEmbedding, Document, IngestionJob
+from app.models import Chunk, ChunkEmbedding, Document, IngestionJob, KnowledgeBase
 from app.schemas import DocumentOut, DocumentUpdate, DocumentUploadOut, ErrorOut
 from app.services.access import get_owned_document, get_owned_knowledge_base
 from app.services.parsing import UnsupportedDocumentType, detect_mime, parser_for_mime
@@ -229,9 +229,16 @@ async def reprocess_document(
             {"code": "document_busy", "message": "Document is currently being processed"},
         )
 
-    chunk_ids = select(Chunk.id).where(Chunk.document_id == document.id)
-    await session.execute(delete(ChunkEmbedding).where(ChunkEmbedding.chunk_id.in_(chunk_ids)))
-    await session.execute(delete(Chunk).where(Chunk.document_id == document.id))
+    kb = await session.get(KnowledgeBase, document.kb_id)
+    bound_workflow = (
+        kb is not None and kb.process_workflow_version_id is not None
+    )
+    if not bound_workflow:
+        chunk_ids = select(Chunk.id).where(Chunk.document_id == document.id)
+        await session.execute(
+            delete(ChunkEmbedding).where(ChunkEmbedding.chunk_id.in_(chunk_ids))
+        )
+        await session.execute(delete(Chunk).where(Chunk.document_id == document.id))
 
     document.status = "uploaded"
     document.error_code = None

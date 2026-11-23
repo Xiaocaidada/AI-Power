@@ -9,7 +9,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db import SessionLocal
-from app.models import Chunk, ChunkEmbedding, Document, IngestionJob, KnowledgeBase
+from app.models import (
+    Chunk,
+    ChunkEmbedding,
+    Document,
+    IngestionJob,
+    KnowledgeBase,
+    Workflow,
+    WorkflowRun,
+    WorkflowVersion,
+)
 from app.providers.base import ProviderError
 from app.services.chunking import chunk_pages
 from app.services.kb_models import build_kb_embedder
@@ -63,6 +72,10 @@ async def ingest_document(document_id: UUID) -> IngestionOutcome:
             if kb is None or kb.deleted_at is not None:
                 raise IngestionError("kb_not_found", "Knowledge base no longer exists")
             kb_settings = resolve_kb_settings(kb)
+            if kb.process_workflow_version_id is not None:
+                return await _ingest_with_bound_workflow(
+                    session, document, kb, job, attempts
+                )
             parsed = _parse(document, settings)
             if len(parsed.pages) > settings.max_document_pages:
                 raise IngestionError(
@@ -218,3 +231,73 @@ async def _mark_failed(session: AsyncSession, document_id: UUID, code: str) -> N
         job.lease_expires_at = None
         job.finished_at = datetime.now(UTC)
     await session.commit()
+
+
+async def _ingest_with_bound_workflow(
+    session: AsyncSession,
+    document: Document,
+    kb: KnowledgeBase,
+    job: IngestionJob,
+    attempts: int,
+) -> IngestionOutcome:
+    """Run the KB's published processing workflow and apply its staged chunks."""
+    from app.services.knowledge.apply import KnowledgeApplyError, apply_knowledge_run
+    from app.services.run_execution import execute_knowledge_process_run
+
+    version = await session.get(WorkflowVersion, kb.process_workflow_version_id)
+    workflow = await session.get(Workflow, version.workflow_id) if version else None
+    if (
+        version is None
+        or workflow is None
+        or workflow.deleted_at is not None
+        or workflow.kind != "knowledge_process"
+    ):
+        raise IngestionError(
+            "processing_workflow_invalid",
+            "The knowledge processing workflow is no longer available",
+        )
+    run = WorkflowRun(
+        workflow_id=workflow.id,
+        version_id=version.id,
+        workspace_id=document.workspace_id,
+        user_id=document.user_id,
+        kb_id=document.kb_id,
+        status="running",
+        input_text=document.filename,
+        input_payload={"document_id": str(document.id)},
+    )
+    session.add(run)
+    document.status = "embedding"
+    document.error_code = None
+    await session.commit()
+    run_id = run.id
+
+    await execute_knowledge_process_run(run_id)
+
+    async with SessionLocal() as apply_session:
+        finished = await apply_session.get(WorkflowRun, run_id)
+        target = await apply_session.get(Document, document.id)
+        if finished is None or target is None:
+            raise IngestionError("processing_failed", "Processing run disappeared")
+        if finished.status != "completed":
+            raise IngestionError(
+                finished.error_code or "processing_failed",
+                "Knowledge processing failed",
+            )
+        try:
+            await apply_knowledge_run(apply_session, finished, target)
+        except KnowledgeApplyError as exc:
+            raise IngestionError(exc.code, exc.message) from None
+        page_count = target.page_count
+        process_version_id = target.process_version_id
+
+    document.status = "ready"
+    document.error_code = None
+    document.page_count = page_count
+    document.process_version_id = process_version_id
+    job.status = "succeeded"
+    job.error = None
+    job.lease_expires_at = None
+    job.finished_at = datetime.now(UTC)
+    await session.commit()
+    return IngestionOutcome(status="ready", attempts=attempts)

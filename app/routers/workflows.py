@@ -41,6 +41,13 @@ from app.services.knowledge.catalog import (
     build_knowledge_process_catalog,
     build_template,
 )
+from app.services.knowledge.retrieval_catalog import (
+    build_knowledge_retrieval_catalog,
+)
+from app.services.knowledge.retrieval_schema import (
+    RetrievalValidationError,
+    validate_knowledge_retrieval,
+)
 from app.services.knowledge.schema import (
     KnowledgeValidationError,
     validate_knowledge_process,
@@ -100,6 +107,21 @@ def _parse_definition(raw: object, kind: str = "agent") -> WorkflowDefinition:
             ) from None
         return WorkflowDefinition.model_construct(
             nodes=definition.nodes, edges=definition.edges
+        )
+    if kind == "knowledge_retrieval":
+        try:
+            retrieval = validate_knowledge_retrieval(raw)
+        except RetrievalValidationError as exc:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                {
+                    "code": "invalid_workflow",
+                    "message": str(exc),
+                    "errors": exc.messages,
+                },
+            ) from None
+        return WorkflowDefinition.model_construct(
+            nodes=retrieval.nodes, edges=retrieval.edges
         )
     try:
         return validate_definition(raw)
@@ -243,6 +265,8 @@ async def get_workflow_catalog(
             build_template(name) for name in ("general", "technical", "markdown")
         ]
         return catalog
+    if kind == "knowledge_retrieval":
+        return build_knowledge_retrieval_catalog()
     return build_node_catalog()
 
 
@@ -378,6 +402,14 @@ async def create_workflow_run(
     input_payload: dict[str, object] = {}
     input_text = payload.input.strip()
     kb_id = payload.kb_id
+    if workflow.kind == "knowledge_retrieval":
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {
+                "code": "retrieval_workflow_not_runnable",
+                "message": "Use the knowledge base retrieval test endpoint",
+            },
+        )
     if is_knowledge:
         if payload.document_id is None:
             raise HTTPException(

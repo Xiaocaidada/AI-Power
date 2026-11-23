@@ -9,7 +9,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.metrics import metrics
-from app.models import Chunk, ChunkEmbedding, Document, KnowledgeBase
+from app.models import (
+    Chunk,
+    ChunkEmbedding,
+    Document,
+    KnowledgeBase,
+    Workflow,
+    WorkflowVersion,
+)
 from app.providers.base import ProviderError
 from app.providers.embedding import EmbeddingProvider
 from app.providers.rerank import Reranker, RerankResult
@@ -179,6 +186,65 @@ async def retrieve_with_diagnostics(
     question = query.strip()
     if not question:
         return RetrievalOutcome([], _empty_timings(), "empty", options)
+
+    bound_kb = next(
+        (item for item in kbs if item.retrieval_workflow_version_id is not None),
+        None,
+    )
+    if bound_kb is not None and bound_kb.retrieval_workflow_version_id is not None:
+        try:
+            from app.services.knowledge.retrieval_pipeline import (
+                run_retrieval_workflow,
+            )
+            from app.services.knowledge.retrieval_schema import (
+                validate_knowledge_retrieval,
+            )
+
+            version = await session.get(
+                WorkflowVersion, bound_kb.retrieval_workflow_version_id
+            )
+            workflow = (
+                await session.get(Workflow, version.workflow_id) if version else None
+            )
+            if (
+                version is not None
+                and workflow is not None
+                and workflow.deleted_at is None
+                and workflow.kind == "knowledge_retrieval"
+            ):
+                definition = validate_knowledge_retrieval(version.definition)
+                custom = await run_retrieval_workflow(
+                    session,
+                    definition=definition,
+                    workspace_id=workspace_id,
+                    kb_ids=active_ids,
+                    query=question,
+                    user_id=bound_kb.user_id,
+                    collect_traces=True,
+                )
+                custom_timings = {
+                    "vector_ms": 0.0,
+                    "lexical_ms": 0.0,
+                    "rerank_ms": 0.0,
+                    "total_ms": round(
+                        sum(trace.duration_ms for trace in custom.traces), 1
+                    ),
+                }
+                return RetrievalOutcome(
+                    custom.selected or custom.chunks,
+                    custom_timings,
+                    "workflow",
+                    options,
+                )
+        except Exception as exc:
+            metrics.inc_counter(
+                "ai_power_retrieval_workflow_failures_total",
+                code=type(exc).__name__,
+            )
+            logger.warning(
+                "retrieval workflow failed (%s); falling back to builtin retrieval",
+                type(exc).__name__,
+            )
 
     total_started = time.perf_counter()
     timings = _empty_timings()
@@ -509,3 +575,158 @@ def _fallback_options(top_k: int | None) -> RetrievalOptions:
         hybrid_enabled=settings.retrieval_hybrid_enabled,
         rerank_enabled=settings.rerank_enabled and bool(settings.rerank_base_url.strip()),
     )
+
+
+async def vector_search_chunks(
+    session: AsyncSession,
+    *,
+    workspace_id: UUID,
+    kb_ids: Sequence[UUID],
+    query: str,
+    top_k: int = 10,
+    embedder: EmbeddingProvider | None = None,
+) -> list[RetrievedChunk]:
+    requested = list(dict.fromkeys(kb_ids))
+    if not requested or not query.strip():
+        return []
+    kbs = list(
+        (
+            await session.execute(
+                select(KnowledgeBase).where(
+                    KnowledgeBase.id.in_(requested),
+                    KnowledgeBase.workspace_id == workspace_id,
+                    KnowledgeBase.deleted_at.is_(None),
+                )
+            )
+        ).scalars()
+    )
+    if not kbs:
+        return []
+    kb = kbs[0]
+    kb_settings = resolve_kb_settings(kb)
+    active_embedder = embedder or await build_kb_embedder(session, kb, kb_settings)
+    vectors = await active_embedder.embed([query.strip()])
+    if len(vectors) != 1:
+        raise ProviderError("embedding_bad_response", "Query embedding is missing")
+    limit = max(1, top_k)
+    if session.get_bind().dialect.name == "postgresql":
+        results = await _search_with_distance(
+            session, workspace_id, [item.id for item in kbs], vectors[0], limit
+        )
+    else:
+        results = await _search_in_python(
+            session, workspace_id, [item.id for item in kbs], vectors[0], limit
+        )
+    return [
+        replace(chunk, vector_rank=index)
+        for index, chunk in enumerate(results, start=1)
+    ]
+
+
+async def lexical_search_chunks(
+    session: AsyncSession,
+    *,
+    workspace_id: UUID,
+    kb_ids: Sequence[UUID],
+    query: str,
+    top_k: int = 10,
+) -> list[RetrievedChunk]:
+    requested = list(dict.fromkeys(kb_ids))
+    if not requested or not query.strip():
+        return []
+    kbs = list(
+        (
+            await session.execute(
+                select(KnowledgeBase).where(
+                    KnowledgeBase.id.in_(requested),
+                    KnowledgeBase.workspace_id == workspace_id,
+                    KnowledgeBase.deleted_at.is_(None),
+                )
+            )
+        ).scalars()
+    )
+    if not kbs:
+        return []
+    limit = max(1, top_k)
+    if session.get_bind().dialect.name == "postgresql":
+        results = await _lexical_search_postgres(
+            session, workspace_id, [item.id for item in kbs], query.strip(), limit
+        )
+    else:
+        results = await _lexical_search_python(
+            session, workspace_id, [item.id for item in kbs], query.strip(), limit
+        )
+    return [
+        replace(chunk, lexical_rank=index)
+        for index, chunk in enumerate(results, start=1)
+    ]
+
+
+async def hybrid_search_chunks(
+    session: AsyncSession,
+    *,
+    workspace_id: UUID,
+    kb_ids: Sequence[UUID],
+    query: str,
+    top_k: int = 10,
+    candidate_k: int = 20,
+) -> list[RetrievedChunk]:
+    vector_results = await vector_search_chunks(
+        session,
+        workspace_id=workspace_id,
+        kb_ids=kb_ids,
+        query=query,
+        top_k=max(top_k, candidate_k),
+    )
+    lexical_results = await lexical_search_chunks(
+        session,
+        workspace_id=workspace_id,
+        kb_ids=kb_ids,
+        query=query,
+        top_k=max(top_k, candidate_k),
+    )
+    return fuse_rrf(vector_results, lexical_results)[:top_k]
+
+
+async def rerank_chunks(
+    session: AsyncSession,
+    *,
+    workspace_id: UUID,
+    kb_ids: Sequence[UUID],
+    query: str,
+    chunks: Sequence[RetrievedChunk],
+    top_k: int = 5,
+    reranker: Reranker | None = None,
+) -> list[RetrievedChunk]:
+    if not chunks:
+        return []
+    requested = list(dict.fromkeys(kb_ids))
+    kbs = list(
+        (
+            await session.execute(
+                select(KnowledgeBase).where(
+                    KnowledgeBase.id.in_(requested),
+                    KnowledgeBase.workspace_id == workspace_id,
+                    KnowledgeBase.deleted_at.is_(None),
+                )
+            )
+        ).scalars()
+    )
+    if not kbs:
+        return list(chunks[:top_k])
+    kb = kbs[0]
+    kb_settings = resolve_kb_settings(kb)
+    settings = get_settings()
+    active = reranker or await build_kb_reranker(session, kb, kb_settings)
+    if active is None:
+        return list(chunks[:top_k])
+    candidates = list(chunks[: settings.rerank_max_candidates])
+    try:
+        reranked = await active.rerank(
+            query,
+            [chunk.text[: settings.rerank_max_doc_chars] for chunk in candidates],
+            top_n=top_k,
+        )
+    except Exception:
+        return list(chunks[:top_k])
+    return _order_by_rerank(candidates, reranked, top_k)

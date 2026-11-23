@@ -265,6 +265,13 @@ export function KnowledgeDetailPage() {
               <Workflow className="h-4 w-4" />
               {t('knowledgeStudio.open')}
             </Button>
+            <Button
+              variant="secondary"
+              onClick={() => navigate(`/knowledge/${id}/retrieval`)}
+            >
+              <Search className="h-4 w-4" />
+              {t('retrievalStudio.open')}
+            </Button>
             <Button onClick={() => fileInput.current?.click()}>
               <FileUp className="h-4 w-4" />
               {t('documents.upload')}
