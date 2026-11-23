@@ -48,6 +48,7 @@ def _http_error(exc: AgentBuilderError) -> HTTPException:
 def _session_out(row) -> AgentBuilderSessionOut:
     return AgentBuilderSessionOut(
         id=row.id,
+        scope=row.scope,
         agent_id=row.agent_id,
         workflow_id=row.workflow_id,
         provider_id=row.provider_id,
@@ -135,6 +136,7 @@ async def create_session(
             provider_id=payload.provider_id,
             model=payload.model,
             draft_definition=payload.draft_definition,
+            scope=payload.scope,
         )
     except AgentBuilderError as exc:
         raise _http_error(exc) from None
@@ -148,12 +150,16 @@ async def list_sessions(
     context: JwtContext,
     session: SessionDep,
     agent_id: UUID | None = None,
+    workflow_id: UUID | None = None,
+    scope: str | None = None,
 ) -> list[AgentBuilderSessionOut]:
     rows = await list_builder_sessions(
         session,
         context.workspace.id,
         context.user.id,
         agent_id=agent_id,
+        workflow_id=workflow_id,
+        scope=scope,
     )
     return [_session_out(row) for row in rows]
 
@@ -215,6 +221,7 @@ async def send_message(
             current_definition=current_definition,
             raw_agent_id=str(row.agent_id) if row.agent_id else None,
             run_context=run_context,
+            scope=row.scope,
         )
     except AgentBuilderError as exc:
         raise _http_error(exc) from None

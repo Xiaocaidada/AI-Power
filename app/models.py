@@ -477,6 +477,7 @@ class AgentBuilderSession(Base):
         ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
     )
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    scope: Mapped[str] = mapped_column(String(30), default="agent", index=True)
     agent_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("custom_agents.id", ondelete="SET NULL"), default=None, index=True
     )

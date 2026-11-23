@@ -25,9 +25,10 @@ import type {
   WorkflowDefinition,
 } from '../../lib/types'
 import { cn } from '../../lib/utils'
+import { KnowledgeBuilderPanel } from './KnowledgeBuilderPanel'
 import { StudioCanvas } from '../studio/StudioCanvas'
 
-type Tab = 'canvas' | 'test'
+type Tab = 'canvas' | 'test' | 'builder'
 
 const EMPTY_DEFINITION: WorkflowDefinition = {
   nodes: [
@@ -263,7 +264,7 @@ export function KnowledgeRetrievalStudioPage() {
           </div>
         </div>
         <div className="mt-3 flex gap-1">
-          {(['canvas', 'test'] as const).map((item) => (
+          {(['canvas', 'test', 'builder'] as const).map((item) => (
             <button
               key={item}
               type="button"
@@ -329,6 +330,21 @@ export function KnowledgeRetrievalStudioPage() {
             </div>
           )}
         </div>
+      )}
+
+      {tab === 'builder' && (
+        <KnowledgeBuilderPanel
+          scope="knowledge_retrieval"
+          workflowId={workflowId}
+          definition={definition}
+          lastRunId={null}
+          onApply={(next) => {
+            setDefinition(next)
+            setSeed((value) => value + 1)
+            setTab('canvas')
+            void saveCanvas(next)
+          }}
+        />
       )}
 
       {tab === 'test' && (

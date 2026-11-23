@@ -35,7 +35,7 @@ function shortValue(value: unknown): string {
   return text.length > 80 ? `${text.slice(0, 77)}…` : text
 }
 
-function DiffView({ diff }: { diff: AgentBuilderDiff }) {
+export function DiffView({ diff }: { diff: AgentBuilderDiff }) {
   const { t } = useI18n()
   const groups = [
     {
