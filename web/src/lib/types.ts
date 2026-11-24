@@ -952,6 +952,7 @@ export interface AgentBuilderMessage {
   diff?: AgentBuilderDiff | null
   missing_resources?: string[]
   suggestions?: string[]
+  clarification?: string | null
   run_id?: string | null
   created_at?: string
 }
@@ -976,6 +977,7 @@ export interface AgentBuilderTurn {
   diff: AgentBuilderDiff | null
   missing_resources: string[]
   suggestions: string[]
+  clarification?: string | null
 }
 
 export interface Plugin {

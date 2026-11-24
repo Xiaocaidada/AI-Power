@@ -59,6 +59,7 @@ class AgentBuilderResult:
     missing_resources: list[str]
     suggestions: list[str]
     diff: dict[str, Any] | None
+    clarification: str | None = None
 
 
 async def _resource_catalog(
@@ -412,6 +413,7 @@ async def run_builder_turn(
     raw_agent_id: str | None = None,
     run_context: dict[str, Any] | None = None,
     scope: str = "agent",
+    history: Sequence[dict[str, Any]] | None = None,
 ) -> AgentBuilderResult:
     try:
         provider = registry.get(provider_id)
@@ -432,7 +434,10 @@ async def run_builder_turn(
         "manifest and resource catalog below.\n"
         "Return ONLY one JSON object with keys: message (string), summary (string), "
         "definition (optional for explain), missing_resources (string array), "
-        "suggestions (string array).\n"
+        "suggestions (string array), clarification (optional string).\n"
+        "If the request is materially ambiguous in a way that would change the graph, "
+        "ask one concise clarification question in `clarification` and omit `definition`. "
+        "Do not ask about minor details; prefer a reasonable low-risk default.\n"
         "Every node is {id, type, config, ui?}. Every edge is {from, to, when?}.\n"
         "Use only listed node types and resource IDs. Do not invent IDs or credentials.\n"
         "Keep the graph acyclic with exactly one entry node and at most 20 nodes. "
@@ -450,10 +455,13 @@ async def run_builder_turn(
             + json.dumps(current_definition, ensure_ascii=False)
         )
     user_content += _run_context_text(run_context)
-    messages = [
-        ChatMessage(role="system", content=system),
-        ChatMessage(role="user", content=user_content),
-    ]
+    messages = [ChatMessage(role="system", content=system)]
+    for item in (history or [])[-10:]:
+        role = str(item.get("role") or "")
+        content = str(item.get("content") or "").strip()
+        if role in {"user", "assistant"} and content:
+            messages.append(ChatMessage(role=role, content=content[:4000]))
+    messages.append(ChatMessage(role="user", content=user_content))
     last_error = ""
     for _attempt in range(3):
         last_error = ""
@@ -476,7 +484,28 @@ async def run_builder_turn(
             last_error = "Model did not return valid JSON."
         else:
             raw_definition = payload.get("definition")
+            clarification = (
+                str(payload.get("clarification") or "").strip()[:1000] or None
+            )
             definition: dict[str, Any] | None = None
+            if raw_definition is None and clarification is not None:
+                message = str(
+                    payload.get("message") or payload.get("summary") or clarification
+                )[:4000]
+                suggestions = [
+                    str(item)
+                    for item in (payload.get("suggestions") or [])
+                    if str(item).strip()
+                ][:20]
+                return AgentBuilderResult(
+                    message=message or clarification,
+                    definition=None,
+                    summary=str(payload.get("summary") or message)[:2000],
+                    missing_resources=[],
+                    suggestions=suggestions,
+                    diff=None,
+                    clarification=clarification,
+                )
             if raw_definition is not None and not isinstance(raw_definition, dict):
                 last_error = "definition must be an object."
             elif raw_definition is None and kind != "explain":

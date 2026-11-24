@@ -1,8 +1,10 @@
+import asyncio
+from collections.abc import Awaitable
 from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
@@ -34,6 +36,32 @@ router = APIRouter(prefix="/agent-builder", tags=["agent-builder"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 JwtContext = Annotated[AuthContext, Depends(get_jwt_context)]
 RegistryDep = Annotated[ProviderRegistry, Depends(get_scoped_registry)]
+
+
+async def _run_cancellable[T](request: Request, awaitable: Awaitable[T]) -> T:
+    task = asyncio.create_task(awaitable)
+    try:
+        while not task.done():
+            done, _ = await asyncio.wait({task}, timeout=0.5)
+            if done:
+                break
+            if await request.is_disconnected():
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
+                raise HTTPException(
+                    status_code=499,
+                    detail={
+                        "code": "generation_cancelled",
+                        "message": "Generation cancelled",
+                    },
+                )
+        return task.result()
+    finally:
+        if not task.done():
+            task.cancel()
 
 
 def _http_error(exc: AgentBuilderError) -> HTTPException:
@@ -70,31 +98,45 @@ def _turn_out(
         diff=result.diff,
         missing_resources=result.missing_resources,
         suggestions=result.suggestions,
+        clarification=result.clarification,
     )
 
 
 @router.post("/generate", response_model=AgentBuilderOut)
 async def generate_workflow(
     payload: AgentBuilderIn,
+    request: Request,
     context: JwtContext,
     session: SessionDep,
     registry: RegistryDep,
 ) -> AgentBuilderOut:
     try:
-        result = await generate_agent_workflow(
-            session,
-            registry,
-            workspace_id=context.workspace.id,
-            user_id=context.user.id,
-            prompt=payload.prompt,
-            provider_id=payload.provider_id,
-            model=payload.model,
-            current_definition=payload.current_definition,
-            raw_agent_id=str(payload.agent_id) if payload.agent_id else None,
+        result = await _run_cancellable(
+            request,
+            generate_agent_workflow(
+                session,
+                registry,
+                workspace_id=context.workspace.id,
+                user_id=context.user.id,
+                prompt=payload.prompt,
+                provider_id=payload.provider_id,
+                model=payload.model,
+                current_definition=payload.current_definition,
+                raw_agent_id=str(payload.agent_id) if payload.agent_id else None,
+            ),
         )
     except AgentBuilderError as exc:
         raise _http_error(exc) from None
     if result.definition is None:
+        if result.clarification is not None:
+            return AgentBuilderOut(
+                definition=None,
+                summary=result.summary or result.message,
+                clarification=result.clarification,
+                missing_resources=result.missing_resources,
+                provider_id=payload.provider_id,
+                model=payload.model,
+            )
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             {"code": "invalid_generation", "message": "Model returned no definition"},
@@ -102,6 +144,7 @@ async def generate_workflow(
     return AgentBuilderOut(
         definition=result.definition,
         summary=result.summary,
+        clarification=result.clarification,
         missing_resources=result.missing_resources,
         provider_id=payload.provider_id,
         model=payload.model,
@@ -185,6 +228,7 @@ async def get_session(
 async def send_message(
     session_id: UUID,
     payload: AgentBuilderMessageIn,
+    request: Request,
     context: JwtContext,
     session: SessionDep,
     registry: RegistryDep,
@@ -209,19 +253,23 @@ async def send_message(
         except AgentBuilderError as exc:
             raise _http_error(exc) from None
     try:
-        result = await run_builder_turn(
-            session,
-            registry,
-            workspace_id=context.workspace.id,
-            user_id=context.user.id,
-            kind=payload.kind,
-            prompt=payload.prompt,
-            provider_id=row.provider_id,
-            model=row.model,
-            current_definition=current_definition,
-            raw_agent_id=str(row.agent_id) if row.agent_id else None,
-            run_context=run_context,
-            scope=row.scope,
+        result = await _run_cancellable(
+            request,
+            run_builder_turn(
+                session,
+                registry,
+                workspace_id=context.workspace.id,
+                user_id=context.user.id,
+                kind=payload.kind,
+                prompt=payload.prompt,
+                provider_id=row.provider_id,
+                model=row.model,
+                current_definition=current_definition,
+                raw_agent_id=str(row.agent_id) if row.agent_id else None,
+                run_context=run_context,
+                scope=row.scope,
+                history=list(row.messages or [])[-10:],
+            ),
         )
     except AgentBuilderError as exc:
         raise _http_error(exc) from None
@@ -242,12 +290,17 @@ async def send_message(
         {
             "role": "assistant",
             "kind": payload.kind,
-            "content": result.message,
+            "content": (
+                f"{result.message}\n\n{result.clarification}"
+                if result.clarification
+                else result.message
+            ),
             "summary": result.summary,
             "definition": result.definition,
             "diff": result.diff,
             "missing_resources": result.missing_resources,
             "suggestions": result.suggestions,
+            "clarification": result.clarification,
             "created_at": datetime.now(UTC).isoformat(),
         },
     )

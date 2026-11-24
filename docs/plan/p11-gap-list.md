@@ -19,6 +19,7 @@
 
 - 2026-11-24：P11-S1 完成，X-P0-1（撤销/重做、自动保存、导入/导出）与 X-P0-2（版本列表/恢复）已落地，见 [p11-s1-canvas.md](../tdd/p11-s1-canvas.md)。
 - 2026-11-24：P11-S2 完成，X-P0-3（单节点调试、从节点运行、节点输入输出）已落地，见 [p11-s2-node-debug.md](../tdd/p11-s2-node-debug.md)。
+- 2026-11-24：P11-S3 完成，X-P0-4（AI Builder 取消、部分采纳、澄清提问）与多轮上下文已落地，见 [p11-s3-builder-control.md](../tdd/p11-s3-builder-control.md)。
 
 ## 2. P0：下一阶段必须补齐
 
