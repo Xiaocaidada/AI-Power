@@ -86,6 +86,11 @@ export function KnowledgeRetrievalStudioPage() {
     queryKey: ['knowledge-retrieval-workflows'],
     queryFn: () => apiRequest<Workflow[]>('/workflows?kind=knowledge_retrieval'),
   })
+  const knowledgeBases = useQuery({
+    queryKey: ['knowledge-bases'],
+    queryFn: () => apiRequest<KnowledgeBase[]>('/knowledge-bases'),
+    staleTime: 60_000,
+  })
   const currentBinding = useQuery({
     queryKey: ['knowledge-retrieval-binding', id],
     queryFn: () =>
@@ -386,7 +391,7 @@ export function KnowledgeRetrievalStudioPage() {
                   catalog={catalog.data}
                   resources={{
                     models: [],
-                    knowledgeBases: [],
+                    knowledgeBases: knowledgeBases.data ?? [],
                     agents: [],
                     plugins: [],
                     projects: [],

@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 from uuid import UUID
 
@@ -36,6 +36,8 @@ from app.schemas import (
     KnowledgeOptimizationCreate,
     KnowledgeOptimizationDetailOut,
     KnowledgeOptimizationOut,
+    KnowledgeProcessAnalyticsOut,
+    KnowledgeProcessAnalyticsRunOut,
     KnowledgeProcessApplyOut,
     KnowledgeProcessArtifactOut,
     KnowledgeProcessBindingIn,
@@ -398,6 +400,116 @@ async def bind_processing_workflow(
     )
 
 
+@router.get(
+    "/{kb_id}/processing/analytics",
+    response_model=KnowledgeProcessAnalyticsOut,
+)
+async def get_processing_analytics(
+    kb_id: UUID,
+    context: JwtContext,
+    session: SessionDep,
+    days: Annotated[int, Query(ge=1, le=365)] = 30,
+) -> KnowledgeProcessAnalyticsOut:
+    kb = await get_owned_knowledge_base(kb_id, context.workspace.id, session)
+    since = datetime.now(UTC) - timedelta(days=days)
+    runs = list(
+        (
+            await session.execute(
+                select(WorkflowRun)
+                .join(Workflow, Workflow.id == WorkflowRun.workflow_id)
+                .where(
+                    WorkflowRun.kb_id == kb.id,
+                    WorkflowRun.workspace_id == context.workspace.id,
+                    Workflow.kind == "knowledge_process",
+                    WorkflowRun.started_at >= since,
+                )
+                .order_by(WorkflowRun.started_at.desc(), WorkflowRun.id.desc())
+                .limit(1000)
+            )
+        ).scalars()
+    )
+    completed = [run for run in runs if run.status == "completed"]
+    failed = [run for run in runs if run.status == "failed"]
+    cancelled = [run for run in runs if run.status == "cancelled"]
+    running = [
+        run for run in runs if run.status in {"queued", "running", "waiting_review"}
+    ]
+    durations = sorted(
+        float(run.total_ms) for run in completed if run.total_ms is not None
+    )
+    average_duration = (
+        round(sum(durations) / len(durations), 1) if durations else 0.0
+    )
+    p95 = (
+        round(durations[min(len(durations) - 1, int(len(durations) * 0.95))], 1)
+        if durations
+        else 0.0
+    )
+    chunk_counts = [
+        int((run.output_payload or {}).get("chunk_count") or 0) for run in completed
+    ]
+    failure_codes: dict[str, int] = {}
+    for run in failed:
+        code = run.error_code or "unknown"
+        failure_codes[code] = failure_codes.get(code, 0) + 1
+    document_ids: list[UUID] = []
+    for run in runs[:20]:
+        raw = (run.input_payload or {}).get("document_id")
+        try:
+            if raw:
+                document_ids.append(UUID(str(raw)))
+        except ValueError:
+            continue
+    filenames: dict[UUID, str] = {}
+    if document_ids:
+        filenames = {
+            row.id: row.filename
+            for row in (
+                await session.execute(
+                    select(Document).where(Document.id.in_(document_ids))
+                )
+            ).scalars()
+        }
+    recent = []
+    for run in runs[:20]:
+        raw = (run.input_payload or {}).get("document_id")
+        try:
+            document_id = UUID(str(raw)) if raw else None
+        except ValueError:
+            document_id = None
+        recent.append(
+            KnowledgeProcessAnalyticsRunOut(
+                id=run.id,
+                document_id=document_id,
+                filename=filenames.get(document_id, "") if document_id else "",
+                status=run.status,
+                error_code=run.error_code,
+                duration_ms=run.total_ms,
+                chunk_count=int((run.output_payload or {}).get("chunk_count") or 0),
+                applied=run.applied_at is not None,
+                started_at=run.started_at,
+            )
+        )
+    return KnowledgeProcessAnalyticsOut(
+        days=days,
+        total=len(runs),
+        completed=len(completed),
+        failed=len(failed),
+        cancelled=len(cancelled),
+        running=len(running),
+        success_rate=round(len(completed) / len(runs), 4) if runs else 0.0,
+        avg_duration_ms=average_duration,
+        p95_duration_ms=p95,
+        avg_chunks=round(sum(chunk_counts) / len(chunk_counts), 1)
+        if chunk_counts
+        else 0.0,
+        applied_count=sum(1 for run in completed if run.applied_at is not None),
+        pending_apply=sum(1 for run in completed if run.applied_at is None),
+        failure_codes=failure_codes,
+        recent=recent,
+    )
+
+
 @router.get("/{kb_id}/processing/runs", response_model=list[WorkflowRunOut])
 async def list_processing_runs(
     kb_id: UUID,
@@ -602,6 +714,7 @@ async def test_retrieval_workflow(
     payload: KnowledgeRetrievalTestIn,
     context: JwtContext,
     session: SessionDep,
+    registry: RegistryDep,
 ) -> KnowledgeRetrievalTestOut:
     kb = await get_owned_knowledge_base(kb_id, context.workspace.id, session)
     version_id = payload.workflow_version_id or kb.retrieval_workflow_version_id
@@ -627,6 +740,7 @@ async def test_retrieval_workflow(
                 kb_ids=[kb.id],
                 query=payload.query,
                 user_id=context.user.id,
+                registry=registry,
                 collect_traces=True,
             )
         except RetrievalWorkflowError as exc:

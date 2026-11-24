@@ -646,6 +646,7 @@ async def vector_search_chunks(
     query: str,
     top_k: int = 10,
     embedder: EmbeddingProvider | None = None,
+    metadata_filter: dict[str, str] | None = None,
 ) -> list[RetrievedChunk]:
     requested = list(dict.fromkeys(kb_ids))
     if not requested or not query.strip():
@@ -665,6 +666,7 @@ async def vector_search_chunks(
         return []
     kb = kbs[0]
     kb_settings = resolve_kb_settings(kb)
+    active_filter = metadata_filter or kb_settings.retrieval.metadata_filter
     active_embedder = embedder or await build_kb_embedder(session, kb, kb_settings)
     vectors = await active_embedder.embed([query.strip()])
     if len(vectors) != 1:
@@ -677,7 +679,7 @@ async def vector_search_chunks(
             [item.id for item in kbs],
             vectors[0],
             limit,
-            kb_settings.retrieval.metadata_filter,
+            active_filter,
         )
     else:
         results = await _search_in_python(
@@ -686,7 +688,7 @@ async def vector_search_chunks(
             [item.id for item in kbs],
             vectors[0],
             limit,
-            kb_settings.retrieval.metadata_filter,
+            active_filter,
         )
     return [
         replace(chunk, vector_rank=index)
@@ -701,6 +703,7 @@ async def lexical_search_chunks(
     kb_ids: Sequence[UUID],
     query: str,
     top_k: int = 10,
+    metadata_filter: dict[str, str] | None = None,
 ) -> list[RetrievedChunk]:
     requested = list(dict.fromkeys(kb_ids))
     if not requested or not query.strip():
@@ -719,6 +722,7 @@ async def lexical_search_chunks(
     if not kbs:
         return []
     kb_settings = resolve_kb_settings(kbs[0])
+    active_filter = metadata_filter or kb_settings.retrieval.metadata_filter
     limit = max(1, top_k)
     if session.get_bind().dialect.name == "postgresql":
         results = await _lexical_search_postgres(
@@ -727,7 +731,7 @@ async def lexical_search_chunks(
             [item.id for item in kbs],
             query.strip(),
             limit,
-            kb_settings.retrieval.metadata_filter,
+            active_filter,
         )
     else:
         results = await _lexical_search_python(
@@ -736,7 +740,7 @@ async def lexical_search_chunks(
             [item.id for item in kbs],
             query.strip(),
             limit,
-            kb_settings.retrieval.metadata_filter,
+            active_filter,
         )
     return [
         replace(chunk, lexical_rank=index)
@@ -752,6 +756,7 @@ async def hybrid_search_chunks(
     query: str,
     top_k: int = 10,
     candidate_k: int = 20,
+    metadata_filter: dict[str, str] | None = None,
 ) -> list[RetrievedChunk]:
     vector_results = await vector_search_chunks(
         session,
@@ -759,6 +764,7 @@ async def hybrid_search_chunks(
         kb_ids=kb_ids,
         query=query,
         top_k=max(top_k, candidate_k),
+        metadata_filter=metadata_filter,
     )
     lexical_results = await lexical_search_chunks(
         session,
@@ -766,6 +772,7 @@ async def hybrid_search_chunks(
         kb_ids=kb_ids,
         query=query,
         top_k=max(top_k, candidate_k),
+        metadata_filter=metadata_filter,
     )
     return fuse_rrf(vector_results, lexical_results)[:top_k]
 

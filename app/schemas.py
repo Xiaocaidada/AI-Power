@@ -168,6 +168,35 @@ class KnowledgeBaseStatsOut(BaseModel):
     char_count: int
 
 
+class KnowledgeProcessAnalyticsRunOut(BaseModel):
+    id: UUID
+    document_id: UUID | None = None
+    filename: str = ""
+    status: str
+    error_code: str | None = None
+    duration_ms: float | None = None
+    chunk_count: int = 0
+    applied: bool = False
+    started_at: datetime
+
+
+class KnowledgeProcessAnalyticsOut(BaseModel):
+    days: int
+    total: int
+    completed: int
+    failed: int
+    cancelled: int
+    running: int
+    success_rate: float
+    avg_duration_ms: float
+    p95_duration_ms: float
+    avg_chunks: float
+    applied_count: int
+    pending_apply: int
+    failure_codes: dict[str, int] = Field(default_factory=dict)
+    recent: list[KnowledgeProcessAnalyticsRunOut] = Field(default_factory=list)
+
+
 class RetrievalSearchIn(BaseModel):
     query: str = Field(min_length=1, max_length=500)
     top_k: int | None = Field(default=None, ge=1, le=20)

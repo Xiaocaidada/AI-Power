@@ -48,11 +48,12 @@ import {
   createUploadTasks,
   type UploadTask,
 } from '../../lib/uploadBatch'
+import { KnowledgeAnalyticsTab } from './KnowledgeAnalyticsTab'
 import { KnowledgeChunksTab } from './KnowledgeChunksTab'
 import { KnowledgeRetrievalTab } from './KnowledgeRetrievalTab'
 import { KnowledgeSettingsTab } from './KnowledgeSettingsTab'
 
-type TabId = 'documents' | 'chunks' | 'retrieval' | 'settings'
+type TabId = 'documents' | 'chunks' | 'retrieval' | 'analytics' | 'settings'
 
 export function KnowledgeDetailPage() {
   const { id = '' } = useParams<{ id: string }>()
@@ -355,6 +356,7 @@ export function KnowledgeDetailPage() {
     { id: 'documents', label: t('knowledge.tabs.documents'), icon: FileText },
     { id: 'chunks', label: t('knowledge.tabs.chunks'), icon: Layers },
     { id: 'retrieval', label: t('knowledge.tabs.retrieval'), icon: Search },
+    { id: 'analytics', label: t('knowledge.tabs.analytics'), icon: BarChart3 },
     { id: 'settings', label: t('knowledge.tabs.settings'), icon: Settings },
   ]
 
@@ -727,6 +729,8 @@ export function KnowledgeDetailPage() {
         {tab === 'chunks' && <KnowledgeChunksTab kbId={id} documents={rows} />}
 
         {tab === 'retrieval' && <KnowledgeRetrievalTab kbId={id} settings={settings.data} />}
+
+        {tab === 'analytics' && <KnowledgeAnalyticsTab kbId={id} />}
 
         {tab === 'settings' &&
           (settings.data === undefined ? (

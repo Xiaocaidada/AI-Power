@@ -1,13 +1,17 @@
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 RetrievalNodeType = Literal[
     "start",
     "rewrite_query",
+    "multi_query",
     "vector_search",
     "lexical_search",
     "hybrid_search",
+    "filter_results",
+    "fallback_search",
     "rerank",
     "top_k",
     "context",
@@ -33,16 +37,28 @@ class RewriteQueryConfig(BaseModel):
     system_prompt: str | None = Field(default=None, max_length=20000)
 
 
-class VectorSearchConfig(BaseModel):
+class SearchNodeConfig(BaseModel):
     top_k: int = Field(default=10, ge=1, le=50)
+    metadata_filter: dict[str, str] = Field(default_factory=dict, max_length=10)
+    kb_ids: list[UUID] = Field(default_factory=list, max_length=10)
+
+    @model_validator(mode="after")
+    def _metadata_filter(self) -> "SearchNodeConfig":
+        for key, value in self.metadata_filter.items():
+            if not key or len(key) > 80 or len(value) > 200:
+                raise ValueError("metadata_filter keys/values are too long")
+        return self
 
 
-class LexicalSearchConfig(BaseModel):
-    top_k: int = Field(default=10, ge=1, le=50)
+class VectorSearchConfig(SearchNodeConfig):
+    pass
 
 
-class HybridSearchConfig(BaseModel):
-    top_k: int = Field(default=10, ge=1, le=50)
+class LexicalSearchConfig(SearchNodeConfig):
+    pass
+
+
+class HybridSearchConfig(SearchNodeConfig):
     candidate_k: int = Field(default=20, ge=1, le=100)
 
     @model_validator(mode="after")
@@ -50,6 +66,39 @@ class HybridSearchConfig(BaseModel):
         if self.candidate_k < self.top_k:
             raise ValueError("candidate_k must be >= top_k")
         return self
+
+
+class MultiQueryConfig(BaseModel):
+    provider_id: str = Field(min_length=1, max_length=50)
+    model: str = Field(min_length=1, max_length=200)
+    variants: int = Field(default=3, ge=2, le=5)
+    prompt: str = Field(
+        default=(
+            "Generate {variants} alternative search queries for the user question. "
+            "Return one query per line, no numbering.\n\n{{query}}"
+        ),
+        min_length=1,
+        max_length=20000,
+    )
+    system_prompt: str | None = Field(default=None, max_length=20000)
+    top_k: int = Field(default=12, ge=1, le=50)
+    candidate_k: int = Field(default=20, ge=1, le=100)
+    metadata_filter: dict[str, str] = Field(default_factory=dict, max_length=10)
+    kb_ids: list[UUID] = Field(default_factory=list, max_length=10)
+
+
+class FilterResultsConfig(BaseModel):
+    max_distance: float | None = Field(default=None, ge=0.0)
+    min_rerank_score: float | None = Field(default=None)
+    min_fused_score: float | None = Field(default=None, ge=0.0)
+    min_text_chars: int = Field(default=0, ge=0, le=10000)
+    dedupe_documents: bool = False
+    dedupe_parents: bool = True
+
+
+class FallbackSearchConfig(BaseModel):
+    top_k: int = Field(default=8, ge=1, le=50)
+    candidate_k: int = Field(default=20, ge=1, le=100)
 
 
 class RerankConfig(BaseModel):
@@ -67,9 +116,12 @@ class ContextConfig(BaseModel):
 RETRIEVAL_CONFIGS: dict[str, type[BaseModel]] = {
     "start": EmptyRetrievalConfig,
     "rewrite_query": RewriteQueryConfig,
+    "multi_query": MultiQueryConfig,
     "vector_search": VectorSearchConfig,
     "lexical_search": LexicalSearchConfig,
     "hybrid_search": HybridSearchConfig,
+    "filter_results": FilterResultsConfig,
+    "fallback_search": FallbackSearchConfig,
     "rerank": RerankConfig,
     "top_k": TopKConfig,
     "context": ContextConfig,
