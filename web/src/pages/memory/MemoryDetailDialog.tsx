@@ -1,5 +1,13 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { GitCompare, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react'
+import {
+  GitCompare,
+  Pencil,
+  Plus,
+  RotateCcw,
+  ThumbsDown,
+  ThumbsUp,
+  Trash2,
+} from 'lucide-react'
 import { useState } from 'react'
 
 import { Badge } from '../../components/ui/badge'
@@ -11,6 +19,7 @@ import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
 import type {
   AgentMemory,
+  MemoryFeedback,
   MemoryRelation,
   MemoryVersion,
   MemoryVersionDiff,
@@ -45,6 +54,11 @@ export function MemoryDetailDialog({
   const relations = useQuery({
     queryKey: ['memory-relations', memoryId],
     queryFn: () => apiRequest<MemoryRelation[]>(`/memories/${memoryId}/relations`),
+    enabled: memoryId !== '',
+  })
+  const feedback = useQuery({
+    queryKey: ['memory-feedback', memoryId],
+    queryFn: () => apiRequest<MemoryFeedback>(`/memories/${memoryId}/feedback`),
     enabled: memoryId !== '',
   })
   const targets = useQuery({
@@ -114,6 +128,26 @@ export function MemoryDetailDialog({
     await queryClient.invalidateQueries({ queryKey: ['memory-graph'] })
   }
 
+  const rate = async (rating: 'helpful' | 'unhelpful') => {
+    try {
+      if (feedback.data?.rating === rating) {
+        await apiRequest(`/memories/${memory.id}/feedback`, { method: 'DELETE' })
+      } else {
+        await apiRequest(`/memories/${memory.id}/feedback`, {
+          method: 'PUT',
+          body: { rating, context_type: 'manual' },
+        })
+      }
+      await queryClient.invalidateQueries({
+        queryKey: ['memory-feedback', memoryId],
+      })
+      await queryClient.invalidateQueries({ queryKey: ['memories'] })
+      onChanged()
+    } catch (caught) {
+      window.alert(t(errorTextKey(caught)))
+    }
+  }
+
   return (
     <Dialog
       open
@@ -153,6 +187,34 @@ export function MemoryDetailDialog({
           <span className="text-[11px] text-ink-muted">
             v{memory.version} · {t('memory.useCount', { count: memory.use_count })}
           </span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs">
+          <span className="text-ink-muted">{t('memory.feedback.title')}</span>
+          <span className="text-ink-muted">
+            {t('memory.feedback.counts', {
+              helpful: feedback.data?.helpful_count ?? 0,
+              unhelpful: feedback.data?.unhelpful_count ?? 0,
+            })}
+          </span>
+          <Button
+            size="sm"
+            variant={feedback.data?.rating === 'helpful' ? 'primary' : 'secondary'}
+            onClick={() => void rate('helpful')}
+          >
+            <ThumbsUp className="h-3 w-3" />
+            {t('memory.feedback.helpful')}
+          </Button>
+          <Button
+            size="sm"
+            variant={
+              feedback.data?.rating === 'unhelpful' ? 'primary' : 'secondary'
+            }
+            onClick={() => void rate('unhelpful')}
+          >
+            <ThumbsDown className="h-3 w-3" />
+            {t('memory.feedback.unhelpful')}
+          </Button>
         </div>
 
         <p className="whitespace-pre-wrap rounded-lg bg-surface-muted p-3 text-sm text-ink">

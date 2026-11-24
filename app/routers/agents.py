@@ -11,6 +11,7 @@ from app.models import AuditLog, CustomAgent, PluginConfig, PluginDefinition
 from app.providers.base import ProviderError
 from app.providers.registry import ProviderRegistry
 from app.schemas import (
+    AgentAnalyticsOut,
     AgentBuiltinToolOut,
     AgentFavoriteOut,
     AgentFromTemplateIn,
@@ -30,6 +31,7 @@ from app.schemas import (
     CustomAgentUpdate,
 )
 from app.services.access import get_owned_knowledge_base
+from app.services.agent_analytics import agent_analytics
 from app.services.agent_reviews import (
     AgentReviewError,
     create_report,
@@ -631,6 +633,29 @@ async def list_runs(
         session, agent, context.workspace.id, limit=limit
     )
     return [AgentRunOut(**row) for row in rows]
+
+
+@router.get("/{agent_id}/analytics", response_model=AgentAnalyticsOut)
+async def get_agent_analytics(
+    agent_id: str,
+    context: JwtContext,
+    session: SessionDep,
+    days: Annotated[int, Query(ge=1, le=365)] = 30,
+) -> AgentAnalyticsOut:
+    try:
+        parsed = UUID(agent_id)
+    except ValueError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found") from None
+    try:
+        agent = await get_custom_agent(
+            session, context.workspace.id, parsed, context.user.id
+        )
+    except CustomAgentError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, exc.message) from None
+    result = await agent_analytics(
+        session, agent, context.workspace.id, days=days
+    )
+    return AgentAnalyticsOut.model_validate(result)
 
 
 @router.post("/{agent_id}/tools/test", response_model=AgentToolTestOut)

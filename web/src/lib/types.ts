@@ -484,6 +484,42 @@ export interface ProjectFile {
   created_at: string
 }
 
+export interface AgentSlowNode {
+  node_id: string
+  node_type: string
+  count: number
+  failures: number
+  avg_duration_ms: number
+}
+
+export interface AgentAnalyticsSuggestion {
+  kind: string
+  title: string
+  detail: string
+}
+
+export interface AgentAnalytics {
+  window_days: number
+  total_runs: number
+  chat_runs: number
+  workflow_runs: number
+  completed: number
+  failed: number
+  cancelled: number
+  running: number
+  success_rate: number
+  avg_duration_ms: number
+  p95_duration_ms: number
+  chat_tokens: number
+  workflow_tokens: number
+  prompt_tokens: number
+  completion_tokens: number
+  cost: number
+  failure_codes: Record<string, number>
+  slow_nodes: AgentSlowNode[]
+  suggestions: AgentAnalyticsSuggestion[]
+}
+
 export interface AgentRun {
   id: string
   kind: 'chat' | 'workflow'
@@ -974,6 +1010,13 @@ export interface MemoryOptimization {
 export interface MemoryQuality {
   analysis: MemoryQualityAnalysis
   suggestions: MemoryOptimization[]
+}
+
+export interface MemoryFeedback {
+  rating: 'helpful' | 'unhelpful' | null
+  comment: string
+  helpful_count: number
+  unhelpful_count: number
 }
 
 export interface MemorySemanticResult {
@@ -1825,6 +1868,23 @@ export interface DocumentItem {
   source_url?: string | null
   memory_extract_enabled?: boolean
   created_at: string
+}
+
+export interface DocumentParsePage {
+  page_no: number | null
+  text: string
+  chars: number
+  truncated: boolean
+}
+
+export interface DocumentParsePreview {
+  document_id: string
+  filename: string
+  mime: string
+  page_count: number
+  char_count: number
+  truncated: boolean
+  pages: DocumentParsePage[]
 }
 
 export interface DocumentFolder {

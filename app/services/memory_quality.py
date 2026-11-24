@@ -12,6 +12,7 @@ from app.models import AgentMemory, MemoryOptimization, MemoryRelation, MemorySe
 from app.services.memories import (
     create_memory_relation,
     delete_memory_relation,
+    memory_feedback_scores,
     update_memory,
 )
 from app.services.memory_graph import rebuild_memory_graph
@@ -524,6 +525,28 @@ async def generate_suggestions(
             "这些记忆属于项目类别，但没有绑定具体项目。",
             "绑定项目后可参与项目范围检索与权限控制。",
             project_gap_ids[:20],
+            {"actionable": False},
+        )
+
+    feedback = await memory_feedback_scores(
+        session,
+        workspace_id=workspace_id,
+        user_id=user_id,
+        memory_ids=[memory.id for memory in memories],
+    )
+    negative_ids = [
+        memory.id
+        for memory in memories
+        if feedback.get(memory.id, (0, 0))[1] >= 1
+        and feedback.get(memory.id, (0, 0))[1] > feedback.get(memory.id, (0, 0))[0]
+    ]
+    if negative_ids:
+        add(
+            "review_feedback",
+            f"检查 {len(negative_ids)} 条负面反馈记忆",
+            "这些记忆多次被标记为无用，可能内容过时或与问题不相关。",
+            "编辑、降权或归档后，可减少无效记忆注入。",
+            negative_ids[:20],
             {"actionable": False},
         )
 

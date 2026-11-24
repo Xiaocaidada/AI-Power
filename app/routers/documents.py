@@ -28,6 +28,8 @@ from app.models import Chunk, ChunkEmbedding, Document, IngestionJob, KnowledgeB
 from app.schemas import (
     DocumentFolderOut,
     DocumentOut,
+    DocumentParsePageOut,
+    DocumentParsePreviewOut,
     DocumentUpdate,
     DocumentUploadOut,
     ErrorOut,
@@ -646,6 +648,72 @@ async def update_document(
     if enable_memory and document.status == "ready":
         await schedule_document_memory_extraction(document.id)
     return document
+
+
+MAX_PARSE_PAGES = 20
+MAX_PARSE_PAGE_CHARS = 5000
+MAX_PARSE_TOTAL_CHARS = 20000
+
+
+@router.get(
+    "/documents/{document_id}/parse-preview",
+    response_model=DocumentParsePreviewOut,
+)
+async def preview_document_parse(
+    document_id: UUID, context: JwtContext, session: SessionDep
+) -> DocumentParsePreviewOut:
+    document = await get_owned_document(document_id, context.workspace.id, session)
+    base = Path(get_settings().upload_dir).resolve()
+    path = (base / document.storage_path).resolve()
+    if not path.is_relative_to(base) or not path.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document file not found")
+    try:
+        parsed = parser_for_mime(document.mime).parse(path, document.mime)
+    except UnsupportedDocumentType:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {
+                "code": "unsupported_parse",
+                "message": "This document type cannot be previewed",
+            },
+        ) from None
+    except Exception:
+        logger.exception("document parse preview failed for %s", document_id)
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {"code": "parse_failed", "message": "Document parsing failed"},
+        ) from None
+    pages: list[DocumentParsePageOut] = []
+    total = 0
+    truncated = False
+    for page in parsed.pages[:MAX_PARSE_PAGES]:
+        remaining = MAX_PARSE_TOTAL_CHARS - total
+        if remaining <= 0:
+            truncated = True
+            break
+        text = page.text[: min(MAX_PARSE_PAGE_CHARS, remaining)]
+        page_truncated = len(page.text) > len(text)
+        truncated = truncated or page_truncated
+        pages.append(
+            DocumentParsePageOut(
+                page_no=page.page_no,
+                text=text,
+                chars=len(text),
+                truncated=page_truncated,
+            )
+        )
+        total += len(text)
+    if len(parsed.pages) > MAX_PARSE_PAGES:
+        truncated = True
+    return DocumentParsePreviewOut(
+        document_id=document.id,
+        filename=document.filename,
+        mime=document.mime,
+        page_count=len(parsed.pages),
+        char_count=total,
+        truncated=truncated,
+        pages=pages,
+    )
 
 
 @router.get("/documents/{document_id}", response_model=DocumentOut)
