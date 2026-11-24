@@ -20,6 +20,7 @@
 - 2026-11-24：P11-S1 完成，X-P0-1（撤销/重做、自动保存、导入/导出）与 X-P0-2（版本列表/恢复）已落地，见 [p11-s1-canvas.md](../tdd/p11-s1-canvas.md)。
 - 2026-11-24：P11-S2 完成，X-P0-3（单节点调试、从节点运行、节点输入输出）已落地，见 [p11-s2-node-debug.md](../tdd/p11-s2-node-debug.md)。
 - 2026-11-24：P11-S3 完成，X-P0-4（AI Builder 取消、部分采纳、澄清提问）与多轮上下文已落地，见 [p11-s3-builder-control.md](../tdd/p11-s3-builder-control.md)。
+- 2026-11-24：P11-S4 完成，A-P0-1（模型参数）、A-P0-3（工具/MCP 浏览、测试与绑定）、A-P1-1（封面/发布者/官方筛选）与 A-P1-2（Agent 模板）已落地，见 [p11-s4-agent-tools.md](../tdd/p11-s4-agent-tools.md)。
 
 ## 2. P0：下一阶段必须补齐
 
@@ -36,9 +37,9 @@
 
 | ID | 缺口 | 现状 | 代码入口 | 改动范围 | 依赖 | 规模 |
 |---|---|---|---|---|---|---|
-| A-P0-1 | 基础 Agent 模型参数 UI（temperature/max_tokens/top_p） | `generation_settings` 已存储，配置页未暴露 | `web/src/pages/studio/StudioConfigPanel.tsx`、`AgentStudioPage` 保存逻辑、`app/schemas.py` | 配置表单、保存校验、与运行参数合并 | 无 | S |
+| A-P0-1 ✅ | 基础 Agent 模型参数 UI（temperature/max_tokens/top_p） | P11-S4 已暴露参数表单、保存校验与会话/工作流生效 | `web/src/pages/studio/StudioConfigPanel.tsx`、`AgentStudioPage` 保存逻辑、`app/schemas.py` | 配置表单、保存校验、与运行参数合并 | 无 | S |
 | A-P0-2 | Agent 工作流模板与模板市场 | 只有知识处理模板；Agent 无模板 | `app/services/workflow/catalog.py`、`app/routers/workflows.py`、`web/src/pages/studio` | 模板定义、模板列表/复制、初始画布 | X-P0-1 | M |
-| A-P0-3 | Agent 工具浏览/测试与 MCP 工具绑定 | 工具白名单固定；MCP 只在工作流节点 | `app/services/custom_agents.py`（`AGENT_TOOL_NAMES`）、`app/services/agent.py`、`app/tools/*`、`app/routers/mcp_servers.py` | MCP 工具适配为 Agent 工具、工具测试接口/UI、权限校验 | MCP 服务可用 | L |
+| A-P0-3 ✅ | Agent 工具浏览/测试与 MCP 工具绑定 | P11-S4 已提供工具目录、MCP 发现/绑定与单工具测试 | `app/services/custom_agents.py`（`AGENT_TOOL_NAMES`）、`app/services/agent.py`、`app/tools/*`、`app/routers/mcp_servers.py` | MCP 工具适配为 Agent 工具、工具测试接口/UI、权限校验 | MCP 服务可用 | L |
 | A-P0-4 | 项目文件与多项目 Agent 关联 | 项目仅默认 Agent + KB | `app/services/projects.py`、`app/routers/projects.py`、`app/services/custom_agents.py` | 项目 Agent 列表、项目文件工具、项目作用域权限 | 项目文件中心 | M |
 
 ### 2.3 知识库
@@ -68,8 +69,8 @@
 
 | ID | 缺口 | 现状 | 代码入口 | 改动范围 | 依赖 |
 |---|---|---|---|---|---|
-| A-P1-1 | 广场封面、发布者筛选、官方精选组合 | 有图标/分类/featured，无封面/作者筛选 | `app/models.py`（CustomAgent）、`app/routers/agent_market.py`、`web/src/pages/market` | 封面字段、筛选/排序、审核展示 | 无 |
-| A-P1-2 | Agent 模板创建（从模板起步） | 只能从零或复制公开 Agent | `app/services/custom_agents.py`、`web/src/pages/studio` | 模板定义、创建流程 | A-P0-2 |
+| A-P1-1 ✅ | 广场封面、发布者筛选、官方精选组合 | P11-S4 已新增封面、发布者/分类/官方筛选与 facets | `app/models.py`（CustomAgent）、`app/routers/agent_market.py`、`web/src/pages/market` | 封面字段、筛选/排序、审核展示 | 无 |
+| A-P1-2 ✅ | Agent 模板创建（从模板起步） | P11-S4 已提供三个模板与原子创建流程 | `app/services/custom_agents.py`、`web/src/pages/studio` | 模板定义、创建流程 | A-P0-2 |
 | A-P1-3 | AI Builder 流式状态与多轮上下文增强 | 无生成阶段流、澄清、取消已列 P0 | `app/routers/agent_builder.py`、`StudioBuilderPanel.tsx` | SSE/阶段事件、上下文摘要 | X-P0-4 |
 | A-P1-4 | Agent 附件能力声明与限制 | 附件复用聊天，未按 Agent 能力声明 | `app/services/custom_agents.py`、`app/routers/conversations.py`、`StudioConfigPanel.tsx` | 能力字段、上传/解析开关 | 无 |
 | A-P1-5 | Agent 级运行分析与工作流优化建议 | 有运行记录，无成功率/成本/节点瓶颈分析 | `app/services/custom_agents.py::list_agent_runs`、`app/metrics.py`、`AgentExperiencePage.tsx` | 聚合指标、失败原因、建议 | X-P0-3 |
@@ -111,7 +112,7 @@
 | P11-S1 | 画布基础工程化 + 版本恢复 | X-P0-1、X-P0-2 | 无 |
 | P11-S2 | 单节点调试/从节点运行 | X-P0-3 | S1 |
 | P11-S3 | AI Builder 控制 | X-P0-4、A-P1-3 | S1 |
-| P11-S4 | Agent 配置与工具生态 | A-P0-1、A-P0-3、A-P1-1/P1-2 | S1 |
+| P11-S4 ✅ | Agent 配置与工具生态 | A-P0-1、A-P0-3、A-P1-1/P1-2 | S1 |
 | P11-S5 | 知识处理节点扩展 | K-P0-1、K-P0-2、K-P1-1 | S1 |
 | P11-S6 | 知识检索/多 KB/运行分析 | K-P0-3、K-P0-4、K-P1-2 | S5 |
 | P11-S7 | 记忆仪表盘/生命周期/diff | M-P0-1、M-P0-2、M-P0-3 | 无 |

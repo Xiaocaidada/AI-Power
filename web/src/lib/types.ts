@@ -441,6 +441,7 @@ export interface CustomAgent {
   category: string
   mode: AgentMode
   icon: string
+  cover_url: string
   welcome_message: string
   examples: string[]
   usage_instructions: string
@@ -492,9 +493,12 @@ export interface AgentMarketSummary {
   name: string
   description: string
   icon: string
+  cover_url: string
   category: string
   mode: AgentMode
   featured: boolean
+  official: boolean
+  publisher: string
   usage_count: number
   favorite_count: number
   copy_count: number
@@ -502,6 +506,51 @@ export interface AgentMarketSummary {
   rating_count: number
   allow_copy: boolean
   published_at: string | null
+}
+
+export interface AgentFacetCount {
+  value: string
+  count: number
+}
+
+export interface AgentMarketFacets {
+  total: number
+  official: number
+  featured: number
+  categories: AgentFacetCount[]
+  publishers: AgentFacetCount[]
+}
+
+export interface AgentBuiltinTool {
+  name: string
+  description: string
+  parameters: Record<string, unknown>
+}
+
+export interface AgentMcpServer {
+  id: string
+  name: string
+  description: string
+}
+
+export interface AgentToolCatalog {
+  builtin: AgentBuiltinTool[]
+  mcp_servers: AgentMcpServer[]
+}
+
+export interface AgentMcpTool {
+  name: string
+  description: string
+  input_schema: Record<string, unknown>
+  ref: string
+}
+
+export interface AgentToolTestResult {
+  ok: boolean
+  output: string
+  error_code: string | null
+  error: string | null
+  duration_ms: number
 }
 
 export interface AgentReview {
@@ -903,8 +952,10 @@ export interface WorkflowCatalogNode {
 }
 
 export interface WorkflowTemplate {
+  id?: string
   name: string
   description: string
+  icon?: string
   definition: WorkflowDefinition
 }
 

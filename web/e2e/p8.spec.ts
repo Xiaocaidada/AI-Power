@@ -190,6 +190,8 @@ test('Agent Studio config, canvas, builder, and run tabs render', async ({ page 
   await page.goto('/studio/agent-1')
   await expect(page.getByRole('heading', { name: 'Studio Agent' })).toBeVisible()
   await expect(page.getByText('角色与能力')).toBeVisible()
+  await expect(page.getByText('模型参数')).toBeVisible()
+  await expect(page.getByLabel('封面图 URL')).toBeVisible()
 
   await page.getByRole('button', { name: '画布' }).click()
   await expect(page.getByText('节点', { exact: true })).toBeVisible()
@@ -450,6 +452,9 @@ test('Agent plaza lists and opens a public agent', async ({ page }) => {
   await page.goto('/market/agents')
   await expect(page.getByRole('heading', { name: 'Agent 广场' })).toBeVisible()
   await expect(page.getByText('精选').first()).toBeVisible()
+  await expect(page.getByLabel('分类筛选')).toBeVisible()
+  await expect(page.getByLabel('发布者筛选')).toBeVisible()
+  await expect(page.getByRole('button', { name: '只看官方' })).toBeVisible()
   await page.getByText('Public Agent').click()
   await expect(page.getByRole('heading', { name: 'Public Agent' })).toBeVisible()
   await expect(page.getByRole('button', { name: '复制到我的工作区' })).toBeVisible()

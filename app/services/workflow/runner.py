@@ -27,6 +27,7 @@ from app.models import (
 from app.providers.base import ChatMessage, ProviderError, Usage
 from app.providers.registry import ProviderRegistry
 from app.services.agent import AgentFailure, AgentRunner
+from app.services.agent_tools import build_mcp_tool_specs, is_mcp_tool
 from app.services.budget import check_workspace_budget
 from app.services.custom_agents import (
     CustomAgentError,
@@ -34,6 +35,7 @@ from app.services.custom_agents import (
     get_custom_agent,
 )
 from app.services.database_nodes import DatabaseNodeError, execute_read_query
+from app.services.generation import normalize_generation_settings
 from app.services.mcp import (
     McpError,
     call_mcp_tool,
@@ -597,6 +599,8 @@ class WorkflowRunner:
         agent_registry = self._agents
         root_agent = None
         bound_agent = None
+        generation_opts: dict[str, object] = {}
+        mcp_tools = []
         extra_tools = list(config.tools)
         if config.agent_id is not None:
             async with SessionLocal() as session:
@@ -633,12 +637,23 @@ class WorkflowRunner:
                 )
                 agent_registry = AgentRegistry([spec])
                 root_agent = spec.name
+                generation_opts = normalize_generation_settings(
+                    agent.generation_settings
+                )
+                mcp_tools = await build_mcp_tool_specs(
+                    session, [*agent.tools, *extra_tools]
+                )
+        if not mcp_tools and any(is_mcp_tool(tool) for tool in extra_tools):
+            async with SessionLocal() as session:
+                mcp_tools = await build_mcp_tool_specs(session, extra_tools)
         if not provider_id or not model or provider_id == "auto":
             raise NodeFailure(
                 "agent_model_required", "Agent node requires an explicit provider and model"
             )
         provider = self._providers.get(provider_id)
         tool_registry = self._tools.with_tools(plugin_tools) if plugin_tools else self._tools
+        if mcp_tools:
+            tool_registry = tool_registry.with_tools(mcp_tools)
         runner = AgentRunner(
             provider=provider,
             model=model,
@@ -661,6 +676,7 @@ class WorkflowRunner:
             quota_guard=self._quota_guard,
             root_agent=root_agent or SUPERVISOR_AGENT,
             max_steps=config.max_steps,
+            generation_opts=generation_opts,
         )
         parts: list[str] = []
         try:

@@ -1,20 +1,59 @@
 import { useQuery } from '@tanstack/react-query'
 import { Plus, Sparkles } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
+import { Dialog } from '../../components/ui/dialog'
+import { Input } from '../../components/ui/input'
 import { Spinner } from '../../components/ui/spinner'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
-import type { CustomAgent } from '../../lib/types'
+import type { CustomAgent, WorkflowCatalog, WorkflowTemplate } from '../../lib/types'
 
 export function StudioListPage() {
   const { t } = useI18n()
+  const navigate = useNavigate()
+  const [template, setTemplate] = useState<WorkflowTemplate | null>(null)
+  const [templateName, setTemplateName] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [templateError, setTemplateError] = useState<string | null>(null)
   const agents = useQuery({
     queryKey: ['agents'],
     queryFn: () => apiRequest<CustomAgent[]>('/agents'),
   })
+  const catalog = useQuery({
+    queryKey: ['workflow-catalog', 'agent'],
+    queryFn: () => apiRequest<WorkflowCatalog>('/workflows/catalog?kind=agent'),
+    staleTime: 300_000,
+  })
+  const templates = (catalog.data?.templates ?? []).filter(
+    (item) => item.id !== undefined,
+  )
+
+  const startTemplate = async () => {
+    if (template?.id === undefined || templateName.trim() === '') return
+    setCreating(true)
+    setTemplateError(null)
+    try {
+      const created = await apiRequest<CustomAgent>('/agents/from-template', {
+        method: 'POST',
+        body: {
+          template: template.id,
+          name: templateName.trim(),
+          description: template.description,
+        },
+      })
+      navigate(`/studio/${created.id}`)
+    } catch (caught) {
+      setTemplateError(
+        caught instanceof Error ? caught.message : t('errors.generic'),
+      )
+    } finally {
+      setCreating(false)
+    }
+  }
   const custom = (agents.data ?? []).filter(
     (agent) => !agent.builtin && agent.owned,
   )
@@ -44,6 +83,41 @@ export function StudioListPage() {
             </Link>
           </div>
         </header>
+
+        {templates.length > 0 && (
+          <section className="mt-6">
+            <div>
+              <h2 className="text-sm font-medium text-ink">{t('studio.templates')}</h2>
+              <p className="mt-1 text-xs text-ink-muted">{t('studio.templatesHint')}</p>
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {templates.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => {
+                    setTemplate(item)
+                    setTemplateName(item.name)
+                    setTemplateError(null)
+                  }}
+                  className="rounded-card border border-dashed border-border bg-surface p-4 text-left transition-colors hover:border-accent/60"
+                >
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-soft text-lg">
+                      {item.icon ?? '✨'}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-ink">{item.name}</p>
+                      <p className="mt-0.5 line-clamp-2 text-xs text-ink-muted">
+                        {item.description}
+                      </p>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
 
         {agents.isLoading && <Spinner className="mt-8" />}
         {agents.data !== undefined && custom.length === 0 && (
@@ -84,6 +158,41 @@ export function StudioListPage() {
           ))}
         </div>
       </div>
+
+      <Dialog
+        open={template !== null}
+        onClose={() => setTemplate(null)}
+        title={t('studio.useTemplate')}
+        footer={
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setTemplate(null)}>
+              {t('common.close')}
+            </Button>
+            <Button
+              size="sm"
+              disabled={creating || templateName.trim() === ''}
+              onClick={() => void startTemplate()}
+            >
+              {creating ? t('studio.creating') : t('studio.createFromTemplate')}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-xs text-ink-muted">{template?.description}</p>
+          <label className="block text-xs text-ink-muted">
+            {t('studio.name')}
+            <Input
+              className="mt-1"
+              value={templateName}
+              onChange={(event) => setTemplateName(event.target.value)}
+            />
+          </label>
+          {templateError !== null && (
+            <p className="text-xs text-danger">{templateError}</p>
+          )}
+        </div>
+      </Dialog>
     </div>
   )
 }

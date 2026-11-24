@@ -66,6 +66,7 @@ from app.schemas import (
 )
 from app.services.access import get_owned_knowledge_base
 from app.services.agent import AgentFailure, AgentRunner
+from app.services.agent_tools import build_mcp_tool_specs
 from app.services.attachments import (
     AttachmentError,
     attachments_by_message,
@@ -82,6 +83,7 @@ from app.services.custom_agents import (
     build_agent_spec,
     get_custom_agent,
 )
+from app.services.generation import normalize_generation_settings
 from app.services.memories import (
     get_memory_settings,
     record_memory_usage,
@@ -160,26 +162,8 @@ async def _get_owned_conversation(
     return await _get_workspace_conversation(conversation_id, workspace_id, session)
 
 
-GENERATION_LIMITS = {
-    "temperature": (0.0, 2.0),
-    "max_tokens": (1, 32768),
-    "top_p": (0.0, 1.0),
-}
-
-
 def _normalize_generation_settings(values: dict[str, object] | None) -> dict[str, object]:
-    raw = values or {}
-    settings: dict[str, object] = {}
-    temperature = raw.get("temperature")
-    if temperature is not None:
-        settings["temperature"] = max(0.0, min(2.0, float(temperature)))
-    max_tokens = raw.get("max_tokens")
-    if max_tokens is not None:
-        settings["max_tokens"] = max(1, min(32768, int(max_tokens)))
-    top_p = raw.get("top_p")
-    if top_p is not None:
-        settings["top_p"] = max(0.0, min(1.0, float(top_p)))
-    return settings
+    return normalize_generation_settings(values)
 
 
 def _generation_opts(conversation: Conversation) -> dict[str, object]:
@@ -957,6 +941,11 @@ async def create_conversation(
         agent=agent,
         prompt_version_id=prompt_version_id,
         system_prompt=system_prompt,
+        generation_settings=(
+            normalize_generation_settings(custom_agent.generation_settings)
+            if custom_agent is not None
+            else {}
+        ),
     )
     session.add(conversation)
     await session.flush()
@@ -1853,6 +1842,10 @@ async def _start_chat_turn(
     effective_tools = (
         tool_registry.with_tools(plugin_tools) if plugin_tools else tool_registry
     )
+    if custom_agent is not None:
+        mcp_tools = await build_mcp_tool_specs(session, custom_agent.tools)
+        if mcp_tools:
+            effective_tools = effective_tools.with_tools(mcp_tools)
     effective_agents = agent_registry
     root_agent = SUPERVISOR_AGENT
 

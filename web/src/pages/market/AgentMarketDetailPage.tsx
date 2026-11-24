@@ -157,6 +157,13 @@ export function AgentMarketDetailPage() {
         <ArrowLeft className="h-3 w-3" />
         {t('market.back')}
       </Link>
+      {detail.cover_url && (
+        <img
+          src={detail.cover_url}
+          alt=""
+          className="mt-4 h-48 w-full rounded-panel border border-border object-cover"
+        />
+      )}
       <header className="mt-4 flex flex-wrap items-start gap-4">
         <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-accent-soft text-3xl">
           {detail.icon}
@@ -166,10 +173,12 @@ export function AgentMarketDetailPage() {
             <h1 className="text-2xl font-semibold text-ink">{detail.name}</h1>
             <Badge tone="neutral">{detail.mode}</Badge>
             {detail.featured && <Badge tone="accent">{t('market.featured')}</Badge>}
+            {detail.official && <Badge tone="success">{t('market.official')}</Badge>}
             {detail.allow_copy && <Badge tone="success">{t('market.copyable')}</Badge>}
           </div>
           <p className="mt-1 text-sm text-ink-muted">{detail.description}</p>
           <div className="mt-2 flex flex-wrap gap-4 text-[11px] text-ink-muted">
+            {detail.publisher && <span>{detail.publisher}</span>}
             <span>{detail.usage_count} uses</span>
             <span>{detail.favorite_count} favorites</span>
             <span>{detail.copy_count} copies</span>

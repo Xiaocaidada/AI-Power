@@ -14,6 +14,7 @@ import { Button } from '../../components/ui/button'
 import { Dialog } from '../../components/ui/dialog'
 import { Input } from '../../components/ui/input'
 import { Spinner } from '../../components/ui/spinner'
+import { buildGenerationSettings } from '../../lib/agentSettings'
 import {
   clearLocalDraft,
   clearWorkflowDraft,
@@ -269,6 +270,8 @@ export function AgentStudioPage() {
           category: draft.category.trim() || 'general',
           mode: draft.mode,
           icon: draft.icon || '🤖',
+          cover_url: draft.coverUrl,
+          generation_settings: buildGenerationSettings(draft),
           welcome_message: draft.welcomeMessage,
           examples: draft.examples
             .split('\n')
@@ -428,6 +431,7 @@ export function AgentStudioPage() {
       <div className="min-h-0 flex-1">
         {tab === 'config' && (
           <StudioConfigPanel
+            agentId={agent.id}
             draft={draft}
             models={models}
             knowledgeBases={knowledgeQuery.data ?? []}

@@ -9,8 +9,10 @@ from app.deps import AuthContext, require_admin
 from app.models import AgentReport, AgentReview, AuditLog, CustomAgent, User
 from app.schemas import (
     AdminReviewOut,
+    AgentFacetCount,
     AgentFeatureIn,
     AgentMarketDetail,
+    AgentMarketFacetsOut,
     AgentMarketOut,
     AgentReportOut,
     AgentReportResolveIn,
@@ -33,6 +35,7 @@ from app.services.custom_agents import (
     list_published_agents,
     public_agent_detail,
     public_agent_summary,
+    published_agent_facets,
     set_agent_featured,
 )
 
@@ -49,17 +52,38 @@ async def list_market_agents(
     session: SessionDep,
     search: str | None = None,
     category: str | None = None,
+    publisher: str | None = None,
     sort: str = "newest",
     featured: bool = False,
+    official: bool = False,
 ) -> list[AgentMarketOut]:
-    agents = await list_published_agents(
+    rows = await list_published_agents(
         session,
         search=search,
         category=category,
         sort=sort,
         featured_only=featured,
+        official_only=official,
+        publisher=publisher,
     )
-    return [AgentMarketOut(**public_agent_summary(agent)) for agent in agents]
+    return [
+        AgentMarketOut(
+            **public_agent_summary(agent, owner_email=email, owner_role=role)
+        )
+        for agent, email, role in rows
+    ]
+
+
+@router.get("/facets", response_model=AgentMarketFacetsOut)
+async def get_market_agent_facets(session: SessionDep) -> AgentMarketFacetsOut:
+    facets = await published_agent_facets(session)
+    return AgentMarketFacetsOut(
+        total=facets["total"],
+        official=facets["official"],
+        featured=facets["featured"],
+        categories=[AgentFacetCount(**item) for item in facets["categories"]],
+        publishers=[AgentFacetCount(**item) for item in facets["publishers"]],
+    )
 
 
 @router.get("/{slug}", response_model=AgentMarketDetail)
@@ -68,7 +92,14 @@ async def get_market_agent(slug: str, session: SessionDep) -> AgentMarketDetail:
         agent = await get_published_agent(session, slug)
     except CustomAgentError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, exc.message) from None
-    return AgentMarketDetail(**public_agent_detail(agent))
+    owner = await session.get(User, agent.owner_user_id)
+    return AgentMarketDetail(
+        **public_agent_detail(
+            agent,
+            owner_email=owner.email if owner is not None else "",
+            owner_role=owner.role if owner is not None else "user",
+        )
+    )
 
 
 @router.get("/{slug}/reviews", response_model=AgentReviewListOut)
@@ -167,8 +198,13 @@ async def resolve_agent_report(
 async def list_admin_agents(
     context: AdminContext, session: SessionDep
 ) -> list[AgentMarketOut]:
-    agents = await list_published_agents(session, sort="newest")
-    return [AgentMarketOut(**public_agent_summary(agent)) for agent in agents]
+    rows = await list_published_agents(session, sort="newest")
+    return [
+        AgentMarketOut(
+            **public_agent_summary(agent, owner_email=email, owner_role=role)
+        )
+        for agent, email, role in rows
+    ]
 
 
 @admin_router.post("/{agent_id}/feature", response_model=AgentMarketOut)
@@ -198,7 +234,15 @@ async def feature_agent(
     )
     await session.commit()
     await session.refresh(agent)
-    return AgentMarketOut(**public_agent_summary(agent))
+    owner = await session.get(User, agent.owner_user_id)
+    return AgentMarketOut(
+        **public_agent_summary(
+            agent,
+            owner_email=owner.email if owner is not None else "",
+            owner_role=owner.role if owner is not None else "user",
+        )
+    )
+
 
 @reviews_admin_router.get("", response_model=list[AdminReviewOut])
 async def list_admin_agent_reviews(

@@ -412,6 +412,7 @@ class CustomAgent(Base):
     category: Mapped[str] = mapped_column(String(40), default="general", index=True)
     mode: Mapped[str] = mapped_column(String(20), default="autonomous", index=True)
     icon: Mapped[str] = mapped_column(String(32), default="🤖")
+    cover_url: Mapped[str] = mapped_column(String(500), default="")
     welcome_message: Mapped[str] = mapped_column(String(1000), default="")
     examples: Mapped[list[str]] = mapped_column(JSON, default=list)
     usage_instructions: Mapped[str] = mapped_column(Text, default="")
