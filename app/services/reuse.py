@@ -29,7 +29,8 @@ logger = logging.getLogger(__name__)
 
 TASK_STATUSES = ("todo", "doing", "done")
 TASK_PRIORITIES = ("low", "medium", "high")
-MAX_SHARE_DAYS = 365
+DEFAULT_SHARE_DAYS = 7
+MAX_SHARE_DAYS = 30
 CODE_BLOCK_RE = re.compile(r"```([^\n`]*)\n(.*?)```", re.DOTALL)
 CHECKBOX_RE = re.compile(r"^\s*[-*]\s*\[([ xX])\]\s*(.+?)\s*$")
 BULLET_TASK_RE = re.compile(r"^\s*[-*]\s+(?:TODO|Task|任务)[:：]\s*(.+?)\s*$", re.I)
@@ -428,16 +429,15 @@ async def create_share(
     user_id: UUID,
     expires_in_days: int | None,
 ) -> tuple[ConversationShare, str]:
-    days = expires_in_days
-    if days is not None:
-        days = max(1, min(int(days), MAX_SHARE_DAYS))
+    days = DEFAULT_SHARE_DAYS if expires_in_days is None else expires_in_days
+    days = max(1, min(int(days), MAX_SHARE_DAYS))
     token = secrets.token_urlsafe(32)
     share = ConversationShare(
         workspace_id=conversation.workspace_id,
         conversation_id=conversation.id,
         created_by=user_id,
         token_hash=_token_hash(token),
-        expires_at=(datetime.now(UTC) + timedelta(days=days) if days is not None else None),
+        expires_at=datetime.now(UTC) + timedelta(days=days),
     )
     session.add(share)
     await session.flush()

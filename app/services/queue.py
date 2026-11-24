@@ -30,6 +30,8 @@ class JobQueue(Protocol):
 
     async def enqueue_document_memory_extraction(self, document_id: UUID) -> None: ...
 
+    async def enqueue_chat_task(self, task_id: UUID) -> None: ...
+
 
 class ArqJobQueue:
     def __init__(self, pool: Any) -> None:
@@ -99,6 +101,13 @@ class ArqJobQueue:
             "run_document_memory_extraction_job",
             str(document_id),
             _job_id=f"memextract:document:{document_id}",
+        )
+
+    async def enqueue_chat_task(self, task_id: UUID) -> None:
+        await self._pool.enqueue_job(
+            "run_chat_task_job",
+            str(task_id),
+            _job_id=f"chat-task:{task_id}",
         )
 
 

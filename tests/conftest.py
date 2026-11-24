@@ -146,6 +146,8 @@ class InlineQueue:
         self.model_eval_calls: list[object] = []
         self.workflow_calls: list[object] = []
         self.collaboration_calls: list[object] = []
+        self.chat_task_calls: list[object] = []
+        self.defer_chat_tasks = False
         self.fail = False
 
     async def enqueue_ingestion(self, document_id, *, unique: bool = False) -> None:
@@ -185,6 +187,16 @@ class InlineQueue:
 
     async def enqueue_workflow_resume(self, run_id) -> None:
         await self.enqueue_workflow_run(run_id)
+
+    async def enqueue_chat_task(self, task_id) -> None:
+        self.chat_task_calls.append(task_id)
+        if self.fail:
+            raise ConnectionError("queue down")
+        if self.defer_chat_tasks:
+            return
+        from app.services.chat_tasks import execute_chat_task
+
+        await execute_chat_task(task_id, _provider_registry())
 
     async def enqueue_collaboration_run(self, run_id) -> None:
         self.collaboration_calls.append(run_id)
@@ -273,12 +285,8 @@ def fake_provider():
             if self.complete_contents:
                 content = self.complete_contents.pop(0)
             else:
-                content = self.complete_content or "".join(
-                    chunk.delta for chunk in self.chunks
-                )
-            usage = next(
-                (chunk.usage for chunk in self.chunks if chunk.usage is not None), None
-            )
+                content = self.complete_content or "".join(chunk.delta for chunk in self.chunks)
+            usage = next((chunk.usage for chunk in self.chunks if chunk.usage is not None), None)
             return CompletionResult(content=content, usage=usage, finish_reason="stop")
 
     return FakeProvider()

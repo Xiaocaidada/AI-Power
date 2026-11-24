@@ -165,6 +165,28 @@ async def test_project_task_status(client, api, registry, fake_provider):
     assert patched.json()["status"] == "doing"
 
 
+async def test_share_defaults_to_seven_days_and_caps_at_thirty(
+    client, api, registry, fake_provider
+):
+    headers = await api.headers("p12-s4-share-expiry@example.com")
+    conversation = await _conversation(client, headers)
+
+    default_share = await client.post(
+        f"/conversations/{conversation.json()['id']}/shares",
+        json={},
+        headers=headers,
+    )
+    too_long = await client.post(
+        f"/conversations/{conversation.json()['id']}/shares",
+        json={"expires_in_days": 31},
+        headers=headers,
+    )
+
+    assert default_share.status_code == 201
+    assert default_share.json()["expires_at"] is not None
+    assert too_long.status_code == 422
+
+
 async def test_share_requires_workspace_membership_and_revocation(
     client, api, registry, fake_provider
 ):

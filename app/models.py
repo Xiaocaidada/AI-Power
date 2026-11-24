@@ -1305,6 +1305,58 @@ class ConversationShare(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class ChatTask(Base):
+    __tablename__ = "chat_tasks"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    conversation_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="SET NULL"), default=None, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(30), default="llm_steps")
+    title: Mapped[str] = mapped_column(String(200), default="")
+    status: Mapped[str] = mapped_column(String(30), default="queued", index=True)
+    input: Mapped[dict] = mapped_column(JSON, default=dict)
+    plan: Mapped[dict] = mapped_column(JSON, default=dict)
+    checkpoint: Mapped[dict] = mapped_column(JSON, default=dict)
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
+    error_code: Mapped[str | None] = mapped_column(String(50), default=None)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    pause_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+    __table_args__ = (
+        Index("ix_chat_tasks_workspace_status", "workspace_id", "status"),
+        Index("ix_chat_tasks_user_created", "user_id", "created_at"),
+    )
+
+
+class ChatTaskEvent(Base):
+    __tablename__ = "chat_task_events"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    task_id: Mapped[UUID] = mapped_column(
+        ForeignKey("chat_tasks.id", ondelete="CASCADE"), index=True
+    )
+    seq: Mapped[int] = mapped_column(Integer)
+    event: Mapped[str] = mapped_column(String(40))
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (UniqueConstraint("task_id", "seq", name="uq_chat_task_events_task_seq"),)
+
+
 class MarketModel(Base):
     __tablename__ = "market_models"
 

@@ -9,6 +9,7 @@ from arq.connections import RedisSettings
 from app.config import get_settings
 from app.db import SessionLocal
 from app.models import Document
+from app.services.chat_tasks import execute_chat_task, requeue_stale_tasks
 from app.services.evaluation_runner import run_evaluation
 from app.services.ingestion import ingest_document, mark_job_dead, schedule_retry
 from app.services.maintenance import cleanup_audit_logs, cleanup_orphan_files, cleanup_traces
@@ -106,16 +107,26 @@ async def run_memory_extraction_job(ctx: dict[str, Any], message_id: str) -> Non
     await run_memory_extraction_for_message(UUID(message_id))
 
 
-async def run_workflow_memory_extraction_job(
-    ctx: dict[str, Any], run_id: str
-) -> None:
+async def run_workflow_memory_extraction_job(ctx: dict[str, Any], run_id: str) -> None:
     await run_workflow_memory_extraction(UUID(run_id))
 
 
-async def run_document_memory_extraction_job(
-    ctx: dict[str, Any], document_id: str
-) -> None:
+async def run_document_memory_extraction_job(ctx: dict[str, Any], document_id: str) -> None:
     await run_document_memory_extraction(UUID(document_id))
+
+
+async def run_chat_task_job(ctx: dict[str, Any], task_id: str) -> None:
+    await execute_chat_task(UUID(task_id))
+
+
+async def requeue_stale_chat_tasks_job(ctx: dict[str, Any]) -> None:
+    queue = ArqJobQueue(ctx["redis"])
+    async with SessionLocal() as session:
+        task_ids = await requeue_stale_tasks(session)
+    for task_id in task_ids:
+        await queue.enqueue_chat_task(task_id)
+    if task_ids:
+        logger.info("requeued %s stale chat tasks", len(task_ids))
 
 
 async def deliver_webhooks_job(ctx: dict[str, Any]) -> None:
@@ -145,6 +156,10 @@ async def startup_requeue_reviews(ctx: dict[str, Any]) -> None:
         await requeue_waiting_reviews_job(ctx)
     except Exception:
         logger.warning("startup review requeue failed", exc_info=True)
+    try:
+        await requeue_stale_chat_tasks_job(ctx)
+    except Exception:
+        logger.warning("startup chat task requeue failed", exc_info=True)
 
 
 async def cleanup_orphan_files_job(ctx: dict[str, Any]) -> None:
@@ -178,10 +193,12 @@ class WorkerSettings:
         run_memory_extraction_job,
         run_workflow_memory_extraction_job,
         run_document_memory_extraction_job,
+        run_chat_task_job,
     ]
     cron_jobs = [
         cron(recover_stale_jobs_job, minute=set(range(60))),
         cron(requeue_waiting_reviews_job, minute=set(range(60))),
+        cron(requeue_stale_chat_tasks_job, minute=set(range(60))),
         cron(deliver_webhooks_job, minute=set(range(60))),
         cron(cleanup_orphan_files_job, hour=3, minute=0),
         cron(cleanup_traces_job, hour=3, minute=15),

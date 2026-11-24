@@ -2657,8 +2657,44 @@ class ProjectTaskOut(BaseModel):
     updated_at: datetime
 
 
+class ChatTaskCreate(BaseModel):
+    kind: Literal["llm_steps"] = "llm_steps"
+    title: str = Field(default="", max_length=200)
+    conversation_id: UUID | None = None
+    provider_id: str = Field(min_length=1, max_length=50)
+    model: str = Field(min_length=1, max_length=200)
+    steps: list[str] = Field(min_length=1, max_length=20)
+
+
+class ChatTaskOut(BaseModel):
+    id: UUID
+    conversation_id: UUID | None
+    kind: str
+    title: str
+    status: str
+    plan: dict = Field(default_factory=dict)
+    checkpoint: dict = Field(default_factory=dict)
+    result: dict = Field(default_factory=dict)
+    error_code: str | None = None
+    attempts: int = 0
+    pause_requested: bool = False
+    cancel_requested: bool = False
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+
+
+class ChatTaskEventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    seq: int
+    event: str
+    payload: dict = Field(default_factory=dict)
+    created_at: datetime
+
+
 class ConversationShareCreate(BaseModel):
-    expires_in_days: int | None = Field(default=None, ge=1, le=365)
+    expires_in_days: int | None = Field(default=None, ge=1, le=30)
 
 
 class ConversationShareOut(BaseModel):
