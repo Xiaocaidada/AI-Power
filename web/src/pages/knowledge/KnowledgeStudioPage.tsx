@@ -9,7 +9,7 @@ import {
   Save,
   Workflow as WorkflowIcon,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { KnowledgeBuilderPanel } from './KnowledgeBuilderPanel'
@@ -17,6 +17,14 @@ import { StudioCanvas } from '../studio/StudioCanvas'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { Spinner } from '../../components/ui/spinner'
+import {
+  clearLocalDraft,
+  clearWorkflowDraft,
+  localDraftKey,
+  readLocalDraft,
+  saveWorkflowDraft,
+  writeLocalDraft,
+} from '../../lib/canvasDraft'
 import { errorTextKey } from '../../lib/errorText'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
@@ -30,6 +38,7 @@ import type {
   Workflow,
   WorkflowCatalog,
   WorkflowDefinition,
+  WorkflowVersion,
 } from '../../lib/types'
 import { cn } from '../../lib/utils'
 
@@ -56,6 +65,7 @@ export function KnowledgeStudioPage() {
   const [error, setError] = useState<string | null>(null)
   const [documentId, setDocumentId] = useState('')
   const [runId, setRunId] = useState('')
+  const [draftRestored, setDraftRestored] = useState(false)
 
   const kb = useQuery({
     queryKey: ['knowledge-base', id],
@@ -115,12 +125,17 @@ export function KnowledgeStudioPage() {
   }, [workflowId, currentBinding.data, workflows.data])
 
   const latestVersion = workflow.data?.versions[0]
+  const canvasLocalKey = localDraftKey(`knowledge_process:${id}`)
   useEffect(() => {
-    if (latestVersion === undefined) return
-    setDefinition(latestVersion.definition)
+    const remoteDraft = workflow.data?.draft_definition ?? null
+    const localDraft = readLocalDraft(canvasLocalKey)
+    const chosen = remoteDraft ?? localDraft ?? latestVersion?.definition
+    if (chosen === undefined || chosen === null) return
+    setDefinition(chosen)
     setSeed((value) => value + 1)
+    setDraftRestored(remoteDraft !== null || localDraft !== null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [latestVersion?.id])
+  }, [workflowId, latestVersion?.id])
 
   useEffect(() => {
     if (documentId !== '') return
@@ -145,6 +160,45 @@ export function KnowledgeStudioPage() {
 
   const refreshWorkflows = async () => {
     await queryClient.invalidateQueries({ queryKey: ['knowledge-process-workflows'] })
+  }
+
+  const autosaveCanvas = useCallback(
+    async (next: WorkflowDefinition) => {
+      if (workflowId !== '') {
+        await saveWorkflowDraft(workflowId, next)
+      } else {
+        writeLocalDraft(canvasLocalKey, next)
+      }
+    },
+    [workflowId, canvasLocalKey],
+  )
+
+  const restoreCanvasVersion = async (version: number) => {
+    if (workflowId === '') return
+    const restored = await apiRequest<WorkflowVersion>(
+      `/workflows/${workflowId}/versions/${version}/restore`,
+      { method: 'POST' },
+    )
+    setDefinition(restored.definition)
+    setSeed((value) => value + 1)
+    setDraftRestored(false)
+    await queryClient.invalidateQueries({
+      queryKey: ['knowledge-process-workflow', workflowId],
+    })
+    await refreshWorkflows()
+  }
+
+  const discardCanvasDraft = async () => {
+    if (workflowId !== '') {
+      await clearWorkflowDraft(workflowId)
+      await queryClient.invalidateQueries({
+        queryKey: ['knowledge-process-workflow', workflowId],
+      })
+    }
+    clearLocalDraft(canvasLocalKey)
+    setDefinition(latestVersion?.definition ?? EMPTY_DEFINITION)
+    setSeed((value) => value + 1)
+    setDraftRestored(false)
   }
 
   const createFromTemplate = async (index: number) => {
@@ -179,6 +233,8 @@ export function KnowledgeStudioPage() {
         method: 'POST',
         body: { definition: next },
       })
+      clearLocalDraft(canvasLocalKey)
+      setDraftRestored(false)
       await queryClient.invalidateQueries({
         queryKey: ['knowledge-process-workflow', workflowId],
       })
@@ -335,24 +391,43 @@ export function KnowledgeStudioPage() {
               </div>
             </div>
           ) : (
-            <div className="min-h-0 flex-1">
-              <StudioCanvas
-                initialDefinition={definition}
-                seed={seed}
-                catalog={catalog.data}
-                resources={{
-                  models: [],
-                  knowledgeBases: [],
-                  agents: [],
-                  plugins: [],
-                  projects: [],
-                  mcpServers: [],
-                  databaseConnections: [],
-                }}
-                saving={saving}
-                error={error}
-                onSave={(next) => void saveCanvas(next)}
-              />
+            <div className="flex min-h-0 flex-1 flex-col">
+              {draftRestored && (
+                <div className="flex flex-wrap items-center gap-2 border-b border-border bg-warning/10 px-4 py-2 text-xs text-warning">
+                  <span>{t('studio.draftRestored')}</span>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void discardCanvasDraft()}
+                  >
+                    {t('studio.discardDraft')}
+                  </Button>
+                </div>
+              )}
+              <div className="min-h-0 flex-1">
+                <StudioCanvas
+                  initialDefinition={definition}
+                  seed={seed}
+                  catalog={catalog.data}
+                  resources={{
+                    models: [],
+                    knowledgeBases: [],
+                    agents: [],
+                    plugins: [],
+                    projects: [],
+                    mcpServers: [],
+                    databaseConnections: [],
+                  }}
+                  versions={workflow.data?.versions ?? []}
+                  saving={saving}
+                  error={error}
+                  onSave={(next) => void saveCanvas(next)}
+                  onRestoreVersion={(version) =>
+                    void restoreCanvasVersion(version)
+                  }
+                  onAutosave={autosaveCanvas}
+                />
+              </div>
             </div>
           )}
         </div>

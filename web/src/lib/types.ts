@@ -1173,6 +1173,8 @@ export interface Workflow {
   description: string
   kind: 'agent' | 'knowledge_process' | 'knowledge_retrieval'
   versions: WorkflowVersion[]
+  draft_definition?: WorkflowDefinition | null
+  draft_saved_at?: string | null
   created_at: string
 }
 

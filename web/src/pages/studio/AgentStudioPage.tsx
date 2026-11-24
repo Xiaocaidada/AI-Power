@@ -6,7 +6,7 @@ import {
   Sparkles,
   Workflow as WorkflowIcon,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { Badge } from '../../components/ui/badge'
@@ -14,6 +14,14 @@ import { Button } from '../../components/ui/button'
 import { Dialog } from '../../components/ui/dialog'
 import { Input } from '../../components/ui/input'
 import { Spinner } from '../../components/ui/spinner'
+import {
+  clearLocalDraft,
+  clearWorkflowDraft,
+  localDraftKey,
+  readLocalDraft,
+  saveWorkflowDraft,
+  writeLocalDraft,
+} from '../../lib/canvasDraft'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
 import type {
@@ -28,6 +36,7 @@ import type {
   Workflow,
   WorkflowCatalog,
   WorkflowDefinition,
+  WorkflowVersion,
 } from '../../lib/types'
 import { StudioBuilderPanel } from './StudioBuilderPanel'
 import { StudioCanvas } from './StudioCanvas'
@@ -66,6 +75,7 @@ export function AgentStudioPage() {
   const [publishing, setPublishing] = useState(false)
   const [builderSessionId, setBuilderSessionId] = useState('')
   const [lastRunId, setLastRunId] = useState<string | null>(null)
+  const [draftRestored, setDraftRestored] = useState(false)
   const draftInitialized = useRef(false)
   const definitionInitialized = useRef(false)
 
@@ -137,14 +147,22 @@ export function AgentStudioPage() {
   }, [agent])
 
   useEffect(() => {
-    if (definitionInitialized.current) return
-    if (workflowQuery.data === undefined) return
-    const latest = workflowQuery.data.versions[0]
-    if (latest === undefined) return
-    setDefinition(normalizeDefinition(latest.definition))
-    setCanvasSeed((value) => value + 1)
+    if (definitionInitialized.current || agent === undefined) return
+    if (agent.workflow_id !== null && workflowQuery.data === undefined) return
+    const latest = workflowQuery.data?.versions[0]
+    const remoteDraft = workflowQuery.data?.draft_definition ?? null
+    const localDraft =
+      agent.workflow_id === null
+        ? readLocalDraft(localDraftKey(`agent:${agent.id}`))
+        : null
+    const chosen = remoteDraft ?? localDraft ?? latest?.definition
+    if (chosen !== undefined && chosen !== null) {
+      setDefinition(normalizeDefinition(chosen))
+      setCanvasSeed((value) => value + 1)
+    }
+    setDraftRestored(remoteDraft !== null || localDraft !== null)
     definitionInitialized.current = true
-  }, [workflowQuery.data])
+  }, [agent, workflowQuery.data])
 
   const models = useMemo<ModelChoice[]>(
     () => [
@@ -163,6 +181,50 @@ export function AgentStudioPage() {
     ],
     [modelsQuery.data, personalModelsQuery.data],
   )
+
+  const canvasLocalKey = localDraftKey(`agent:${id}`)
+  const autosaveCanvas = useCallback(
+    async (next: WorkflowDefinition) => {
+      const workflowId = agentQuery.data?.workflow_id
+      if (workflowId !== null && workflowId !== undefined) {
+        await saveWorkflowDraft(workflowId, next)
+      } else {
+        writeLocalDraft(canvasLocalKey, next)
+      }
+    },
+    [agentQuery.data?.workflow_id, canvasLocalKey],
+  )
+
+  const restoreCanvasVersion = async (version: number) => {
+    const workflowId = agentQuery.data?.workflow_id
+    if (workflowId === null || workflowId === undefined) return
+    const restored = await apiRequest<WorkflowVersion>(
+      `/workflows/${workflowId}/versions/${version}/restore`,
+      { method: 'POST' },
+    )
+    setDefinition(normalizeDefinition(restored.definition))
+    setCanvasSeed((value) => value + 1)
+    setDraftRestored(false)
+    await queryClient.invalidateQueries({
+      queryKey: ['studio-workflow', workflowId],
+    })
+  }
+
+  const discardCanvasDraft = async () => {
+    const workflowId = agentQuery.data?.workflow_id
+    if (workflowId !== null && workflowId !== undefined) {
+      await clearWorkflowDraft(workflowId)
+      await queryClient.invalidateQueries({
+        queryKey: ['studio-workflow', workflowId],
+      })
+    } else {
+      clearLocalDraft(canvasLocalKey)
+    }
+    const latest = workflowQuery.data?.versions[0]
+    setDefinition(normalizeDefinition(latest?.definition))
+    setCanvasSeed((value) => value + 1)
+    setDraftRestored(false)
+  }
 
   if (agentQuery.isLoading || draft === null) {
     return (
@@ -263,6 +325,8 @@ export function AgentStudioPage() {
         })
       }
       setDefinition(next)
+      clearLocalDraft(canvasLocalKey)
+      setDraftRestored(false)
       draftInitialized.current = false
       definitionInitialized.current = false
       await queryClient.invalidateQueries({ queryKey: ['studio-agent', id] })
@@ -376,23 +440,42 @@ export function AgentStudioPage() {
           />
         )}
         {tab === 'canvas' && (
-          <StudioCanvas
-            initialDefinition={definition}
-            seed={canvasSeed}
-            catalog={catalogQuery.data}
-            resources={{
-              models,
-              knowledgeBases: knowledgeQuery.data ?? [],
-              agents: (agentsQuery.data ?? []).filter((item) => !item.builtin),
-              plugins: pluginsQuery.data ?? [],
-              projects: projectsQuery.data ?? [],
-              mcpServers: mcpServersQuery.data ?? [],
-              databaseConnections: databaseConnectionsQuery.data ?? [],
-            }}
-            saving={savingCanvas}
-            error={canvasError}
-            onSave={(next) => void saveCanvas(next)}
-          />
+          <div className="flex h-full min-h-0 flex-col">
+            {draftRestored && (
+              <div className="flex flex-wrap items-center gap-2 border-b border-border bg-warning/10 px-4 py-2 text-xs text-warning">
+                <span>{t('studio.draftRestored')}</span>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => void discardCanvasDraft()}
+                >
+                  {t('studio.discardDraft')}
+                </Button>
+              </div>
+            )}
+            <div className="min-h-0 flex-1">
+              <StudioCanvas
+                initialDefinition={definition}
+                seed={canvasSeed}
+                catalog={catalogQuery.data}
+                resources={{
+                  models,
+                  knowledgeBases: knowledgeQuery.data ?? [],
+                  agents: (agentsQuery.data ?? []).filter((item) => !item.builtin),
+                  plugins: pluginsQuery.data ?? [],
+                  projects: projectsQuery.data ?? [],
+                  mcpServers: mcpServersQuery.data ?? [],
+                  databaseConnections: databaseConnectionsQuery.data ?? [],
+                }}
+                versions={workflowQuery.data?.versions ?? []}
+                saving={savingCanvas}
+                error={canvasError}
+                onSave={(next) => void saveCanvas(next)}
+                onRestoreVersion={(version) => void restoreCanvasVersion(version)}
+                onAutosave={autosaveCanvas}
+              />
+            </div>
+          </div>
         )}
         {tab === 'builder' && (
           <StudioBuilderPanel

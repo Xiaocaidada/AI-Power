@@ -152,9 +152,19 @@ async function mockBase(page: import('@playwright/test').Page) {
             created_at: '2026-11-23T00:00:00Z',
           },
         ],
+        draft_definition: null,
+        draft_saved_at: null,
       },
     }),
   )
+  await page.route('**/api/workflows/wf-1/draft', (route) => {
+    if (route.request().method() === 'DELETE') {
+      return route.fulfill({ status: 204, body: '' })
+    }
+    return route.fulfill({
+      json: { definition, saved_at: '2026-11-24T00:00:00Z' },
+    })
+  })
 }
 
 test('Agent Studio config, canvas, builder, and run tabs render', async ({ page }) => {
@@ -169,12 +179,53 @@ test('Agent Studio config, canvas, builder, and run tabs render', async ({ page 
   await page.getByRole('button', { name: '画布' }).click()
   await expect(page.getByText('节点', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: '保存画布' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '导出 JSON' })).toBeVisible()
+  await expect(page.getByLabel('历史版本')).toBeVisible()
+  await expect(page.getByRole('button', { name: '撤销' })).toBeDisabled()
+  await page.getByRole('button', { name: '开始', exact: true }).click()
+  await expect(page.getByRole('button', { name: '撤销' })).toBeEnabled()
+  await expect(page.getByText(/草稿已保存/)).toBeVisible({ timeout: 5000 })
+  await page.getByRole('button', { name: '撤销' }).click()
+  await expect(page.getByRole('button', { name: '撤销' })).toBeDisabled()
 
   await page.getByRole('button', { name: 'AI 构建' }).click()
   await expect(page.getByText('AI 构建工作流')).toBeVisible()
 
   await page.getByRole('button', { name: '运行' }).click()
   await expect(page.getByText('运行时间线')).toBeVisible()
+})
+
+test('Canvas restores an unsaved draft and can discard it', async ({ page }) => {
+  await page.addInitScript(() =>
+    localStorage.setItem('ai_power_refresh_token', 'e2e-refresh-token-0123456789'),
+  )
+  await mockBase(page)
+  await page.unroute('**/api/workflows/wf-1')
+  await page.route('**/api/workflows/wf-1', (route) =>
+    route.fulfill({
+      json: {
+        id: 'wf-1',
+        name: 'Studio workflow',
+        description: '',
+        created_at: '2026-11-23T00:00:00Z',
+        versions: [
+          {
+            id: 'ver-1',
+            version: 1,
+            definition,
+            created_at: '2026-11-23T00:00:00Z',
+          },
+        ],
+        draft_definition: definition,
+        draft_saved_at: '2026-11-24T00:00:00Z',
+      },
+    }),
+  )
+  await page.goto('/studio/agent-1')
+  await page.getByRole('button', { name: '画布' }).click()
+  await expect(page.getByText('已恢复上次未保存的草稿')).toBeVisible()
+  await page.getByRole('button', { name: '丢弃草稿' }).click()
+  await expect(page.getByText('已恢复上次未保存的草稿')).toHaveCount(0)
 })
 
 test('Agent builder shows a diff and applies it to the canvas', async ({ page }) => {

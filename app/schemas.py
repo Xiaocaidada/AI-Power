@@ -579,6 +579,15 @@ class WorkflowVersionOut(BaseModel):
     created_at: datetime
 
 
+class WorkflowDraftIn(BaseModel):
+    definition: dict[str, object]
+
+
+class WorkflowDraftOut(BaseModel):
+    definition: dict[str, object] | None = None
+    saved_at: datetime | None = None
+
+
 class WorkflowOut(BaseModel):
     id: UUID
     name: str
@@ -586,6 +595,8 @@ class WorkflowOut(BaseModel):
     kind: str = "agent"
     created_at: datetime
     versions: list[WorkflowVersionOut] = Field(default_factory=list)
+    draft_definition: dict[str, object] | None = None
+    draft_saved_at: datetime | None = None
 
 
 class WorkflowRunCreate(BaseModel):
