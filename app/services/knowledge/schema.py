@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 KnowledgeNodeType = Literal[
     "start",
     "parse_document",
+    "ocr_document",
     "clean_text",
     "filter_text",
     "chunk_text",
@@ -20,6 +21,7 @@ KNOWLEDGE_NODE_TYPES: frozenset[str] = frozenset(
     {
         "start",
         "parse_document",
+        "ocr_document",
         "clean_text",
         "filter_text",
         "chunk_text",
@@ -48,6 +50,24 @@ class EmptyKnowledgeConfig(BaseModel):
 
 class ParseDocumentConfig(BaseModel):
     keep_blank_pages: bool = False
+    format: Literal[
+        "auto",
+        "pdf",
+        "text",
+        "markdown",
+        "html",
+        "csv",
+        "docx",
+        "xlsx",
+        "pptx",
+        "image",
+    ] = "auto"
+
+
+class OcrDocumentConfig(BaseModel):
+    mode: Literal["blank", "short", "always"] = "blank"
+    min_chars: int = Field(default=0, ge=0, le=5000)
+    max_pages: int = Field(default=50, ge=1, le=200)
 
 
 class CleanTextConfig(BaseModel):
@@ -113,12 +133,20 @@ class EmbedChunksConfig(BaseModel):
 
 
 class IndexKnowledgeConfig(BaseModel):
+    mode: Literal["vector", "fulltext", "hybrid"] | None = None
     require_embeddings: bool = True
+
+    @property
+    def resolved_mode(self) -> Literal["vector", "fulltext", "hybrid"]:
+        if self.mode is not None:
+            return self.mode
+        return "hybrid" if self.require_embeddings else "fulltext"
 
 
 KNOWLEDGE_CONFIGS: dict[str, type[BaseModel]] = {
     "start": EmptyKnowledgeConfig,
     "parse_document": ParseDocumentConfig,
+    "ocr_document": OcrDocumentConfig,
     "clean_text": CleanTextConfig,
     "filter_text": FilterTextConfig,
     "chunk_text": ChunkTextConfig,

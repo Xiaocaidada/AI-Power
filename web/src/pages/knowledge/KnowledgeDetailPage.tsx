@@ -647,6 +647,10 @@ export function KnowledgeDetailPage() {
                                 {t('documents.fromUrl')}
                               </span>
                             ) : null}
+                            <span className="inline-flex items-center gap-1">
+                              {t('documents.indexMode')}:{' '}
+                              {document.index_mode ?? 'hybrid'}
+                            </span>
                           </span>
                         </td>
                         <td className="px-3 py-3">

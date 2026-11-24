@@ -320,6 +320,8 @@ async def get_workflow_catalog(
                 "markdown",
                 "enhanced",
                 "parent_child",
+                "ocr",
+                "fulltext",
             )
         ]
         return catalog
