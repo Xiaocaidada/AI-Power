@@ -99,6 +99,16 @@ class Settings(BaseSettings):
     agent_task_max_steps: int = 10
     agent_task_max_tool_calls: int = 15
     agent_task_max_total_tokens: int = 150_000
+    integration_image_timeout_seconds: float = 120.0
+    integration_max_image_bytes: int = 10_000_000
+    integration_max_images_per_request: int = 4
+    integration_max_prompt_chars: int = 4000
+    integration_audio_timeout_seconds: float = 90.0
+    integration_max_audio_bytes: int = 20_000_000
+    integration_tts_max_chars: int = 4000
+    integration_media_retention_days: int = 30
+    integration_github_timeout_seconds: float = 20.0
+    skill_run_max_steps: int = 8
     audit_log_retention_days: int = 90
     workflow_node_timeout_seconds: float = 120.0
     workflow_node_attempts: int = 2

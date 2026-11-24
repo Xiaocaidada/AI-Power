@@ -23,6 +23,7 @@ SOURCE_STUDY = "study"
 SOURCE_CHAT_TASK = "chat_task"
 SOURCE_RESEARCH = "research"
 SOURCE_AGENT_TASK = "agent_task"
+SOURCE_SKILL = "skill"
 ALLOWED_SOURCES = frozenset(
     {
         SOURCE_CHAT,
@@ -41,6 +42,7 @@ ALLOWED_SOURCES = frozenset(
         SOURCE_CHAT_TASK,
         SOURCE_RESEARCH,
         SOURCE_AGENT_TASK,
+        SOURCE_SKILL,
     }
 )
 

@@ -12,7 +12,12 @@ from app.models import Document
 from app.services.chat_tasks import execute_chat_task, requeue_stale_tasks
 from app.services.evaluation_runner import run_evaluation
 from app.services.ingestion import ingest_document, mark_job_dead, schedule_retry
-from app.services.maintenance import cleanup_audit_logs, cleanup_orphan_files, cleanup_traces
+from app.services.maintenance import (
+    cleanup_audit_logs,
+    cleanup_media_assets,
+    cleanup_orphan_files,
+    cleanup_traces,
+)
 from app.services.memories import expire_retention_memories
 from app.services.memory_extraction import (
     run_document_memory_extraction,
@@ -176,6 +181,15 @@ async def cleanup_traces_job(ctx: dict[str, Any]) -> None:
         logger.info("removed %s expired traces", removed)
 
 
+async def cleanup_media_assets_job(ctx: dict[str, Any]) -> None:
+    async with SessionLocal() as session:
+        removed = await cleanup_media_assets(
+            session, Path(get_settings().upload_dir)
+        )
+    if removed:
+        logger.info("removed %s expired media assets", removed)
+
+
 async def cleanup_audit_logs_job(ctx: dict[str, Any]) -> None:
     async with SessionLocal() as session:
         removed = await cleanup_audit_logs(session)
@@ -203,6 +217,7 @@ class WorkerSettings:
         cron(cleanup_orphan_files_job, hour=3, minute=0),
         cron(cleanup_traces_job, hour=3, minute=15),
         cron(cleanup_audit_logs_job, hour=3, minute=30),
+        cron(cleanup_media_assets_job, hour=3, minute=45),
         cron(consolidate_memories_job, hour=4, minute=0),
         cron(expire_memories_job, hour=4, minute=30),
     ]

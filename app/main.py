@@ -18,11 +18,13 @@ from app.routers import (
     api_keys,
     arena,
     attachments,
+    audio,
     auth,
     chat_modes,
     chat_tasks,
     code_snippets,
     collaborations,
+    connectors,
     content,
     conversations,
     dashboard,
@@ -31,9 +33,11 @@ from app.routers import (
     evaluations,
     files,
     health,
+    integrations,
     knowledge_bases,
     market,
     mcp_servers,
+    media,
     memories,
     model_eval,
     models,
@@ -49,6 +53,7 @@ from app.routers import (
     search,
     search_providers,
     shares,
+    skills,
     study,
     traces,
     usage,
@@ -152,6 +157,11 @@ app.include_router(study.router)
 app.include_router(chat_tasks.router)
 app.include_router(research.router)
 app.include_router(agent_tasks.router)
+app.include_router(integrations.router)
+app.include_router(media.router)
+app.include_router(audio.router)
+app.include_router(connectors.router)
+app.include_router(skills.router)
 app.include_router(reuse.router)
 app.include_router(code_snippets.router)
 app.include_router(project_tasks.router)

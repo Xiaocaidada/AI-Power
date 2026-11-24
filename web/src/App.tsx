@@ -64,6 +64,10 @@ import { SharePage } from './pages/chat/SharePage'
 import { SnippetsPage } from './pages/snippets/SnippetsPage'
 import { ResearchPage } from './pages/research/ResearchPage'
 import { AgentTasksPage } from './pages/tasks/AgentTasksPage'
+import { IntegrationsPage } from './pages/settings/IntegrationsPage'
+import { MultimodalPage } from './pages/media/MultimodalPage'
+import { SkillsPage } from './pages/skills/SkillsPage'
+import { ConnectorsPage } from './pages/connectors/ConnectorsPage'
 import { WorkspaceSettingsPage } from './pages/settings/WorkspaceSettingsPage'
 import { useAuthStore } from './store/auth'
 
@@ -141,6 +145,10 @@ export function App() {
           <Route path="snippets" element={<SnippetsPage />} />
           <Route path="research" element={<ResearchPage />} />
           <Route path="tasks" element={<AgentTasksPage />} />
+          <Route path="media" element={<MultimodalPage />} />
+          <Route path="skills" element={<SkillsPage />} />
+          <Route path="connectors" element={<ConnectorsPage />} />
+          <Route path="settings/integrations" element={<IntegrationsPage />} />
           <Route path="search" element={<SearchPage />} />
           <Route path="workflows" element={<WorkflowsPage />} />
           <Route path="collaborations" element={<CollaborationsPage />} />

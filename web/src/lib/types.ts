@@ -2357,6 +2357,100 @@ export interface TaskEvent {
   created_at: string
 }
 
+export type IntegrationKind = 'image_generation' | 'stt' | 'tts' | 'github'
+
+export interface IntegrationConfig {
+  id: string
+  kind: IntegrationKind
+  provider: string
+  name: string
+  base_url: string
+  auth_type: string
+  credential_hint: string
+  model: string
+  options: Record<string, unknown>
+  shared: boolean
+  enabled: boolean
+  is_default: boolean
+  owned: boolean
+  status: string
+  last_error: string | null
+  last_tested_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface MediaAsset {
+  id: string
+  integration_id: string | null
+  kind: string
+  filename: string
+  mime: string
+  size_bytes: number
+  prompt: string
+  url: string
+  created_at: string
+}
+
+export interface ExternalCall {
+  id: string
+  integration_id: string | null
+  kind: string
+  provider: string
+  operation: string
+  status: string
+  error_code: string | null
+  duration_ms: number
+  units: number
+  created_at: string
+}
+
+export interface GitHubRepo {
+  full_name: string
+  description: string
+  private: boolean
+  html_url: string
+  updated_at: string | null
+}
+
+export interface GitHubIssue {
+  number: number | null
+  title: string
+  state: string
+  html_url: string
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface Skill {
+  id: string
+  name: string
+  description: string
+  instructions: string
+  tool_names: string[]
+  shared: boolean
+  enabled: boolean
+  owned: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface SkillRun {
+  id: string
+  skill_id: string
+  status: string
+  input: string
+  output: string
+  provider_id: string | null
+  model: string | null
+  error_code: string | null
+  prompt_tokens: number | null
+  completion_tokens: number | null
+  tool_records: Record<string, unknown>[]
+  created_at: string
+  finished_at: string | null
+}
+
 export interface SseMeta {
   message_id: string
   provider: string

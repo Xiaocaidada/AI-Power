@@ -1357,6 +1357,144 @@ class ChatTaskEvent(Base):
     __table_args__ = (UniqueConstraint("task_id", "seq", name="uq_chat_task_events_task_seq"),)
 
 
+class IntegrationConfig(Base):
+    __tablename__ = "integration_configs"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    owner_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(String(30), index=True)
+    provider: Mapped[str] = mapped_column(String(40), default="openai_compatible")
+    name: Mapped[str] = mapped_column(String(100), default="")
+    base_url: Mapped[str] = mapped_column(String(500), default="")
+    auth_type: Mapped[str] = mapped_column(String(20), default="api_key")
+    credentials_encrypted: Mapped[str] = mapped_column(Text, default="")
+    credential_hint: Mapped[str] = mapped_column(String(40), default="")
+    model: Mapped[str] = mapped_column(String(200), default="")
+    options: Mapped[dict] = mapped_column(JSON, default=dict)
+    shared: Mapped[bool] = mapped_column(Boolean, default=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[str] = mapped_column(String(20), default="unknown")
+    last_error: Mapped[str | None] = mapped_column(String(50), default=None)
+    last_tested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+    __table_args__ = (
+        Index("ix_integration_configs_workspace_kind", "workspace_id", "kind"),
+        Index("ix_integration_configs_owner_kind", "owner_user_id", "kind"),
+    )
+
+
+class MediaAsset(Base):
+    __tablename__ = "media_assets"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    integration_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("integration_configs.id", ondelete="SET NULL"), default=None
+    )
+    kind: Mapped[str] = mapped_column(String(20), default="image", index=True)
+    filename: Mapped[str] = mapped_column(String(255), default="")
+    mime: Mapped[str] = mapped_column(String(100), default="image/png")
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    storage_path: Mapped[str] = mapped_column(String(500), default="")
+    prompt: Mapped[str] = mapped_column(Text, default="")
+    asset_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+    __table_args__ = (Index("ix_media_assets_workspace_created", "workspace_id", "created_at"),)
+
+
+class ExternalCall(Base):
+    __tablename__ = "external_calls"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    integration_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("integration_configs.id", ondelete="SET NULL"), default=None, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(30), default="")
+    provider: Mapped[str] = mapped_column(String(40), default="")
+    operation: Mapped[str] = mapped_column(String(60), default="")
+    status: Mapped[str] = mapped_column(String(20), default="completed")
+    error_code: Mapped[str | None] = mapped_column(String(50), default=None)
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    units: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        Index("ix_external_calls_workspace_created", "workspace_id", "created_at"),
+    )
+
+
+class Skill(Base):
+    __tablename__ = "skills"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    owner_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(String(500), default="")
+    instructions: Mapped[str] = mapped_column(Text, default="")
+    tool_names: Mapped[list[str]] = mapped_column(JSON, default=list)
+    shared: Mapped[bool] = mapped_column(Boolean, default=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "owner_user_id", "name", name="uq_skills_owner_name"),
+        Index("ix_skills_workspace_enabled", "workspace_id", "enabled"),
+    )
+
+
+class SkillRun(Base):
+    __tablename__ = "skill_runs"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    skill_id: Mapped[UUID] = mapped_column(
+        ForeignKey("skills.id", ondelete="CASCADE"), index=True
+    )
+    status: Mapped[str] = mapped_column(String(20), default="completed")
+    input: Mapped[str] = mapped_column(Text, default="")
+    output: Mapped[str] = mapped_column(Text, default="")
+    provider_id: Mapped[str | None] = mapped_column(String(50), default=None)
+    model: Mapped[str | None] = mapped_column(String(200), default=None)
+    error_code: Mapped[str | None] = mapped_column(String(50), default=None)
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer, default=None)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer, default=None)
+    tool_records: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+    __table_args__ = (Index("ix_skill_runs_skill_created", "skill_id", "created_at"),)
+
+
 class MarketModel(Base):
     __tablename__ = "market_models"
 

@@ -6,7 +6,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.models import AuditLog, Document, Trace
+from app.models import AuditLog, Document, MediaAsset, Trace
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +37,44 @@ async def cleanup_audit_logs(
     result = await session.execute(delete(AuditLog).where(AuditLog.created_at < threshold))
     await session.commit()
     return result.rowcount or 0
+
+
+async def cleanup_media_assets(
+    session: AsyncSession,
+    upload_dir: Path,
+    *,
+    now: datetime | None = None,
+    max_age_days: int | None = None,
+) -> int:
+    """Expire generated media rows and their files after the retention window."""
+    days = (
+        max_age_days
+        if max_age_days is not None
+        else get_settings().integration_media_retention_days
+    )
+    threshold = (now or datetime.now(UTC)) - timedelta(days=days)
+    rows = list(
+        (
+            await session.execute(
+                select(MediaAsset).where(MediaAsset.created_at < threshold)
+            )
+        ).scalars()
+    )
+    if not rows:
+        return 0
+    base = Path(upload_dir).resolve()
+    removed = 0
+    for asset in rows:
+        path = Path(asset.storage_path).resolve()
+        if path.is_relative_to(base):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                logger.warning("failed to remove media file %s", asset.id)
+        await session.delete(asset)
+        removed += 1
+    await session.commit()
+    return removed
 
 
 async def cleanup_orphan_files(

@@ -7,8 +7,10 @@ import {
   ClipboardList,
   Database,
   FileText,
+  Github,
   FlaskConical,
   FolderOpen,
+  Image as ImageIcon,
   LayoutDashboard,
   ListChecks,
   Megaphone,
@@ -24,6 +26,7 @@ import {
   Sun,
   Swords,
   Telescope,
+  Blocks,
   Users,
   Workflow,
   X,
@@ -42,6 +45,7 @@ import { useAuthStore } from '../store/auth'
 
 const workNav = [
   { to: '/chat', labelKey: 'nav.chat', icon: MessageSquare },
+  { to: '/media', labelKey: 'nav.multimodal', icon: ImageIcon },
   { to: '/arena', labelKey: 'nav.arena', icon: Swords },
   { to: '/prompt-lab', labelKey: 'nav.promptLab', icon: FlaskConical },
   { to: '/model-eval', labelKey: 'nav.modelEval', icon: ClipboardList },
@@ -54,6 +58,8 @@ const workNav = [
 
 const buildNav = [
   { to: '/research', labelKey: 'nav.research', icon: Telescope },
+  { to: '/skills', labelKey: 'nav.skills', icon: Blocks },
+  { to: '/connectors', labelKey: 'nav.connectors', icon: Github },
   { to: '/tasks', labelKey: 'nav.agentTasks', icon: ListChecks },
   { to: '/workflows', labelKey: 'nav.workflows', icon: Workflow },
   { to: '/collaborations', labelKey: 'nav.collaborations', icon: Users },

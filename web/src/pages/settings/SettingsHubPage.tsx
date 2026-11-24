@@ -1,6 +1,7 @@
 import {
   BarChart3,
   Building2,
+  Cable,
   FileText,
   KeyRound,
   Search,
@@ -27,6 +28,12 @@ export function SettingsHubPage() {
       icon: Search,
       title: t('searchProviders.title'),
       description: t('settingsHub.search'),
+    },
+    {
+      to: '/settings/integrations',
+      icon: Cable,
+      title: t('integrations.title'),
+      description: t('settingsHub.integrations'),
     },
     {
       to: '/settings/api-keys',

@@ -2784,6 +2784,203 @@ class ChatTaskEventOut(BaseModel):
     created_at: datetime
 
 
+class IntegrationConfigCreate(BaseModel):
+    kind: Literal["image_generation", "stt", "tts", "github"]
+    provider: str | None = Field(default=None, max_length=40)
+    name: str = Field(default="", max_length=100)
+    base_url: str | None = Field(default=None, max_length=500)
+    credential: str = Field(default="", max_length=2000)
+    model: str = Field(default="", max_length=200)
+    options: dict = Field(default_factory=dict)
+    shared: bool = False
+    enabled: bool = True
+
+    @field_validator("name", "base_url", "credential", "model", mode="before")
+    @classmethod
+    def strip_integration_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class IntegrationConfigUpdate(BaseModel):
+    name: str | None = Field(default=None, max_length=100)
+    base_url: str | None = Field(default=None, max_length=500)
+    credential: str | None = Field(default=None, max_length=2000)
+    model: str | None = Field(default=None, max_length=200)
+    options: dict | None = None
+    shared: bool | None = None
+    enabled: bool | None = None
+    is_default: bool | None = None
+
+
+class IntegrationConfigOut(BaseModel):
+    id: UUID
+    kind: str
+    provider: str
+    name: str
+    base_url: str
+    auth_type: str
+    credential_hint: str
+    model: str
+    options: dict = Field(default_factory=dict)
+    shared: bool
+    enabled: bool
+    is_default: bool
+    owned: bool
+    status: str
+    last_error: str | None = None
+    last_tested_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class IntegrationTestOut(BaseModel):
+    status: str
+    error_code: str | None = None
+    message: str = ""
+
+
+class ExternalCallOut(BaseModel):
+    id: UUID
+    integration_id: UUID | None
+    kind: str
+    provider: str
+    operation: str
+    status: str
+    error_code: str | None
+    duration_ms: int
+    units: int
+    created_at: datetime
+
+
+class MediaAssetOut(BaseModel):
+    id: UUID
+    integration_id: UUID | None
+    kind: str
+    filename: str
+    mime: str
+    size_bytes: int
+    prompt: str
+    url: str
+    created_at: datetime
+
+
+class ImageGenerateIn(BaseModel):
+    prompt: str = Field(min_length=1, max_length=4000)
+    integration_id: UUID | None = None
+    size: Literal["256x256", "512x512", "1024x1024", "1024x1536", "1536x1024", "auto"] | None = None
+    n: int = Field(default=1, ge=1, le=4)
+
+    @field_validator("prompt", mode="before")
+    @classmethod
+    def strip_image_prompt(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class AudioTranscribeIn(BaseModel):
+    language: str | None = Field(default=None, max_length=20)
+    prompt: str | None = Field(default=None, max_length=1000)
+
+
+class AudioSpeechIn(BaseModel):
+    text: str = Field(min_length=1, max_length=4000)
+    integration_id: UUID | None = None
+    voice: str | None = Field(default=None, max_length=80)
+    response_format: Literal["mp3", "opus", "aac", "flac", "wav", "pcm"] = "mp3"
+    speed: float = Field(default=1.0, ge=0.25, le=4.0)
+
+    @field_validator("text", "voice", mode="before")
+    @classmethod
+    def strip_speech_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class GitHubRepoOut(BaseModel):
+    full_name: str
+    description: str = ""
+    private: bool = False
+    html_url: str = ""
+    updated_at: str | None = None
+
+
+class GitHubIssueOut(BaseModel):
+    number: int | None = None
+    title: str = ""
+    state: str = ""
+    html_url: str = ""
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class SkillCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=500)
+    instructions: str = Field(default="", max_length=20000)
+    tool_names: list[str] = Field(default_factory=list, max_length=20)
+    shared: bool = False
+    enabled: bool = True
+
+    @field_validator("name", "description", "instructions", mode="before")
+    @classmethod
+    def strip_skill_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class SkillUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+    instructions: str | None = Field(default=None, max_length=20000)
+    tool_names: list[str] | None = Field(default=None, max_length=20)
+    shared: bool | None = None
+    enabled: bool | None = None
+
+
+class SkillOut(BaseModel):
+    id: UUID
+    name: str
+    description: str
+    instructions: str
+    tool_names: list[str] = Field(default_factory=list)
+    shared: bool
+    enabled: bool
+    owned: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class SkillMatchOut(BaseModel):
+    id: UUID
+    name: str
+    description: str
+    score: float
+
+
+class SkillRunIn(BaseModel):
+    input: str = Field(min_length=1, max_length=20000)
+    provider_id: str = Field(default="auto", max_length=50)
+    model: str = Field(default="auto", max_length=200)
+
+    @field_validator("input", mode="before")
+    @classmethod
+    def strip_skill_input(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class SkillRunOut(BaseModel):
+    id: UUID
+    skill_id: UUID
+    status: str
+    input: str
+    output: str
+    provider_id: str | None
+    model: str | None
+    error_code: str | None
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    tool_records: list[dict] = Field(default_factory=list)
+    created_at: datetime
+    finished_at: datetime | None
+
+
 class ConversationShareCreate(BaseModel):
     expires_in_days: int | None = Field(default=None, ge=1, le=30)
 
