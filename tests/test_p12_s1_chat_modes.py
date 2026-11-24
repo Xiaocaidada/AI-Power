@@ -2,7 +2,10 @@ import json
 from uuid import UUID
 
 from app.db import SessionLocal
+from app.deps import get_scoped_registry
+from app.main import app as app_instance
 from app.models import ProviderConfig, ProviderModel
+from app.providers.registry import ProviderRegistry
 
 
 def _parse_sse(text: str) -> list[tuple[str, dict]]:
@@ -222,3 +225,58 @@ async def test_capabilities_without_manifest_supports_standard_only(client, api,
     assert response.status_code == 200
     supported = {item["id"]: item["supported"] for item in response.json()["thinking_levels"]}
     assert supported == {"fast": False, "standard": True, "deep": False}
+
+
+async def _chat_only_provider(client, headers) -> str:
+    me = await client.get("/auth/me", headers=headers)
+    workspaces = await client.get("/workspaces", headers=headers)
+    async with SessionLocal() as session:
+        config = ProviderConfig(
+            workspace_id=UUID(workspaces.json()[0]["id"]),
+            owner_user_id=UUID(me.json()["id"]),
+            name="Chat only",
+            base_url="https://chat-only.example/v1",
+            api_key_encrypted="test-only",
+        )
+        session.add(config)
+        await session.flush()
+        session.add(
+            ProviderModel(
+                config_id=config.id,
+                model_id="chat-only-1",
+                display_name="Chat Only 1",
+                capabilities=["chat"],
+            )
+        )
+        await session.commit()
+        return str(config.id)
+
+
+async def test_patch_to_agent_mode_rejects_model_without_tools(client, api, fake_provider):
+    headers = await api.headers("p12-agent-capability@example.com")
+    config_id = await _chat_only_provider(client, headers)
+    app_instance.dependency_overrides[get_scoped_registry] = lambda: ProviderRegistry(
+        {config_id: fake_provider}
+    )
+    try:
+        created = await client.post(
+            "/conversations",
+            json={"provider_id": config_id, "model": "chat-only-1"},
+            headers=headers,
+        )
+        assert created.status_code == 201
+        conversation_id = created.json()["id"]
+
+        response = await client.patch(
+            f"/conversations/{conversation_id}",
+            json={"default_mode": "agent"},
+            headers=headers,
+        )
+        detail = await client.get(f"/conversations/{conversation_id}", headers=headers)
+    finally:
+        app_instance.dependency_overrides.pop(get_scoped_registry, None)
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "capability_unsupported"
+    assert detail.json()["default_mode"] == "chat"
+    assert detail.json()["agent"] is False

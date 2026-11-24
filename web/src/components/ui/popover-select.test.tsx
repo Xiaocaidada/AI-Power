@@ -49,4 +49,25 @@ describe('PopoverSelect', () => {
       screen.getByRole('option', { name: /知识库工程/ }).getAttribute('aria-selected'),
     ).toBe('true')
   })
+
+  it('does not select a disabled option', () => {
+    const onChange = vi.fn()
+    render(
+      <PopoverSelect
+        label="思考等级"
+        value="standard"
+        options={[
+          { value: 'fast', label: '快速', disabled: true },
+          { value: 'standard', label: '标准' },
+        ]}
+        onChange={onChange}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '思考等级: 标准' }))
+    const fast = screen.getByRole('option', { name: '快速' })
+    expect(fast.getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(fast)
+    expect(onChange).not.toHaveBeenCalled()
+  })
 })

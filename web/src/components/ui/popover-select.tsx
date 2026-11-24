@@ -16,6 +16,7 @@ export interface PopoverSelectOption {
   description?: string
   group?: string
   trailing?: string
+  disabled?: boolean
 }
 
 interface PopoverSelectProps {
@@ -29,6 +30,7 @@ interface PopoverSelectProps {
   placement?: 'top' | 'bottom'
   placeholder?: string
   className?: string
+  triggerClassName?: string
 }
 
 export function PopoverSelect({
@@ -42,6 +44,7 @@ export function PopoverSelect({
   placement = 'bottom',
   placeholder,
   className,
+  triggerClassName,
 }: PopoverSelectProps) {
   const [open, setOpen] = useState(false)
   const panelRef = useRef<HTMLDivElement | null>(null)
@@ -102,7 +105,9 @@ export function PopoverSelect({
     }
     event.preventDefault()
     const items = Array.from(
-      panelRef.current?.querySelectorAll<HTMLElement>('[role="option"]') ?? [],
+      panelRef.current?.querySelectorAll<HTMLElement>(
+        '[role="option"]:not([aria-disabled="true"])',
+      ) ?? [],
     )
     if (items.length === 0) return
     const active = document.activeElement
@@ -125,13 +130,18 @@ export function PopoverSelect({
         type="button"
         role="option"
         aria-selected={active}
+        aria-disabled={option.disabled === true}
+        disabled={option.disabled === true}
         className={cn(
           'flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-colors focus:outline-none',
-          active
-            ? 'bg-accent-soft text-accent'
-            : 'text-ink-muted hover:bg-surface-muted hover:text-ink focus:bg-surface-muted focus:text-ink',
+          option.disabled === true
+            ? 'cursor-not-allowed text-ink-muted/50'
+            : active
+              ? 'bg-accent-soft text-accent'
+              : 'text-ink-muted hover:bg-surface-muted hover:text-ink focus:bg-surface-muted focus:text-ink',
         )}
         onClick={() => {
+          if (option.disabled === true) return
           onChange(option.value)
           close()
         }}
@@ -164,6 +174,7 @@ export function PopoverSelect({
         disabled={disabled}
         className={cn(
           'inline-flex max-w-[15rem] items-center gap-1.5 rounded-full text-xs transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:cursor-not-allowed disabled:opacity-60',
+          triggerClassName,
           variant === 'chip' &&
             cn(
               'border px-3 py-1.5',

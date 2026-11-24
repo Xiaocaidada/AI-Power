@@ -17,6 +17,10 @@ import { Link, useNavigate } from 'react-router-dom'
 
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
+import {
+  PopoverSelect,
+  type PopoverSelectOption,
+} from '../../components/ui/popover-select'
 import { Spinner } from '../../components/ui/spinner'
 import { errorMessage } from '../../lib/errors'
 import { formatDate } from '../../lib/format'
@@ -129,6 +133,16 @@ export function HomePage() {
 
   const featureCards = (featured.data ?? []).slice(0, 4)
   const newCards = (newest.data ?? []).slice(0, 4)
+  const modelOptions: PopoverSelectOption[] = [
+    { value: 'auto::auto', label: t('portal.autoModel') },
+    ...(models.data ?? [])
+      .filter((model) => model.available)
+      .map((model) => ({
+        value: `${model.provider_id}::${model.model_id}`,
+        label: model.display_name,
+        description: model.provider_id,
+      })),
+  ]
 
   return (
     <div className="flex-1">
@@ -147,45 +161,8 @@ export function HomePage() {
           </p>
 
           <div className="mx-auto mt-8 max-w-3xl animate-page text-left">
-            <Composer
-              value={prompt}
-              onValueChange={setPrompt}
-              onSend={start}
-              size="hero"
-              autoFocus
-              showAttach={false}
-              streaming={streaming}
-              onStop={() => abortRef.current?.abort()}
-              placeholder={t('portal.inputPlaceholder')}
-              footerStart={
-                <>
-                  <select
-                    aria-label={t('portal.model')}
-                    className="h-7 max-w-44 rounded-md border border-border bg-surface px-1 text-[11px] text-ink"
-                    value={modelValue}
-                    disabled={status !== 'authenticated'}
-                    onChange={(event) => setModelValue(event.target.value)}
-                  >
-                    <option value="auto::auto">{t('portal.autoModel')}</option>
-                    {(models.data ?? [])
-                      .filter((model) => model.available)
-                      .map((model) => (
-                        <option
-                          key={`${model.provider_id}::${model.model_id}`}
-                          value={`${model.provider_id}::${model.model_id}`}
-                        >
-                          {model.display_name}
-                        </option>
-                      ))}
-                  </select>
-                  <span className="hidden text-[11px] text-ink-muted sm:inline">
-                    {status === 'authenticated' ? t('portal.inlineHint') : t('portal.loginHint')}
-                  </span>
-                </>
-              }
-            />
             {(streaming || answer !== '' || homeError !== null) && (
-              <div className="mt-3 animate-page rounded-2xl border border-border bg-surface p-4 shadow-subtle">
+              <div className="mb-3 animate-page rounded-2xl border border-border bg-canvas p-4 shadow-subtle">
                 {homeError !== null && <p className="text-sm text-danger">{homeError}</p>}
                 {streaming && answer === '' ? (
                   <div className="flex items-center gap-2 text-sm text-ink-muted">
@@ -208,6 +185,27 @@ export function HomePage() {
                 )}
               </div>
             )}
+            <Composer
+              value={prompt}
+              onValueChange={setPrompt}
+              onSend={start}
+              size="hero"
+              autoFocus
+              showAttach={false}
+              streaming={streaming}
+              onStop={() => abortRef.current?.abort()}
+              placeholder={t('portal.inputPlaceholder')}
+              footerStart={
+                <PopoverSelect
+                  label={t('portal.model')}
+                  value={modelValue}
+                  options={modelOptions}
+                  onChange={setModelValue}
+                  disabled={status !== 'authenticated'}
+                  placement="bottom"
+                />
+              }
+            />
           </div>
 
           {banners.length > 0 && (

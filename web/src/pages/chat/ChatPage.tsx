@@ -8,7 +8,6 @@ import {
   MoreHorizontal,
   Quote,
   SlidersHorizontal,
-  Telescope,
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
@@ -16,14 +15,16 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Button } from '../../components/ui/button'
 import { Dialog } from '../../components/ui/dialog'
 import { Textarea } from '../../components/ui/input'
+import {
+  PopoverSelect,
+  type PopoverSelectOption,
+} from '../../components/ui/popover-select'
 import { Spinner } from '../../components/ui/spinner'
 import { uploadChatAttachment } from '../../lib/attachments'
 import {
-  THINKING_LEVELS,
   modelReasoningLevels,
   modeLabelKey,
   normalizeThinkingLevel,
-  thinkingLabelKey,
 } from '../../lib/chatModes'
 import { errorTextKey } from '../../lib/errorText'
 import { ApiError } from '../../lib/errors'
@@ -64,6 +65,7 @@ import { ModeSelector } from './ModeSelector'
 import { ReuseDialog } from './ReuseDialog'
 import { ShareDialog } from './ShareDialog'
 import { StudyPanel } from './StudyPanel'
+import { ThinkingSelect } from './ThinkingSelect'
 import { TraceDialog } from './TraceDialog'
 
 interface PendingStream {
@@ -169,11 +171,52 @@ export function ChatPage() {
       model.provider_id === conversation.data?.provider_id &&
       model.model_id === conversation.data?.model,
   )
+  const modelSupportsChat =
+    personalModel === undefined || personalModel.capabilities.includes('chat')
   const supportedThinking: ThinkingLevel[] =
     conversation.data?.provider_id === 'auto' || conversation.data === undefined
       ? ['standard']
       : modelReasoningLevels(personalModel ?? platformModel)
   const supportedThinkingKey = supportedThinking.join(',')
+  const isAgentConversation = conversation.data?.agent === true
+  const customAgentLocked =
+    conversation.data?.custom_agent_id !== null &&
+    conversation.data?.custom_agent_id !== undefined
+  const hasConversationPlugins = (conversation.data?.plugins ?? []).length > 0
+  const modelChoice =
+    conversation.data === undefined || conversation.data.provider_id === 'auto'
+      ? 'auto'
+      : platformModel !== undefined
+        ? `m:${conversation.data.provider_id}:${conversation.data.model}`
+        : `p:${conversation.data.provider_id}:${conversation.data.model}`
+  const modelOptions: PopoverSelectOption[] = [
+    { value: 'auto', label: t('chat.autoModelShort') },
+    ...(conversation.data !== undefined &&
+    conversation.data.provider_id !== 'auto' &&
+    platformModel === undefined &&
+    personalModel === undefined
+      ? [
+          {
+            value: modelChoice,
+            label: `${conversation.data.provider_id} · ${conversation.data.model}`,
+          },
+        ]
+      : []),
+    ...(platformModels.data ?? [])
+      .filter((model) => model.available)
+      .map((model) => ({
+        value: `m:${model.provider_id}:${model.model_id}`,
+        label: model.display_name,
+        description: model.provider_id,
+        group: t('chat.platformModels'),
+      })),
+    ...(personalModels.data ?? []).map((model) => ({
+      value: `p:${model.provider_id}:${model.model_id}`,
+      label: model.display_name,
+      description: model.provider_name,
+      group: t('chat.personalModels'),
+    })),
+  ]
 
   const runStream = useCallback(
     async (
@@ -440,6 +483,30 @@ export function ChatPage() {
       await apiRequest(`/conversations/${conversationId}`, {
         method: 'PATCH',
         body: { default_mode: next },
+      })
+      await queryClient.invalidateQueries({
+        queryKey: ['conversation', conversationId],
+      })
+      await queryClient.invalidateQueries({ queryKey: ['conversations'] })
+    } catch (caught) {
+      setModeError(t(errorTextKey(caught)))
+    }
+  }
+
+  const changeModel = async (choice: string) => {
+    if (conversation.data === undefined) return
+    let providerId = 'auto'
+    let modelId = 'auto'
+    if (choice !== 'auto') {
+      const [, provider, ...rest] = choice.split(':')
+      providerId = provider
+      modelId = rest.join(':')
+    }
+    setModeError(null)
+    try {
+      await apiRequest(`/conversations/${conversationId}`, {
+        method: 'PATCH',
+        body: { provider_id: providerId, model: modelId },
       })
       await queryClient.invalidateQueries({
         queryKey: ['conversation', conversationId],
@@ -890,6 +957,11 @@ export function ChatPage() {
               </Link>
             </p>
           )}
+          {thinkingAdjusted && (
+            <p role="status" className="mb-2 rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
+              {t('chat.thinkingAdjusted')}
+            </p>
+          )}
           {activeMode === 'study' && conversation.data !== undefined && (
             <StudyPanel
               conversationId={conversationId}
@@ -898,14 +970,16 @@ export function ChatPage() {
               onSelectSession={setStudySessionId}
             />
           )}
-          <ChatAgentTask
-            conversationId={conversationId}
-            providerId={conversation.data?.provider_id ?? 'auto'}
-            model={conversation.data?.model ?? 'auto'}
-            agentId={conversation.data?.custom_agent_id ?? null}
-            open={taskOpen}
-            onClose={() => setTaskOpen(false)}
-          />
+          {isAgentConversation && (
+            <ChatAgentTask
+              conversationId={conversationId}
+              providerId={conversation.data?.provider_id ?? 'auto'}
+              model={conversation.data?.model ?? 'auto'}
+              agentId={conversation.data?.custom_agent_id ?? null}
+              open={taskOpen}
+              onClose={() => setTaskOpen(false)}
+            />
+          )}
           <Composer
             value={input}
             onValueChange={setInput}
@@ -926,105 +1000,93 @@ export function ChatPage() {
                   hiddenModes={['web_search']}
                   variant="ghost"
                   placement="top"
-                  disabled={conversation.data?.agent === true}
-                  onChange={(next) => void changeMode(next)}
-                />
-                <button
-                  type="button"
-                  aria-pressed={activeMode === 'web_search'}
-                  disabled={conversation.data?.agent === true}
-                  title={t('chat.webSearchQuickHint')}
-                  onClick={() =>
-                    void changeMode(activeMode === 'web_search' ? 'chat' : 'web_search')
-                  }
-                  className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[11px] transition-colors ${
-                    activeMode === 'web_search'
-                      ? 'border-accent bg-accent-soft text-accent'
-                      : 'border-border text-ink-muted hover:text-ink'
-                  } disabled:cursor-not-allowed disabled:opacity-50`}
-                >
-                  <Globe2 className="h-3.5 w-3.5" />
-                  {t('chat.webSearchQuick')}
-                </button>
-                <button
-                  type="button"
                   disabled={
-                    pending?.status === 'streaming' ||
-                    input.trim() === '' ||
-                    conversation.data?.agent === true
+                    customAgentLocked || pending?.status === 'streaming'
                   }
-                  title={t('chat.deepResearchActionHint')}
-                  onClick={() => {
-                    if (input.trim() === '') return
-                    void start(input, { thinking_level: thinkingLevel }, 'deep_research')
+                  onChange={(next) => {
+                    if (hasConversationPlugins && next !== 'agent') {
+                      setModeError(t('chat.removePluginsFirst'))
+                      return
+                    }
+                    void changeMode(next)
                   }}
-                  className="inline-flex h-7 items-center gap-1 rounded-full border border-border px-2 text-[11px] text-ink-muted transition-colors hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Telescope className="h-3.5 w-3.5" />
-                  {t('chat.deepResearchAction')}
-                </button>
-                <button
-                  type="button"
-                  disabled={conversationId === ''}
-                  title={t('chat.agentTaskActionHint')}
-                  onClick={() => setTaskOpen(true)}
-                  className="inline-flex h-7 items-center gap-1 rounded-full border border-border px-2 text-[11px] text-ink-muted transition-colors hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <ListChecks className="h-3.5 w-3.5" />
-                  {t('chat.agentTaskAction')}
-                </button>
+                />
+                {modelSupportsChat &&
+                  !isAgentConversation &&
+                  (activeMode === 'chat' || activeMode === 'web_search') && (
+                  <button
+                    type="button"
+                    aria-pressed={activeMode === 'web_search'}
+                    title={t('chat.webSearchQuickHint')}
+                    onClick={() =>
+                      void changeMode(
+                        activeMode === 'web_search' ? 'chat' : 'web_search',
+                      )
+                    }
+                    className={`inline-flex h-7 items-center gap-1 whitespace-nowrap rounded-full border px-2 text-[11px] transition-colors ${
+                      activeMode === 'web_search'
+                        ? 'border-accent bg-accent-soft text-accent'
+                        : 'border-border text-ink-muted hover:text-ink'
+                    }`}
+                  >
+                    <Globe2 className="h-3.5 w-3.5" />
+                    {t('chat.webSearchQuick')}
+                  </button>
+                )}
+                                {isAgentConversation && (
+                  <button
+                    type="button"
+                    disabled={
+                      conversationId === '' || pending?.status === 'streaming'
+                    }
+                    title={t('chat.agentTaskActionHint')}
+                    onClick={() => setTaskOpen(true)}
+                    className="inline-flex h-7 items-center gap-1 whitespace-nowrap rounded-full border border-border px-2 text-[11px] text-ink-muted transition-colors hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <ListChecks className="h-3.5 w-3.5" />
+                    {t('chat.agentTaskAction')}
+                  </button>
+                )}
                 {activeMode === 'web_search' && enabledSearchProviders.length > 0 && (
-                  <label className="inline-flex items-center gap-1 text-[11px] text-ink-muted">
-                    <span>{t('chat.searchProvider')}</span>
-                    <select
-                      aria-label={t('chat.searchProvider')}
-                      className="h-6 max-w-40 rounded-md border border-border bg-surface px-1 text-[11px] text-ink"
-                      value={searchProviderId}
-                      onChange={(event) => setSearchProviderId(event.target.value)}
-                    >
-                      {enabledSearchProviders.map((provider) => (
-                        <option key={provider.id} value={provider.id}>
-                          {provider.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  <PopoverSelect
+                    label={t('chat.searchProvider')}
+                    value={searchProviderId}
+                    options={enabledSearchProviders.map((provider) => ({
+                      value: provider.id,
+                      label: provider.name,
+                    }))}
+                    onChange={setSearchProviderId}
+                    variant="ghost"
+                    placement="top"
+                    triggerClassName="max-w-40"
+                  />
                 )}
               </>
             }
             footerEnd={
               <>
-                {thinkingAdjusted && (
-                  <span className="hidden max-w-28 text-[10px] text-warning sm:inline">
-                    {t('chat.thinkingAdjusted')}
-                  </span>
-                )}
-                <label className="inline-flex items-center gap-1 text-[11px] text-ink-muted">
-                  <span>{t('chat.thinkingLevel')}</span>
-                  <select
-                    aria-label={t('chat.thinkingLevel')}
-                    className="h-7 rounded-md border border-border bg-surface px-1 text-[11px] text-ink"
-                    value={thinkingLevel}
-                    disabled={!modeImplemented}
-                    onChange={(event) => {
-                      setThinkingLevel(event.target.value as ThinkingLevel)
-                      setThinkingAdjusted(false)
-                    }}
-                  >
-                    {THINKING_LEVELS.map((level) => (
-                      <option
-                        key={level}
-                        value={level}
-                        disabled={!supportedThinking.includes(level)}
-                      >
-                        {t(thinkingLabelKey(level))}
-                        {supportedThinking.includes(level)
-                          ? ''
-                          : ` · ${t('chat.thinkingUnsupported')}`}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <PopoverSelect
+                  label={t('chat.model')}
+                  value={modelChoice}
+                  options={modelOptions}
+                  onChange={(next) => void changeModel(next)}
+                  disabled={
+                    conversation.data === undefined ||
+                    pending?.status === 'streaming'
+                  }
+                  variant="ghost"
+                  placement="top"
+                  triggerClassName="max-w-40"
+                />
+                <ThinkingSelect
+                  value={thinkingLevel}
+                  supported={supportedThinking}
+                  disabled={!modeImplemented}
+                  onChange={(next) => {
+                    setThinkingLevel(next)
+                    setThinkingAdjusted(false)
+                  }}
+                />
               </>
             }
             attachments={attachments}

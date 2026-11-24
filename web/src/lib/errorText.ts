@@ -27,6 +27,11 @@ export function errorTextKey(error: unknown): string {
   if (error.code === 'agent_attachments_disabled') {
     return 'errors.agentAttachmentsDisabled'
   }
+  if (error.code === 'mode_conflict') return 'errors.modeConflict'
+  if (error.code === 'capability_unsupported') {
+    return 'errors.capabilityUnsupported'
+  }
+  if (error.code === 'mode_requires_tools') return 'errors.modeRequiresTools'
   switch (error.status) {
     case 401:
       return 'errors.unauthorized'

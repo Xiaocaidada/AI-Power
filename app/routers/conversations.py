@@ -1658,6 +1658,7 @@ async def update_conversation(
         conversation.title = data.pop("title") or ""
     if "pinned" in data:
         conversation.pinned = bool(data.pop("pinned"))
+    mode_switched_to_agent = False
     if "default_mode" in data:
         try:
             next_mode = normalize_mode(data.pop("default_mode"))
@@ -1665,6 +1666,7 @@ async def update_conversation(
             _raise_chat_mode_error(exc)
         if next_mode == CHAT_MODE_AGENT:
             conversation.agent = True
+            mode_switched_to_agent = True
         elif conversation.custom_agent_id is not None:
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -1716,6 +1718,16 @@ async def update_conversation(
         )
         conversation.provider_id = provider_id
         conversation.model = model
+
+    if mode_switched_to_agent:
+        await _validate_model_choice(
+            session,
+            registry,
+            context,
+            provider_id=conversation.provider_id,
+            model=conversation.model,
+            agent=True,
+        )
 
     await session.commit()
     await session.refresh(conversation)

@@ -361,10 +361,7 @@ export function MessageItem({
               <span>{t(modeLabelKey(message.mode))}</span>
             )}
             {message.mode_meta?.thinking_level !== undefined && (
-              <span>
-                {t('chat.thinkingLevel')}:{' '}
-                {t(thinkingLabelKey(message.mode_meta.thinking_level))}
-              </span>
+              <span>{t(thinkingLabelKey(message.mode_meta.thinking_level))}</span>
             )}
             {message.mode_meta?.research_task_id !== undefined && (
               <Link

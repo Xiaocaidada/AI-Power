@@ -465,17 +465,27 @@ export function ChatSidebar({ open, onClose }: ChatSidebarProps) {
             <p className="text-[10px] font-medium uppercase tracking-wider text-ink-muted/70">
               {t('projects.title')}
             </p>
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 text-[10px] text-ink-muted hover:text-ink"
-              onClick={() => {
-                if (selectMode) clearSelection()
-                else setSelectMode(true)
-              }}
-            >
-              <ListChecks className="h-3 w-3" />
-              {selectMode ? t('chat.cancelSelection') : t('chat.batchSelect')}
-            </button>
+            <div className="flex items-center gap-2">
+              <Link
+                to="/archive"
+                title={t('chat.archived')}
+                aria-label={t('chat.archived')}
+                className="inline-flex items-center text-[10px] text-ink-muted hover:text-ink"
+              >
+                <Archive className="h-3 w-3" />
+              </Link>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 text-[10px] text-ink-muted hover:text-ink"
+                onClick={() => {
+                  if (selectMode) clearSelection()
+                  else setSelectMode(true)
+                }}
+              >
+                <ListChecks className="h-3 w-3" />
+                {selectMode ? t('chat.cancelSelection') : t('chat.batchSelect')}
+              </button>
+            </div>
           </div>
           <div className="mt-1 space-y-0.5">
             <button
@@ -602,15 +612,6 @@ export function ChatSidebar({ open, onClose }: ChatSidebarProps) {
       </div>
 
       <div className="space-y-2 border-t border-border p-3">
-        <div className="flex items-center text-xs">
-          <Link
-            to="/archive"
-            className="inline-flex items-center gap-1.5 text-ink-muted hover:text-ink"
-          >
-            <Archive className="h-3.5 w-3.5" />
-            {t('chat.archived')}
-          </Link>
-        </div>
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1.5">
             <button

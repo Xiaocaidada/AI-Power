@@ -112,6 +112,7 @@ export function Composer({
         maxLength={MAX_MESSAGE_CHARS}
         autoFocus={autoFocus}
         placeholder={placeholder ?? t('chat.inputPlaceholder')}
+        title={t('chat.inputShortcut')}
         className={cn(
           'resize-none border-0 bg-transparent px-2 py-2 focus:border-0',
           hero ? 'max-h-44 min-h-12 text-[15px]' : 'max-h-36 min-h-10 text-sm',
@@ -129,8 +130,8 @@ export function Composer({
           }
         }}
       />
-      <div className="flex items-center justify-between gap-2 px-1 pt-1">
-        <div className="flex min-w-0 items-center gap-1.5">
+      <div className="flex flex-wrap items-end justify-between gap-2 px-1 pt-1">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
           {showAttach && (
             <>
               <input

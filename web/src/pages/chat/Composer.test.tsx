@@ -12,7 +12,7 @@ describe('Composer', () => {
         <Composer value="你好" onValueChange={vi.fn()} onSend={onSend} />
       </I18nProvider>,
     )
-    const textarea = screen.getByPlaceholderText('输入问题，Enter 发送，Shift+Enter 换行')
+    const textarea = screen.getByRole('textbox')
 
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: true })
     expect(onSend).not.toHaveBeenCalled()
@@ -31,7 +31,7 @@ describe('Composer', () => {
       </I18nProvider>,
     )
 
-    fireEvent.keyDown(screen.getByPlaceholderText('输入问题，Enter 发送，Shift+Enter 换行'), {
+    fireEvent.keyDown(screen.getByRole('textbox'), {
       key: 'Enter',
     })
 

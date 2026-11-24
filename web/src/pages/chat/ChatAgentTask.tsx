@@ -1,5 +1,12 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ListChecks, Pause, Play, Square } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronUp,
+  ListChecks,
+  Pause,
+  Play,
+  Square,
+} from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -47,6 +54,7 @@ export function ChatAgentTask({
   const [goal, setGoal] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [expanded, setExpanded] = useState(false)
   const tasks = useQuery({
     queryKey: ['conversation-agent-tasks', conversationId],
     queryFn: () =>
@@ -162,16 +170,83 @@ export function ChatAgentTask({
             </span>
           </div>
           <div className="mt-2 flex flex-wrap gap-1.5">
-            {(task.plan.steps ?? []).slice(0, 5).map((step) => (
+            {(task.plan.steps ?? []).map((step) => (
               <span
                 key={step.index}
                 className="rounded-full bg-surface-muted px-2 py-0.5 text-[11px] text-ink-muted"
               >
-                {step.status === 'done' ? '✓ ' : ''}
+                {step.status === 'done' ? '✓ ' : step.status === 'failed' ? '✗ ' : ''}
                 {step.title}
               </span>
             ))}
           </div>
+          <button
+            type="button"
+            className="mt-2 inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
+            onClick={() => setExpanded((current) => !current)}
+          >
+            {expanded ? (
+              <ChevronUp className="h-3 w-3" />
+            ) : (
+              <ChevronDown className="h-3 w-3" />
+            )}
+            {expanded ? t('chat.agentTaskCollapse') : t('chat.agentTaskExpand')}
+          </button>
+          {expanded && (
+            <div className="mt-2 space-y-2 rounded-xl bg-surface-muted/50 p-2">
+              {(task.plan.steps ?? []).map((step) => (
+                <div key={step.index} className="text-xs">
+                  <p className="text-ink">
+                    {step.index + 1}. {step.title}
+                    <span className="ml-1 text-[10px] text-ink-muted">
+                      {t(`tasks.status.${step.status}` as never)}
+                    </span>
+                  </p>
+                  {step.summary !== undefined && step.summary !== '' && (
+                    <p className="mt-0.5 leading-5 text-ink-muted">{step.summary}</p>
+                  )}
+                  {step.error_code !== undefined && (
+                    <p className="text-danger">{step.error_code}</p>
+                  )}
+                </div>
+              ))}
+              {(task.result.text ?? task.result.report) !== undefined &&
+                (task.result.text ?? task.result.report) !== '' && (
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-ink-muted">
+                      {t('chat.agentTaskResult')}
+                    </p>
+                    <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap rounded bg-surface p-1.5 text-[10px] text-ink-muted">
+                      {(task.result.text ?? task.result.report ?? '').slice(0, 400)}
+                    </pre>
+                  </div>
+                )}
+              {(task.result.artifacts ?? []).length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-[10px] uppercase tracking-wide text-ink-muted">
+                    {t('chat.agentTaskArtifacts')}
+                  </p>
+                  {(task.result.artifacts ?? []).map((artifact, index) => (
+                    <div key={`${artifact.title}-${index}`}>
+                      <p className="text-xs text-ink">
+                        {artifact.title} · {artifact.type}
+                      </p>
+                      <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap rounded bg-surface p-1.5 text-[10px] text-ink-muted">
+                        {artifact.content.slice(0, 400)}
+                      </pre>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {(task.result.tool_records ?? []).length > 0 && (
+                <p className="text-[11px] text-ink-muted">
+                  {t('chat.agentTaskTools', {
+                    count: (task.result.tool_records ?? []).length,
+                  })}
+                </p>
+              )}
+            </div>
+          )}
           {(task.plan.approvals ?? []).some((approval) => approval.status === 'pending') && (
             <p className="mt-2 text-xs text-warning">{t('chat.agentTaskApproval')}</p>
           )}

@@ -48,4 +48,21 @@ describe('MultiPopoverSelect', () => {
     )
     expect(screen.getByRole('button', { name: '知识库: 产品资料库 +1' })).toBeTruthy()
   })
+
+  it('shows an empty state when no options exist', () => {
+    render(
+      <MultiPopoverSelect
+        label="知识库"
+        values={[]}
+        options={[]}
+        onChange={vi.fn()}
+        emptyLabel="还没有知识库"
+        emptyAction={<span>新建知识库</span>}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '知识库: 知识库' }))
+    expect(screen.getByText('还没有知识库')).toBeTruthy()
+    expect(screen.getByText('新建知识库')).toBeTruthy()
+  })
 })

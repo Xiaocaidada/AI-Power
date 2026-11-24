@@ -1,20 +1,12 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import {
-  BookOpen,
-  Bot,
-  FolderOpen,
-  Globe2,
-  SlidersHorizontal,
-} from 'lucide-react'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { BookOpen, Bot, FolderOpen, Globe2, Plug } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
 import {
-  THINKING_LEVELS,
   modelReasoningLevels,
   modeLabelKey,
   normalizeThinkingLevel,
-  thinkingLabelKey,
 } from '../../lib/chatModes'
 import { useChatModes, isModeImplemented } from '../../lib/useChatModes'
 import { Badge } from '../../components/ui/badge'
@@ -52,18 +44,7 @@ import type {
 } from '../../lib/types'
 import { Composer } from './Composer'
 import { ModeSelector } from './ModeSelector'
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="text-xs text-ink-muted">
-      <p className="mb-1.5">{label}</p>
-      {children}
-    </div>
-  )
-}
-
-const selectClass =
-  'h-10 w-full rounded-lg border border-border bg-surface px-2 text-sm text-ink focus:border-accent focus:outline-none'
+import { ThinkingSelect } from './ThinkingSelect'
 
 export function NewChatPage() {
   const { t } = useI18n()
@@ -84,15 +65,15 @@ export function NewChatPage() {
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [attaching, setAttaching] = useState(false)
   const [attachError, setAttachError] = useState<string | null>(null)
-  const [agent, setAgent] = useState(
-    () =>
-      searchParams.get('agent') !== null || searchParams.get('agentMode') !== null,
-  )
   const [customAgentId, setCustomAgentId] = useState(
     () => searchParams.get('agent') ?? '',
   )
   const [pluginIds, setPluginIds] = useState<string[]>([])
-  const [mode, setMode] = useState<ChatMode>('chat')
+  const [mode, setMode] = useState<ChatMode>(() =>
+    searchParams.get('agent') !== null || searchParams.get('agentMode') !== null
+      ? 'agent'
+      : 'chat',
+  )
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('standard')
   const [thinkingAdjusted, setThinkingAdjusted] = useState(false)
   const [searchProviderId, setSearchProviderId] = useState('')
@@ -103,7 +84,7 @@ export function NewChatPage() {
   const [templateId, setTemplateId] = useState('')
   const [variables, setVariables] = useState<Record<string, string>>({})
   const [value, setValue] = useState(() => searchParams.get('prompt') ?? '')
-  const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [pluginOpen, setPluginOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const chatModesQuery = useChatModes()
@@ -199,8 +180,8 @@ export function NewChatPage() {
     isAuto ||
     selected !== undefined ||
     (personalSelected !== undefined && personalSupportsChat)
-  const modeLockedByAgent = customAgentId !== '' || pluginIds.length > 0
-  const effectiveMode: ChatMode = modeLockedByAgent ? 'agent' : mode
+  const pluginLockedByAgent = customAgentId !== '' || pluginIds.length > 0
+  const effectiveMode: ChatMode = pluginLockedByAgent ? 'agent' : mode
   const modeImplemented = isModeImplemented(effectiveMode, chatModesQuery.data)
   const enabledSearchProviders = (searchProvidersQuery.data ?? []).filter(
     (item) => item.enabled,
@@ -248,10 +229,11 @@ export function NewChatPage() {
   }, [availableModels, initialModel, initialProvider, personalModels])
 
   useEffect(() => {
-    if (!supportsTools) {
-      setAgent(false)
-      setMode('chat')
-    }
+    if (supportsTools) return
+    setCustomAgentId('')
+    setPluginIds([])
+    setMode((current) => (current === 'agent' ? 'chat' : current))
+    setModelId((current) => (current === 'agent' ? 'auto' : current))
   }, [supportsTools])
 
   useEffect(() => {
@@ -300,7 +282,7 @@ export function NewChatPage() {
       prompt_variables: selectedVersion !== undefined ? variables : {},
       mode: effectiveMode,
     }
-    if (effectiveMode !== 'agent') body.agent = false
+    body.agent = effectiveMode === 'agent'
     if (attachments.length > 0) {
       body.attachment_ids = attachments.map((attachment) => attachment.id)
     }
@@ -328,7 +310,7 @@ export function NewChatPage() {
       body.model = modelName
       body.kb_ids = kbIds
       body.kb_id = kbIds[0] ?? null
-      body.agent = agent
+      body.agent = effectiveMode === 'agent'
     }
     try {
       const conversation = await apiRequest<Conversation>('/conversations', {
@@ -361,12 +343,14 @@ export function NewChatPage() {
     }
   }
 
-  const agentModeChecked =
-    customAgentId !== '' || pluginIds.length > 0
-      ? true
-      : modelId === 'project'
-        ? (selectedProject?.default_agent ?? false)
-        : agent
+  const changeMode = (next: ChatMode) => {
+    if (next === 'agent' && !supportsTools) {
+      setError(t('chat.agentUnsupported'))
+      return
+    }
+    setError(null)
+    setMode(next)
+  }
 
   const projectKbName = kbsQuery.data?.find(
     (kb) => kb.id === selectedProject?.default_kb_id,
@@ -389,12 +373,35 @@ export function NewChatPage() {
   ]
 
   const agentOptions: PopoverSelectOption[] = [
-    { value: '', label: t('chat.noAgent') },
+    { value: '', label: t('chat.autoAgent') },
     ...customAgents.map((item) => ({
       value: item.id,
       label: item.name,
       description: item.description || item.instructions.slice(0, 60),
     })),
+  ]
+
+  const templateOptions: PopoverSelectOption[] = [
+    { value: '', label: t('prompts.none') },
+    ...(templatesQuery.data ?? []).map((template) => ({
+      value: template.id,
+      label: template.name,
+      trailing: `v${template.versions[0]?.version ?? 1}`,
+    })),
+  ]
+
+  const studyLevelOptions: PopoverSelectOption[] = [
+    { value: 'beginner', label: t('study.levelBeginner') },
+    { value: 'intermediate', label: t('study.levelIntermediate') },
+    { value: 'advanced', label: t('study.levelAdvanced') },
+  ]
+
+  const studyModeOptions: PopoverSelectOption[] = [
+    { value: 'explain', label: t('study.modeExplain') },
+    { value: 'guided', label: t('study.modeGuided') },
+    { value: 'practice', label: t('study.modePractice') },
+    { value: 'quiz', label: t('study.modeQuiz') },
+    { value: 'review', label: t('study.modeReview') },
   ]
 
   const kbOptions = (kbsQuery.data ?? []).map((kb) => ({
@@ -422,7 +429,7 @@ export function NewChatPage() {
           },
         ]
       : []),
-    { value: 'auto', label: t('models.auto'), description: t('models.autoHint') },
+    { value: 'auto', label: t('chat.autoModelShort'), description: t('models.autoHint') },
     ...availableModels.map((model) => ({
       value: model.id,
       label: model.display_name,
@@ -443,7 +450,7 @@ export function NewChatPage() {
     <PopoverSelect
       label={t('chat.model')}
       variant="ghost"
-      placement="top"
+      placement="bottom"
       value={modelId}
       options={modelOptions}
       onChange={setModelId}
@@ -480,7 +487,30 @@ export function NewChatPage() {
           <p className="mt-3 text-sm text-ink-muted">{t('chat.newLead')}</p>
         </div>
 
-        <div className="mt-8">
+        {effectiveMode === 'study' && (
+          <div className="mt-6 flex flex-wrap items-center justify-start gap-2">
+            <PopoverSelect
+              label={t('study.level')}
+              value={studyLevel}
+              options={studyLevelOptions}
+              onChange={(next) => setStudyLevel(next as StudyLevel)}
+            />
+            <PopoverSelect
+              label={t('study.mode')}
+              value={studyMode}
+              options={studyModeOptions}
+              onChange={(next) => setStudyMode(next as StudyMode)}
+            />
+            <Input
+              className="h-8 max-w-64"
+              value={studyGoals}
+              onChange={(event) => setStudyGoals(event.target.value)}
+              placeholder={t('study.goalsPlaceholder')}
+            />
+          </div>
+        )}
+
+        <div className={effectiveMode === 'study' ? 'mt-4' : 'mt-8'}>
           <Composer
             value={value}
             onValueChange={setValue}
@@ -490,27 +520,65 @@ export function NewChatPage() {
             autoFocus
             footerStart={
               <>
+                <ModeSelector
+                  value={effectiveMode === 'web_search' ? 'chat' : effectiveMode}
+                  catalog={chatModesQuery.data}
+                  hiddenModes={['web_search']}
+                  disabled={pluginLockedByAgent}
+                  onChange={changeMode}
+                />
+                {effectiveMode === 'agent' && (
+                  <PopoverSelect
+                    icon={<Bot className="h-3.5 w-3.5" />}
+                    label={t('chat.agent')}
+                    value={customAgentId}
+                    options={agentOptions}
+                    triggerClassName="max-w-40"
+                    onChange={(next) => {
+                      setCustomAgentId(next)
+                      if (next !== '') {
+                        setModelId('agent')
+                      } else if (modelId === 'agent') {
+                        setModelId('auto')
+                      }
+                    }}
+                  />
+                )}
+                {canChat &&
+                  (effectiveMode === 'chat' || effectiveMode === 'web_search') && (
+                    <button
+                      type="button"
+                      aria-pressed={effectiveMode === 'web_search'}
+                      title={t('chat.webSearchQuickHint')}
+                      onClick={() =>
+                        changeMode(
+                          effectiveMode === 'web_search' ? 'chat' : 'web_search',
+                        )
+                      }
+                      className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[11px] transition-colors ${
+                        effectiveMode === 'web_search'
+                          ? 'border-accent bg-accent-soft text-accent'
+                          : 'border-border text-ink-muted hover:text-ink'
+                      }`}
+                    >
+                      <Globe2 className="h-3.5 w-3.5" />
+                      {t('chat.webSearchQuick')}
+                    </button>
+                  )}
+              </>
+            }
+            footerEnd={
+              <>
                 {modelSelect}
-                <button
-                  type="button"
-                  aria-pressed={effectiveMode === 'web_search'}
-                  disabled={modeLockedByAgent}
-                  title={t('chat.webSearchQuickHint')}
-                  onClick={() => {
-                    const next =
-                      effectiveMode === 'web_search' ? 'chat' : 'web_search'
-                    setMode(next)
-                    if (next === 'web_search') setAgent(false)
+                <ThinkingSelect
+                  value={thinkingLevel}
+                  supported={supportedThinking}
+                  disabled={!modeImplemented}
+                  onChange={(next) => {
+                    setThinkingLevel(next)
+                    setThinkingAdjusted(false)
                   }}
-                  className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[11px] transition-colors ${
-                    effectiveMode === 'web_search'
-                      ? 'border-accent bg-accent-soft text-accent'
-                      : 'border-border text-ink-muted hover:text-ink'
-                  } disabled:cursor-not-allowed disabled:opacity-50`}
-                >
-                  <Globe2 className="h-3.5 w-3.5" />
-                  {t('chat.webSearchQuick')}
-                </button>
+                />
               </>
             }
             placeholder={t('chat.inputPlaceholder')}
@@ -536,41 +604,6 @@ export function NewChatPage() {
               else if (modelId === 'project') setModelId('auto')
             }}
           />
-
-          <ModeSelector
-            value={effectiveMode === 'web_search' ? 'chat' : effectiveMode}
-            catalog={chatModesQuery.data}
-            hiddenModes={['web_search']}
-            disabled={modeLockedByAgent}
-            onChange={(next) => {
-              setMode(next)
-              if (next === 'agent') {
-                setAgent(true)
-              } else if (!modeLockedByAgent) {
-                setAgent(false)
-              }
-            }}
-          />
-
-          <PopoverSelect
-            icon={<Bot className="h-3.5 w-3.5" />}
-            label={t('chat.agent')}
-            value={customAgentId}
-            options={agentOptions}
-            onChange={(next) => {
-              setCustomAgentId(next)
-              if (next !== '') {
-                setModelId('agent')
-                setAgent(true)
-                setMode('agent')
-              } else if (modelId === 'agent') {
-                setModelId('auto')
-                setAgent(pluginIds.length > 0)
-                setMode(pluginIds.length > 0 ? 'agent' : 'chat')
-              }
-            }}
-          />
-
           <MultiPopoverSelect
             icon={<BookOpen className="h-3.5 w-3.5" />}
             label={t('chat.knowledgeBase')}
@@ -583,24 +616,73 @@ export function NewChatPage() {
             }
             disabled={modelId === 'project'}
             onChange={setKbIds}
+            emptyLabel={t('knowledge.empty')}
+            emptyAction={
+              <Link to="/knowledge" className="text-accent hover:underline">
+                {t('knowledge.new')}
+              </Link>
+            }
           />
-
-          <Button
-            variant="secondary"
-            size="sm"
-            className="rounded-full font-normal"
-            onClick={() => setAdvancedOpen(true)}
-          >
-            <SlidersHorizontal className="h-3.5 w-3.5" />
-            {t('chat.advanced')}
-          </Button>
+          <PopoverSelect
+            icon={<BookOpen className="h-3.5 w-3.5" />}
+            label={t('prompts.select')}
+            value={templateId}
+            options={templateOptions}
+            onChange={selectTemplate}
+          />
+          {effectiveMode === 'agent' && configuredPlugins.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setPluginOpen(true)}
+              className="inline-flex h-7 items-center gap-1 rounded-full border border-border px-2 text-[11px] text-ink-muted transition-colors hover:text-ink"
+            >
+              <Plug className="h-3.5 w-3.5" />
+              {t('chat.plugins')}
+              {pluginIds.length > 0 ? ` · ${pluginIds.length}` : ''}
+            </button>
+          )}
         </div>
+
+        {effectiveMode === 'web_search' && enabledSearchProviders.length > 0 && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <PopoverSelect
+              label={t('chat.searchProvider')}
+              value={searchProviderId}
+              options={enabledSearchProviders.map((provider) => ({
+                value: provider.id,
+                label: provider.name,
+              }))}
+              onChange={setSearchProviderId}
+            />
+          </div>
+        )}
+
+        {(selectedVersion?.variables ?? []).length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {selectedVersion?.variables.map((variable) => (
+              <Input
+                key={variable}
+                className="h-8 max-w-56"
+                value={variables[variable] ?? ''}
+                onChange={(event) =>
+                  setVariables((prev) => ({ ...prev, [variable]: event.target.value }))
+                }
+                placeholder={`{{${variable}}}`}
+              />
+            ))}
+          </div>
+        )}
 
         {!modeImplemented && (
           <p className="mt-3 rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
             {t('chat.modePlannedNotice', {
               mode: t(modeLabelKey(effectiveMode)),
             })}
+          </p>
+        )}
+        {thinkingAdjusted && (
+          <p className="mt-3 rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
+            {t('chat.thinkingAdjusted')}
           </p>
         )}
         {searchProviderMissing && (
@@ -673,199 +755,49 @@ export function NewChatPage() {
       </div>
 
       <Dialog
-        open={advancedOpen}
-        onClose={() => setAdvancedOpen(false)}
-        title={t('chat.advanced')}
+        open={pluginOpen}
+        onClose={() => setPluginOpen(false)}
+        title={t('chat.plugins')}
         footer={
-          <Button size="sm" onClick={() => setAdvancedOpen(false)}>
+          <Button size="sm" onClick={() => setPluginOpen(false)}>
             {t('common.close')}
           </Button>
         }
       >
-        <div className="space-y-4">
-          <Field label={t('prompts.select')}>
-            <select
-              className={selectClass}
-              value={templateId}
-              onChange={(event) => selectTemplate(event.target.value)}
-            >
-              <option value="">{t('prompts.none')}</option>
-              {(templatesQuery.data ?? []).map((template) => (
-                <option key={template.id} value={template.id}>
-                  {template.name} · v{template.versions[0]?.version ?? 1}
-                </option>
-              ))}
-            </select>
-          </Field>
-          {(selectedVersion?.variables ?? []).length > 0 && (
-            <div className="space-y-2">
-              {selectedVersion?.variables.map((variable) => (
-                <Input
-                  key={variable}
-                  value={variables[variable] ?? ''}
-                  onChange={(event) =>
-                    setVariables((prev) => ({ ...prev, [variable]: event.target.value }))
-                  }
-                  placeholder={`{{${variable}}}`}
-                />
-              ))}
-            </div>
-          )}
-
-          {effectiveMode === 'study' && (
-            <>
-              <Field label={t('study.level')}>
-                <select
-                  className={selectClass}
-                  value={studyLevel}
-                  onChange={(event) =>
-                    setStudyLevel(event.target.value as StudyLevel)
-                  }
-                >
-                  <option value="beginner">{t('study.levelBeginner')}</option>
-                  <option value="intermediate">
-                    {t('study.levelIntermediate')}
-                  </option>
-                  <option value="advanced">{t('study.levelAdvanced')}</option>
-                </select>
-              </Field>
-              <Field label={t('study.mode')}>
-                <select
-                  className={selectClass}
-                  value={studyMode}
-                  onChange={(event) =>
-                    setStudyMode(event.target.value as StudyMode)
-                  }
-                >
-                  <option value="explain">{t('study.modeExplain')}</option>
-                  <option value="guided">{t('study.modeGuided')}</option>
-                  <option value="practice">{t('study.modePractice')}</option>
-                  <option value="quiz">{t('study.modeQuiz')}</option>
-                  <option value="review">{t('study.modeReview')}</option>
-                </select>
-              </Field>
-              <Field label={t('study.goals')}>
-                <Input
-                  value={studyGoals}
-                  onChange={(event) => setStudyGoals(event.target.value)}
-                  placeholder={t('study.goalsPlaceholder')}
-                />
-              </Field>
-            </>
-          )}
-          {effectiveMode === 'web_search' && (
-            <Field label={t('chat.searchProvider')}>
-              {enabledSearchProviders.length === 0 ? (
-                <p className="text-xs text-warning">
-                  {t('chat.searchProviderMissing')}{' '}
-                  <Link to="/settings/search" className="underline">
-                    {t('chat.searchProviderSettings')}
-                  </Link>
-                </p>
-              ) : (
-                <select
-                  className={selectClass}
-                  value={searchProviderId}
-                  onChange={(event) => setSearchProviderId(event.target.value)}
-                >
-                  {enabledSearchProviders.map((provider) => (
-                    <option key={provider.id} value={provider.id}>
-                      {provider.name}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </Field>
-          )}
-          <Field label={t('chat.thinkingLevel')}>
-            <select
-              className={selectClass}
-              value={thinkingLevel}
-              onChange={(event) => {
-                setThinkingLevel(event.target.value as ThinkingLevel)
-                setThinkingAdjusted(false)
-              }}
-            >
-              {THINKING_LEVELS.map((level) => (
-                <option
-                  key={level}
-                  value={level}
-                  disabled={!supportedThinking.includes(level)}
-                >
-                  {t(thinkingLabelKey(level))}
-                  {supportedThinking.includes(level)
-                    ? ''
-                    : ` · ${t('chat.thinkingUnsupported')}`}
-                </option>
-              ))}
-            </select>
-            <p className="mt-1 text-[11px] text-ink-muted">
-              {thinkingAdjusted ? t('chat.thinkingAdjusted') : t('chat.thinkingHint')}
-            </p>
-          </Field>
-
-          <label className="flex items-start gap-2 rounded-lg border border-border bg-surface px-3 py-2.5 text-sm">
-            <input
-              type="checkbox"
-              className="mt-0.5 h-4 w-4 accent-accent"
-              checked={agentModeChecked}
-              disabled={
-                !supportsTools ||
-                modelId === 'project' ||
-                customAgentId !== '' ||
-                pluginIds.length > 0
-              }
-              onChange={(event) => {
-                setAgent(event.target.checked)
-                setMode(event.target.checked ? 'agent' : 'chat')
-              }}
-            />
-            <span>
-              <span className="block text-ink">{t('chat.agentMode')}</span>
-              <span className="mt-0.5 block text-xs text-ink-muted">
-                {supportsTools ? t('chat.agentModeHint') : t('chat.agentUnsupported')}
-              </span>
-            </span>
-          </label>
-
-          {configuredPlugins.length > 0 && (
-            <div className="rounded-lg border border-border bg-surface px-3 py-2.5">
-              <p className="text-sm text-ink">{t('chat.plugins')}</p>
-              <p className="mt-0.5 text-xs text-ink-muted">{t('chat.pluginsHint')}</p>
-              <div className="mt-2 flex flex-wrap gap-3">
-                {configuredPlugins.map((plugin) => (
-                  <label key={plugin.id} className="flex items-center gap-1.5 text-xs text-ink">
-                    <input
-                      type="checkbox"
-                      checked={pluginIds.includes(plugin.id)}
-                      onChange={() => {
-                        const next = pluginIds.includes(plugin.id)
-                          ? pluginIds.filter((item) => item !== plugin.id)
-                          : [...pluginIds, plugin.id]
-                        setPluginIds(next)
-                        if (next.length > 0) {
-                          setAgent(true)
-                          setMode('agent')
-                        }
-                      }}
-                    />
-                    {plugin.name}
-                    {plugin.sensitive && <Badge tone="warning">{t('plugins.sensitive')}</Badge>}
-                  </label>
-                ))}
-              </div>
-              {selectedSensitive.length > 0 && (
-                <label className="mt-2 flex items-start gap-2 text-xs text-warning">
+        <div className="rounded-lg border border-border bg-surface px-3 py-2.5">
+          <p className="text-xs text-ink-muted">{t('chat.pluginsHint')}</p>
+          {configuredPlugins.length === 0 ? (
+            <p className="mt-2 text-xs text-ink-muted">{t('chat.noPlugins')}</p>
+          ) : (
+            <div className="mt-2 flex flex-wrap gap-3">
+              {configuredPlugins.map((plugin) => (
+                <label key={plugin.id} className="flex items-center gap-1.5 text-xs text-ink">
                   <input
                     type="checkbox"
-                    className="mt-0.5"
-                    checked={confirmSensitive}
-                    onChange={(event) => setConfirmSensitive(event.target.checked)}
+                    checked={pluginIds.includes(plugin.id)}
+                    onChange={() => {
+                      const next = pluginIds.includes(plugin.id)
+                        ? pluginIds.filter((item) => item !== plugin.id)
+                        : [...pluginIds, plugin.id]
+                      setPluginIds(next)
+                    }}
                   />
-                  {t('chat.confirmSensitive')}
+                  {plugin.name}
+                  {plugin.sensitive && <Badge tone="warning">{t('plugins.sensitive')}</Badge>}
                 </label>
-              )}
+              ))}
             </div>
+          )}
+          {selectedSensitive.length > 0 && (
+            <label className="mt-2 flex items-start gap-2 text-xs text-warning">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={confirmSensitive}
+                onChange={(event) => setConfirmSensitive(event.target.checked)}
+              />
+              {t('chat.confirmSensitive')}
+            </label>
           )}
         </div>
       </Dialog>
