@@ -589,6 +589,18 @@ class WorkflowCreate(BaseModel):
     description: str = Field(default="", max_length=500)
     kind: Literal["agent", "knowledge_process", "knowledge_retrieval"] = "agent"
     definition: dict[str, object]
+    memory_extract_enabled: bool = False
+
+    @field_validator("name", "description", mode="before")
+    @classmethod
+    def strip_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class WorkflowUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+    memory_extract_enabled: bool | None = None
 
     @field_validator("name", "description", mode="before")
     @classmethod
@@ -623,6 +635,7 @@ class WorkflowOut(BaseModel):
     name: str
     description: str
     kind: str = "agent"
+    memory_extract_enabled: bool = False
     created_at: datetime
     versions: list[WorkflowVersionOut] = Field(default_factory=list)
     draft_definition: dict[str, object] | None = None
@@ -1771,6 +1784,8 @@ class MemorySettingsIn(BaseModel):
     allowed_categories: list[MemoryCategory] | None = Field(default=None, max_length=20)
     allow_project_extract: bool | None = None
     allow_agent_extract: bool | None = None
+    allow_workflow_extract: bool | None = None
+    allow_document_extract: bool | None = None
     allow_cross_model: bool | None = None
     allowed_provider_ids: list[str] | None = Field(default=None, max_length=20)
     allowed_models: list[str] | None = Field(default=None, max_length=30)
@@ -1805,6 +1820,8 @@ class MemorySettingsOut(BaseModel):
     allowed_categories: list[str]
     allow_project_extract: bool
     allow_agent_extract: bool
+    allow_workflow_extract: bool
+    allow_document_extract: bool
     allow_cross_model: bool
     allowed_provider_ids: list[str]
     allowed_models: list[str]
@@ -2644,6 +2661,7 @@ class DocumentOut(BaseModel):
     folder: str = ""
     doc_metadata: dict[str, str] = Field(default_factory=dict)
     source_url: str | None = None
+    memory_extract_enabled: bool = False
     created_at: datetime
 
 
@@ -2692,6 +2710,7 @@ class DocumentUpdate(BaseModel):
     tags: list[str] | None = Field(default=None, max_length=20)
     folder: str | None = Field(default=None, max_length=255)
     doc_metadata: dict[str, str] | None = None
+    memory_extract_enabled: bool | None = None
 
     @field_validator("tags", mode="before")
     @classmethod

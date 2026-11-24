@@ -24,7 +24,8 @@
 - 2026-11-24：P11-S5 完成，K-P0-1（自定义/父子/语义切片与元数据保留）、K-P0-2（过滤/元数据/关键词/摘要/去重节点）已落地；K-P1-1 完成文本过滤与新节点库，OCR/格式专用解析/独立索引模式仍为边界。见 [p11-s5-knowledge-nodes.md](../tdd/p11-s5-knowledge-nodes.md)。另修复知识处理/检索画布空白页（hooks 顺序）并新增回归 E2E。
 - 2026-11-24：P11-S6 完成，K-P0-3（元数据过滤、结果过滤/去重、多 KB 检索）、K-P0-4（处理运行分析）已落地；K-P1-2 完成多查询与空结果回退，意图/分类/同义词扩展仍为边界。见 [p11-s6-retrieval-analytics.md](../tdd/p11-s6-retrieval-analytics.md)。同时修复自定义检索工作流的父块展开边界。
 - 2026-11-24：P11-S7 完成，M-P0-1（完整度/使用聚合）、M-P0-2（保留策略执行/blocked topic 统一拦截）、M-P0-3（版本 diff/风险提示）已落地。见 [p11-s7-memory-lifecycle.md](../tdd/p11-s7-memory-lifecycle.md)。
-- 2026-11-24：P11-S8 完成，M-P0-4（孤儿/关系异常/项目缺口/规则提示）、M-P1-1（模型/Agent 读取白名单）、M-P1-3（最近变化分析）已落地；M-P0-5 完成项目活动来源，工作流/文档自动提取仍为边界。见 [p11-s8-memory-sources-quality.md](../tdd/p11-s8-memory-sources-quality.md)。
+- 2026-11-24：P11-S8 完成，M-P0-4（孤儿/关系异常/项目缺口/规则提示）、M-P1-1（模型/Agent 读取白名单）、M-P1-3（最近变化分析）已落地；M-P0-5 完成项目活动来源。见 [p11-s8-memory-sources-quality.md](../tdd/p11-s8-memory-sources-quality.md)。
+- 2026-11-24：P11-S8b 完成，M-P0-5 补齐工作流运行与上传者授权文档来源，默认双重关闭并保持幂等。见 [p11-s8b-memory-sources.md](../tdd/p11-s8b-memory-sources.md)。
 
 ## 2. P0：下一阶段必须补齐
 
@@ -64,7 +65,7 @@
 | M-P0-2 ✅ | 生命周期策略执行 | P11-S7 已新增单条保留覆盖、每日过期任务与 blocked topic 统一拦截 | `app/services/memories.py`、`memory_extraction.py`、`app/worker.py` | 创建/更新统一拦截、过期清理任务、策略字段 | 无 | M |
 | M-P0-3 ✅ | 记忆版本 diff/变化分析 | P11-S7 已新增字段/内容 diff 与风险标记 | `app/services/memories.py`、`app/routers/memories.py`、`MemoryDetailDialog.tsx` | 快照 diff、变化摘要、风险提示 | 无 | S |
 | M-P0-4 ✅ | 质量建议广度 | P11-S8 已新增孤儿/关系异常/项目缺口/规则提示 | `app/services/memory_quality.py`、`MemoryQualityPanel.tsx` | 图谱优化、项目补充、规则调整、关系异常 | M-P0-1 | M |
-| M-P0-5 ◐ | 更多提取来源 | P11-S8 已新增项目活动来源；工作流/文档授权提取仍缺 | `app/services/memory_extraction.py`、`app/worker.py`、工作流/项目完成钩子 | 项目活动、工作流执行、文档授权提取 | 用户授权与去重 | L |
+| M-P0-5 ✅ | 更多提取来源 | P11-S8/S8b 已新增项目活动、工作流运行与授权文档来源 | `app/services/memory_extraction.py`、`app/worker.py`、工作流/项目完成钩子 | 项目活动、工作流执行、文档授权提取 | 用户授权与去重 | L |
 | M-P0-6 | 检索过滤维度 | 无时间范围、关系关联检索、按使用场景筛选 | `app/services/memories.py::select_memories/list_memories`、`app/routers/memories.py` | 时间/关系/场景过滤、查询参数与 UI | 图谱关系 | M |
 
 ## 3. P1：体验与生态

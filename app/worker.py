@@ -13,7 +13,12 @@ from app.services.evaluation_runner import run_evaluation
 from app.services.ingestion import ingest_document, mark_job_dead, schedule_retry
 from app.services.maintenance import cleanup_audit_logs, cleanup_orphan_files, cleanup_traces
 from app.services.memories import expire_retention_memories
-from app.services.memory_extraction import run_memory_extraction_for_message
+from app.services.memory_extraction import (
+    run_document_memory_extraction,
+    run_memory_extraction_for_message,
+    run_workflow_memory_extraction,
+    schedule_document_memory_extraction,
+)
 from app.services.memory_quality import nightly_consolidation
 from app.services.model_eval import run_model_eval_job
 from app.services.queue import ArqJobQueue, recover_stale_jobs
@@ -51,6 +56,7 @@ async def ingest_document_job(ctx: dict[str, Any], document_id: str) -> None:
     outcome = await ingest_document(document_uuid)
     if outcome.status == "ready":
         await _emit_document_event(document_uuid, "document.ready")
+        await schedule_document_memory_extraction(document_uuid)
         return
     if outcome.status != "failed":
         return
@@ -98,6 +104,18 @@ async def expire_memories_job(ctx: dict[str, Any]) -> None:
 
 async def run_memory_extraction_job(ctx: dict[str, Any], message_id: str) -> None:
     await run_memory_extraction_for_message(UUID(message_id))
+
+
+async def run_workflow_memory_extraction_job(
+    ctx: dict[str, Any], run_id: str
+) -> None:
+    await run_workflow_memory_extraction(UUID(run_id))
+
+
+async def run_document_memory_extraction_job(
+    ctx: dict[str, Any], document_id: str
+) -> None:
+    await run_document_memory_extraction(UUID(document_id))
 
 
 async def deliver_webhooks_job(ctx: dict[str, Any]) -> None:
@@ -158,6 +176,8 @@ class WorkerSettings:
         run_workflow_job,
         run_collaboration_job,
         run_memory_extraction_job,
+        run_workflow_memory_extraction_job,
+        run_document_memory_extraction_job,
     ]
     cron_jobs = [
         cron(recover_stale_jobs_job, minute=set(range(60))),

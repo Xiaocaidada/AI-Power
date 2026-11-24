@@ -20,6 +20,7 @@ from app.metrics import record_usage_metrics
 from app.models import (
     DatabaseConnection,
     McpServer,
+    Workflow,
     WorkflowNodeRun,
     WorkflowReview,
     WorkflowRun,
@@ -1389,6 +1390,18 @@ class WorkflowRunner:
                         "cost": run.cost,
                     },
                 )
+                if status == "completed":
+                    enabled = await session.scalar(
+                        select(Workflow.memory_extract_enabled).where(
+                            Workflow.id == run.workflow_id
+                        )
+                    )
+                    if enabled:
+                        from app.services.memory_extraction import (
+                            schedule_workflow_memory_extraction,
+                        )
+
+                        await schedule_workflow_memory_extraction(run.id)
         except Exception:
             logger.exception("failed to finalize workflow run")
 

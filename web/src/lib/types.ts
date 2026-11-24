@@ -821,6 +821,8 @@ export interface MemorySettings {
   allowed_categories: string[]
   allow_project_extract: boolean
   allow_agent_extract: boolean
+  allow_workflow_extract: boolean
+  allow_document_extract: boolean
   allow_cross_model: boolean
   allowed_provider_ids: string[]
   allowed_models: string[]
@@ -1347,6 +1349,7 @@ export interface Workflow {
   name: string
   description: string
   kind: 'agent' | 'knowledge_process' | 'knowledge_retrieval'
+  memory_extract_enabled: boolean
   versions: WorkflowVersion[]
   draft_definition?: WorkflowDefinition | null
   draft_saved_at?: string | null
@@ -1768,6 +1771,7 @@ export interface DocumentItem {
   folder?: string
   doc_metadata?: Record<string, string>
   source_url?: string | null
+  memory_extract_enabled?: boolean
   created_at: string
 }
 

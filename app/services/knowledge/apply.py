@@ -93,6 +93,9 @@ async def apply_knowledge_run(
         )
     )
     await session.commit()
+    from app.services.memory_extraction import schedule_document_memory_extraction
+
+    await schedule_document_memory_extraction(document.id)
     return {"chunks": len(chunk_rows), "document_id": str(document.id)}
 
 
