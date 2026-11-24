@@ -505,36 +505,38 @@ def _image_mime(data: bytes) -> tuple[str, str]:
     return "image/png", "png"
 
 
-async def generate_images(
+def _image_request_options(
     config: IntegrationConfig,
     *,
     prompt: str,
     size: str | None,
     n: int,
-) -> list[tuple[bytes, str, str]]:
+    quality: str | None,
+    style: str | None,
+) -> tuple[dict[str, Any], int]:
     settings = get_settings()
     chosen_size = size or str((config.options or {}).get("size") or "1024x1024")
     if chosen_size not in IMAGE_SIZES:
         raise IntegrationError("invalid_size", "Unsupported image size")
     count = max(1, min(n, settings.integration_max_images_per_request))
+    options = config.options or {}
     body: dict[str, Any] = {
         "model": config.model or DEFAULT_MODELS["image_generation"],
         "prompt": prompt[: settings.integration_max_prompt_chars],
         "n": count,
         "size": chosen_size,
     }
-    options = config.options or {}
-    for key in ("quality", "style"):
-        if options.get(key):
-            body[key] = options[key]
-    response = await _http_request(
-        config,
-        "POST",
-        "/images/generations",
-        json_body=body,
-        timeout=settings.integration_image_timeout_seconds,
-    )
-    payload = _require_json(response)
+    for key, value in (("quality", quality), ("style", style)):
+        chosen = value or options.get(key)
+        if chosen:
+            body[key] = chosen
+    return body, count
+
+
+async def _decode_image_payload(
+    config: IntegrationConfig, payload: dict[str, Any], count: int
+) -> list[tuple[bytes, str, str]]:
+    settings = get_settings()
     rows = payload.get("data")
     if not isinstance(rows, list) or not rows:
         raise IntegrationError("image_bad_response", "Provider returned no images")
@@ -590,6 +592,84 @@ async def generate_images(
     return images
 
 
+async def generate_images(
+    config: IntegrationConfig,
+    *,
+    prompt: str,
+    size: str | None,
+    n: int,
+    quality: str | None = None,
+    style: str | None = None,
+) -> list[tuple[bytes, str, str]]:
+    body, count = _image_request_options(
+        config, prompt=prompt, size=size, n=n, quality=quality, style=style
+    )
+    response = await _http_request(
+        config,
+        "POST",
+        "/images/generations",
+        json_body=body,
+        timeout=get_settings().integration_image_timeout_seconds,
+    )
+    return await _decode_image_payload(config, _require_json(response), count)
+
+
+async def edit_images(
+    config: IntegrationConfig,
+    *,
+    prompt: str,
+    image: tuple[str, bytes, str],
+    mask: tuple[str, bytes, str] | None,
+    size: str | None,
+    n: int,
+    quality: str | None = None,
+    style: str | None = None,
+) -> list[tuple[bytes, str, str]]:
+    body, count = _image_request_options(
+        config, prompt=prompt, size=size, n=n, quality=quality, style=style
+    )
+    files: dict[str, Any] = {"image": image}
+    if mask is not None:
+        files["mask"] = mask
+    response = await _http_request(
+        config,
+        "POST",
+        "/images/edits",
+        files=files,
+        data=body,
+        timeout=get_settings().integration_image_timeout_seconds,
+    )
+    return await _decode_image_payload(config, _require_json(response), count)
+
+
+async def variation_images(
+    config: IntegrationConfig,
+    *,
+    image: tuple[str, bytes, str],
+    size: str | None,
+    n: int,
+) -> list[tuple[bytes, str, str]]:
+    settings = get_settings()
+    chosen_size = size or str((config.options or {}).get("size") or "1024x1024")
+    if chosen_size not in IMAGE_SIZES:
+        raise IntegrationError("invalid_size", "Unsupported image size")
+    count = max(1, min(n, settings.integration_max_images_per_request))
+    body = {
+        "model": config.model or DEFAULT_MODELS["image_generation"],
+        "n": count,
+        "size": chosen_size,
+    }
+    response = await _http_request(
+        config,
+        "POST",
+        "/images/variations",
+        files={"image": image},
+        data=body,
+        timeout=settings.integration_image_timeout_seconds,
+    )
+    return await _decode_image_payload(config, _require_json(response), count)
+
+
 def store_image_assets(
     session: AsyncSession,
     *,
@@ -598,6 +678,7 @@ def store_image_assets(
     config: IntegrationConfig,
     prompt: str,
     images: list[tuple[bytes, str, str]],
+    metadata: dict[str, Any] | None = None,
 ) -> list[MediaAsset]:
     upload_dir = Path(get_settings().upload_dir) / "media"
     upload_dir.mkdir(parents=True, exist_ok=True)
@@ -620,6 +701,7 @@ def store_image_assets(
                 "provider": config.provider,
                 "model": config.model,
                 "integration_id": str(config.id),
+                **(metadata or {}),
             },
         )
         session.add(asset)

@@ -68,7 +68,7 @@ async def test_image_generation_stores_media_and_logs_call(client, api, monkeypa
     config_id = created.json()["id"]
     png = b"\x89PNG\r\n\x1a\n" + b"0" * 64
 
-    async def fake_generate(config, *, prompt, size, n):
+    async def fake_generate(config, *, prompt, size, n, quality=None, style=None):
         assert config.id == UUID(config_id)
         return [(png, "image/png", "png")]
 
@@ -118,7 +118,7 @@ async def test_media_retention_cleanup(client, api, monkeypatch):
     await _create_integration(client, headers)
     png = b"\x89PNG\r\n\x1a\n" + b"1" * 32
 
-    async def fake_generate(config, *, prompt, size, n):
+    async def fake_generate(config, *, prompt, size, n, quality=None, style=None):
         return [(png, "image/png", "png")]
 
     monkeypatch.setattr("app.routers.media.generate_images", fake_generate)
@@ -147,6 +147,96 @@ async def test_image_requires_configured_integration(client, api):
     )
     assert response.status_code == 422
     assert response.json()["detail"]["code"] == "integration_not_configured"
+
+
+async def test_image_edit_and_variation_endpoints(client, api, monkeypatch):
+    headers = await api.headers("p12-s9-image-edit@example.com")
+    created = await _create_integration(client, headers)
+    config_id = created.json()["id"]
+    png = b"\x89PNG\r\n\x1a\n" + b"2" * 48
+    seen: list[str] = []
+
+    async def fake_edit(config, *, prompt, image, mask, size, n, quality=None, style=None):
+        seen.append(f"edit:{prompt}:{image[0]}:{mask is not None}")
+        return [(png, "image/png", "png")]
+
+    async def fake_variation(config, *, image, size, n):
+        seen.append(f"variation:{image[0]}")
+        return [(png, "image/png", "png")]
+
+    monkeypatch.setattr("app.routers.media.edit_images", fake_edit)
+    monkeypatch.setattr("app.routers.media.variation_images", fake_variation)
+
+    edited = await client.post(
+        "/images/edits",
+        data={"prompt": "make it blue", "size": "512x512", "n": "1", "integration_id": config_id},
+        files={"image": ("source.png", png, "image/png")},
+        headers=headers,
+    )
+    varied = await client.post(
+        "/images/variations",
+        data={"size": "512x512", "n": "1", "integration_id": config_id},
+        files={"image": ("source.png", png, "image/png")},
+        headers=headers,
+    )
+    assert edited.status_code == 201
+    assert varied.status_code == 201
+    assert seen[0] == "edit:make it blue:source.png:False"
+    assert seen[1] == "variation:source.png"
+    calls = await client.get("/integrations/calls?kind=image_generation", headers=headers)
+    operations = {row["operation"] for row in calls.json()}
+    assert "image_edit" in operations
+    assert "image_variation" in operations
+
+    bad = await client.post(
+        "/images/edits",
+        data={"prompt": "nope"},
+        files={"image": ("source.txt", b"hello", "text/plain")},
+        headers=headers,
+    )
+    assert bad.status_code == 415
+
+
+async def test_image_analysis_with_vision_provider(
+    client, api, registry, fake_provider
+):
+    from app.deps import get_scoped_registry
+    from app.main import app as app_instance
+    from app.providers.registry import ProviderRegistry
+
+    headers = await api.headers("p12-s9-image-analyze@example.com")
+    fake_provider.complete_content = "A blue square."
+    app_instance.dependency_overrides[get_scoped_registry] = lambda: ProviderRegistry(
+        {"fake": fake_provider}
+    )
+    try:
+        response = await client.post(
+            "/images/analyze",
+            data={
+                "question": "What is in this image?",
+                "provider_id": "fake",
+                "model": "fake-model",
+            },
+            files={
+                "file": (
+                    "image.png",
+                    b"\x89PNG\r\n\x1a\n" + b"3" * 16,
+                    "image/png",
+                )
+            },
+            headers=headers,
+        )
+    finally:
+        app_instance.dependency_overrides.pop(get_scoped_registry, None)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["answer"] == "A blue square."
+    assert body["provider_id"] == "fake"
+    assert fake_provider.complete_calls
+    content = fake_provider.complete_calls[-1][0][-1].content
+    assert isinstance(content, list)
+    assert content[1]["type"] == "image_url"
 
 
 async def test_audio_transcription_and_speech(client, api, monkeypatch):

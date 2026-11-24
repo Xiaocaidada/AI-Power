@@ -2392,6 +2392,15 @@ export interface MediaAsset {
   created_at: string
 }
 
+export interface ImageAnalyzeResult {
+  answer: string
+  media_id: string | null
+  provider_id: string
+  model: string
+  prompt_tokens: number | null
+  completion_tokens: number | null
+}
+
 export interface ExternalCall {
   id: string
   integration_id: string | null

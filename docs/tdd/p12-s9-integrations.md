@@ -1,7 +1,7 @@
 # P12-S9 多模态外部依赖（BYOK 子集）
 
 日期：2026-11-24
-状态：图片生成、STT、TTS 已完成；实时语音未实现
+状态：图片生成、编辑、变体、图片理解、STT、TTS 已完成；实时语音未实现
 
 ## 决策
 
@@ -34,8 +34,19 @@ API `/integrations`：
 - `POST /images/generations`：用户选择集成或默认集成，后端代理 `/images/generations`。
 - 支持 `b64_json` 和返回 `url` 两种响应；响应大小、图片大小、数量、提示词长度均有上限。
 - 生成图片写入 `UPLOAD_DIR/media`，记录 `media_assets`。
+- `POST /images/edits`：multipart 原图 + prompt，可选 PNG 遮罩，代理 `/images/edits`。
+- `POST /images/variations`：multipart 原图，代理 `/images/variations`。
+- `POST /images/analyze`：上传图片或选择 `media_assets`，使用 vision 能力模型做图片理解问答。
+- 画廊支持下载、删除、作为编辑源图、生成变体。
 - `GET /media`、`GET /media/{id}`（JWT，工作区隔离，路径限制在 `UPLOAD_DIR`）、`DELETE /media/{id}`。
 - 每日 03:45 worker 按 `INTEGRATION_MEDIA_RETENTION_DAYS` 清理过期媒体与文件。
+
+### 图片能力边界
+
+- 生成：prompt、尺寸、数量、quality、style。
+- 编辑：原图、可选遮罩、prompt、尺寸、数量、quality、style。
+- 变体：原图、尺寸、数量；取决于 Provider 是否支持 `/images/variations`。
+- 理解：上传或画廊选图 + 问题 + vision 模型；返回回答与 token 用量，`usage_events.source='image_analysis'`。
 
 ### STT / TTS
 
@@ -64,6 +75,9 @@ API `/integrations`：
 - 配置 CRUD、凭证加密/掩码、跨用户 404。
 - GitHub 必须提供 PAT。
 - 图片生成存储媒体、下载、删除、外部调用账本。
+- 图片编辑与变体代理、外部调用账本、非法图片类型 415。
+- 图片理解使用 vision provider，验证消息包含 `image_url`。
+- 媒体保留期清理。
 - 未配置集成返回 `integration_not_configured`。
 - STT/TTS 代理、调用账本、非法音频类型 415。
 - GitHub 只读仓库/Issues 与跨用户 404。
@@ -81,7 +95,8 @@ API `/integrations`：
 
 - 实时语音（WebRTC、临时令牌、打断、TURN）未实现。
 - 非 OpenAI-compatible 厂商适配器（Azure/ElevenLabs/Google）未实现。
-- 图片编辑、多图参考、内容审核策略未实现。
+- 多图参考、局部重绘的自动选区、内容审核策略未实现；遮罩需用户自行上传。
+- 图片理解依赖用户配置的 vision 模型；平台 Provider 没有强制的能力清单。
 - 媒体配额未接入 workspace 计划配额；当前只有大小/保留期限制。
 - 生成图片未自动进入聊天消息或知识库。
 

@@ -2869,11 +2869,22 @@ class ImageGenerateIn(BaseModel):
     integration_id: UUID | None = None
     size: Literal["256x256", "512x512", "1024x1024", "1024x1536", "1536x1024", "auto"] | None = None
     n: int = Field(default=1, ge=1, le=4)
+    quality: Literal["low", "medium", "high", "standard", "hd"] | None = None
+    style: Literal["natural", "vivid"] | None = None
 
     @field_validator("prompt", mode="before")
     @classmethod
     def strip_image_prompt(cls, value: object) -> object:
         return value.strip() if isinstance(value, str) else value
+
+
+class ImageAnalyzeOut(BaseModel):
+    answer: str
+    media_id: UUID | None = None
+    provider_id: str
+    model: str
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
 
 
 class AudioTranscribeIn(BaseModel):
