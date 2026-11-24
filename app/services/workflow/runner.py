@@ -1009,6 +1009,9 @@ class WorkflowRunner:
                         memory_settings.max_inject_chars,
                     ),
                     allowed_scopes=allowed_scopes,
+                    allowed_provider_ids=memory_settings.allowed_provider_ids,
+                    allowed_models=memory_settings.allowed_models,
+                    allowed_agent_ids=memory_settings.allowed_agent_ids,
                 )
                 if selection.items:
                     await record_memory_usage(

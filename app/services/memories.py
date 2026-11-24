@@ -1389,9 +1389,26 @@ async def select_memories(
     model: str | None = None,
     allow_cross_model: bool = True,
     allowed_scopes: frozenset[str] | set[str] | None = None,
+    allowed_provider_ids: list[str] | None = None,
+    allowed_models: list[str] | None = None,
+    allowed_agent_ids: list[str] | None = None,
 ) -> MemorySelection:
     now = datetime.now(UTC)
     if allowed_scopes is not None and not allowed_scopes:
+        return MemorySelection(block="", items=[])
+    if (
+        allowed_provider_ids
+        and provider_id is not None
+        and provider_id not in allowed_provider_ids
+    ):
+        return MemorySelection(block="", items=[])
+    if allowed_models and model is not None and model not in allowed_models:
+        return MemorySelection(block="", items=[])
+    if (
+        allowed_agent_ids
+        and agent_id is not None
+        and str(agent_id) not in allowed_agent_ids
+    ):
         return MemorySelection(block="", items=[])
     conditions = [
         *_personal_filters(workspace_id, user_id),
@@ -1506,6 +1523,9 @@ async def memory_context(
     model: str | None = None,
     allow_cross_model: bool = True,
     allowed_scopes: frozenset[str] | set[str] | None = None,
+    allowed_provider_ids: list[str] | None = None,
+    allowed_models: list[str] | None = None,
+    allowed_agent_ids: list[str] | None = None,
 ) -> str:
     selection = await select_memories(
         session,
@@ -1522,5 +1542,8 @@ async def memory_context(
         model=model,
         allow_cross_model=allow_cross_model,
         allowed_scopes=allowed_scopes,
+        allowed_provider_ids=allowed_provider_ids,
+        allowed_models=allowed_models,
+        allowed_agent_ids=allowed_agent_ids,
     )
     return selection.block

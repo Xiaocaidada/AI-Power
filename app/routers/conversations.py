@@ -1912,6 +1912,9 @@ async def _start_chat_turn(
             model=routed_model,
             allow_cross_model=memory_settings.allow_cross_model,
             allowed_scopes=read_scopes,
+            allowed_provider_ids=memory_settings.allowed_provider_ids,
+            allowed_models=memory_settings.allowed_models,
+            allowed_agent_ids=memory_settings.allowed_agent_ids,
         )
         memory_block = selection.block
         memory_items = selection.items

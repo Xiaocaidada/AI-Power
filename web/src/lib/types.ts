@@ -763,6 +763,25 @@ export interface MemoryStats {
   top_used: AgentMemory[]
 }
 
+export interface MemoryChangeItem {
+  memory_id: string
+  title: string
+  from_version: number
+  to_version: number
+  changed_fields: string[]
+  risk_flags: string[]
+  updated_at: string
+}
+
+export interface MemoryChanges {
+  days: number
+  total: number
+  preference_changes: number
+  project_changes: number
+  technical_changes: number
+  items: MemoryChangeItem[]
+}
+
 export interface MemoryLifecycleItem {
   id: string
   title: string
@@ -803,6 +822,9 @@ export interface MemorySettings {
   allow_project_extract: boolean
   allow_agent_extract: boolean
   allow_cross_model: boolean
+  allowed_provider_ids: string[]
+  allowed_models: string[]
+  allowed_agent_ids: string[]
   max_inject_items: number
   max_inject_chars: number
   blocked_topics: string[]
@@ -878,6 +900,9 @@ export interface MemoryQualityAnalysis {
   missing_source: number
   incomplete: number
   orphans: number
+  relation_anomalies?: number
+  project_gaps?: number
+  rule_hints?: string[]
 }
 
 export type MemoryOptimizationKind =

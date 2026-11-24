@@ -21,6 +21,7 @@ import type {
   CustomAgent,
   MemoryCandidate,
   MemoryCategory,
+  MemoryChanges,
   MemoryLifecycle,
   MemorySettings,
   MemoryStats,
@@ -139,6 +140,7 @@ export function MemoryPage() {
       queryClient.invalidateQueries({ queryKey: ['memory-stats'] }),
       queryClient.invalidateQueries({ queryKey: ['memory-usage'] }),
       queryClient.invalidateQueries({ queryKey: ['memory-lifecycle'] }),
+      queryClient.invalidateQueries({ queryKey: ['memory-changes'] }),
     ])
   }
 
@@ -456,6 +458,10 @@ function Overview({
     queryKey: ['memory-lifecycle'],
     queryFn: () => apiRequest<MemoryLifecycle>('/memories/lifecycle'),
   })
+  const changes = useQuery({
+    queryKey: ['memory-changes'],
+    queryFn: () => apiRequest<MemoryChanges>('/memories/changes?days=30'),
+  })
   if (loading || stats === undefined) {
     return (
       <div className="flex justify-center py-10">
@@ -726,6 +732,45 @@ function Overview({
               ))}
             </ul>
           )}
+        </section>
+      )}
+
+      {changes.data !== undefined && changes.data.total > 0 && (
+        <section className="rounded-card border border-border bg-surface p-4">
+          <h2 className="text-sm font-medium text-ink">
+            {t('memory.stats.changesTitle')}
+          </h2>
+          <p className="mt-1 text-[11px] text-ink-muted">
+            {t('memory.stats.changesSummary', {
+              total: changes.data.total,
+              preferences: changes.data.preference_changes,
+              projects: changes.data.project_changes,
+              technical: changes.data.technical_changes,
+            })}
+          </p>
+          <ul className="mt-2 space-y-1">
+            {changes.data.items.slice(0, 5).map((item) => (
+              <li
+                key={item.memory_id}
+                className="flex flex-wrap items-center gap-2 rounded-md bg-surface-muted px-2 py-1 text-[11px]"
+              >
+                <span className="truncate text-ink">
+                  {item.title || item.memory_id.slice(0, 8)}
+                </span>
+                <span className="text-ink-muted">
+                  v{item.from_version} → v{item.to_version}
+                </span>
+                <span className="text-ink-muted">
+                  {item.changed_fields.slice(0, 3).join(', ')}
+                </span>
+                {item.risk_flags.slice(0, 2).map((flag) => (
+                  <Badge key={flag} tone="warning">
+                    {t(`memory.diff.risk.${flag}`)}
+                  </Badge>
+                ))}
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 

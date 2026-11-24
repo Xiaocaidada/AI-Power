@@ -8,6 +8,7 @@ from app.services.memories import (
     MemoryError,
     create_memory,
     find_memory_by_title,
+    get_memory_settings,
     record_memory_usage,
     select_memories,
     update_memory,
@@ -36,6 +37,9 @@ async def memory_search(context: ToolContext, args: MemorySearchArgs) -> str:
             "memory_read_denied", "This agent is not allowed to read long-term memory"
         )
     async with SessionLocal() as session:
+        settings = await get_memory_settings(
+            session, context.workspace_id, context.user_id
+        )
         selection = await select_memories(
             session,
             workspace_id=context.workspace_id,
@@ -46,6 +50,9 @@ async def memory_search(context: ToolContext, args: MemorySearchArgs) -> str:
             limit=args.limit,
             max_chars=MEMORY_OUTPUT_MAX_CHARS,
             allowed_scopes=access.read_scopes,
+            allowed_provider_ids=settings.allowed_provider_ids,
+            allowed_models=settings.allowed_models,
+            allowed_agent_ids=settings.allowed_agent_ids,
         )
         if selection.items:
             await record_memory_usage(

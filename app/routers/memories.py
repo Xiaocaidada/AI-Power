@@ -11,6 +11,7 @@ from app.schemas import (
     MemoryBatchOut,
     MemoryCandidateAcceptIn,
     MemoryCandidateOut,
+    MemoryChangesOut,
     MemoryEvalCaseIn,
     MemoryEvalCaseOut,
     MemoryEvalRunIn,
@@ -52,7 +53,11 @@ from app.services.memories import (
     update_memory_settings,
     validate_memory_targets,
 )
-from app.services.memory_diff import MemoryDiffError, diff_memory_versions
+from app.services.memory_diff import (
+    MemoryDiffError,
+    diff_memory_versions,
+    recent_memory_changes,
+)
 from app.services.memory_eval import (
     MemoryEvalError,
     create_case,
@@ -602,6 +607,23 @@ async def list_memory_eval_runs(
         session, context.workspace.id, context.user.id, limit=limit
     )
     return [MemoryEvalRunOut.model_validate(row) for row in rows]
+
+
+@router.get("/changes", response_model=MemoryChangesOut)
+async def get_memory_changes(
+    context: JwtContext,
+    session: SessionDep,
+    days: Annotated[int, Query(ge=1, le=365)] = 30,
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+) -> MemoryChangesOut:
+    result = await recent_memory_changes(
+        session,
+        context.workspace.id,
+        context.user.id,
+        days=days,
+        limit=limit,
+    )
+    return MemoryChangesOut.model_validate(result)
 
 
 @router.get("/lifecycle", response_model=MemoryLifecycleOut)

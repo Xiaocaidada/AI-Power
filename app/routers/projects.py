@@ -1,3 +1,4 @@
+import logging
 from typing import Annotated
 from uuid import UUID
 
@@ -11,6 +12,7 @@ from app.providers.base import ProviderError
 from app.providers.registry import ProviderRegistry
 from app.schemas import ProjectCreate, ProjectOut, ProjectUpdate
 from app.services.access import get_owned_knowledge_base
+from app.services.memory_extraction import create_project_memory_candidate
 from app.services.memory_permissions import normalize_project_permissions
 from app.services.projects import (
     ProjectError,
@@ -25,6 +27,7 @@ from app.services.projects import (
 from app.services.provider_configs import ProviderConfigError, ensure_model_capability
 
 router = APIRouter(prefix="/projects", tags=["projects"])
+logger = logging.getLogger(__name__)
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 JwtContext = Annotated[AuthContext, Depends(get_jwt_context)]
@@ -177,6 +180,12 @@ async def create_workspace_project(
     )
     await session.commit()
     await session.refresh(project)
+    try:
+        await create_project_memory_candidate(session, project, context.user.id)
+        await session.commit()
+    except Exception:
+        logger.warning("project memory candidate failed", exc_info=True)
+        await session.rollback()
     return _project_out(project, 0, context)
 
 
@@ -271,6 +280,12 @@ async def update_workspace_project(
     )
     await session.commit()
     await session.refresh(project)
+    try:
+        await create_project_memory_candidate(session, project, context.user.id)
+        await session.commit()
+    except Exception:
+        logger.warning("project memory candidate failed", exc_info=True)
+        await session.rollback()
     count = await project_conversation_count(session, project.id)
     return _project_out(project, count, context)
 

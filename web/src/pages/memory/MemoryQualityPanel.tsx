@@ -23,6 +23,14 @@ const STATUS_TONE: Record<string, 'neutral' | 'success' | 'warning' | 'danger'> 
   rolled_back: 'neutral',
 }
 
+const ACTIONABLE_KINDS = new Set([
+  'merge_duplicates',
+  'resolve_conflict',
+  'expire_memory',
+  'archive_memory',
+  'recategorize',
+])
+
 export function MemoryQualityPanel() {
   const { t } = useI18n()
   const queryClient = useQueryClient()
@@ -166,6 +174,9 @@ export function MemoryQualityPanel() {
                 ['expired', analysis.expired],
                 ['unused', analysis.unused],
                 ['incomplete', analysis.incomplete],
+                ['orphans', analysis.orphans],
+                ['relationAnomalies', analysis.relation_anomalies ?? 0],
+                ['projectGaps', analysis.project_gaps ?? 0],
               ] as const
             ).map(([key, value]) => (
               <div key={key} className="rounded-lg bg-surface-muted px-3 py-2">
@@ -221,14 +232,16 @@ export function MemoryQualityPanel() {
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {suggestion.status === 'pending' && (
                     <>
-                      <Button
-                        size="sm"
-                        disabled={busy === suggestion.id}
-                        onClick={() => void act(suggestion, 'apply')}
-                      >
-                        <Check className="h-3 w-3" />
-                        {t('memory.quality.apply')}
-                      </Button>
+                      {ACTIONABLE_KINDS.has(suggestion.kind) && (
+                        <Button
+                          size="sm"
+                          disabled={busy === suggestion.id}
+                          onClick={() => void act(suggestion, 'apply')}
+                        >
+                          <Check className="h-3 w-3" />
+                          {t('memory.quality.apply')}
+                        </Button>
+                      )}
                       <Button
                         size="sm"
                         variant="secondary"

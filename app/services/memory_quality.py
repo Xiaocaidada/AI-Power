@@ -206,11 +206,37 @@ def _as_utc(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
+def _relation_anomalies(
+    memories: list[AgentMemory], relations: list[MemoryRelation]
+) -> list[MemoryRelation]:
+    anomalies: list[MemoryRelation] = []
+    seen: set[tuple[str, str, str]] = set()
+    by_id = {memory.id: memory for memory in memories}
+    for relation in relations:
+        if relation.from_id == relation.to_id:
+            anomalies.append(relation)
+            continue
+        key = (str(relation.from_id), str(relation.to_id), relation.relation_type)
+        if key in seen:
+            anomalies.append(relation)
+            continue
+        seen.add(key)
+        if relation.relation_type == "contradicts":
+            left = by_id.get(relation.from_id)
+            right = by_id.get(relation.to_id)
+            if left is not None and right is not None:
+                if memory_similarity(left, right) >= DUPLICATE_THRESHOLD:
+                    anomalies.append(relation)
+    return anomalies
+
+
 def _analysis_payload(
     memories: list[AgentMemory],
     groups: list[list[AgentMemory]],
     conflicts: list[tuple[AgentMemory, AgentMemory]],
     now: datetime,
+    relation_anomalies: list[MemoryRelation],
+    orphan_ids: list[UUID],
 ) -> dict[str, object]:
     expired = [
         memory
@@ -236,6 +262,21 @@ def _analysis_payload(
     incomplete = [
         memory for memory in memories if len(memory.content.strip()) < INCOMPLETE_CHARS
     ]
+    project_gaps = [
+        memory
+        for memory in memories
+        if memory.category == "project" and memory.project_id is None
+    ]
+    total = max(len(memories), 1)
+    rule_hints: list[str] = []
+    if len(groups) / total > 0.15:
+        rule_hints.append("high_duplicate_rate")
+    if len(conflicts) / total > 0.10:
+        rule_hints.append("high_conflict_rate")
+    if len(incomplete) / total > 0.30:
+        rule_hints.append("many_incomplete")
+    if len(unused) / total > 0.40:
+        rule_hints.append("many_unused")
     return {
         "total": len(memories),
         "duplicates": len(groups),
@@ -247,11 +288,18 @@ def _analysis_payload(
         "unused": len(unused),
         "missing_source": len(missing_source),
         "incomplete": len(incomplete),
-        "orphans": 0,
+        "orphans": len(orphan_ids),
+        "relation_anomalies": len(relation_anomalies),
+        "project_gaps": len(project_gaps),
+        "rule_hints": rule_hints,
         "_expired_ids": [memory.id for memory in expired],
         "_unused_ids": [memory.id for memory in unused],
         "_groups": groups,
         "_conflicts": conflicts,
+        "_orphan_ids": orphan_ids,
+        "_anomaly_ids": [relation.id for relation in relation_anomalies],
+        "_project_gap_ids": [memory.id for memory in project_gaps],
+        "_rule_hints": rule_hints,
     }
 
 
@@ -277,7 +325,27 @@ async def analyze_memories(
             continue
         seen.add(key)
         conflicts.append((left, right))
-    return _analysis_payload(memories, groups, conflicts, now)
+    relations = list(
+        (
+            await session.execute(
+                select(MemoryRelation).where(
+                    MemoryRelation.workspace_id == workspace_id,
+                    MemoryRelation.user_id == user_id,
+                    MemoryRelation.from_type == "memory",
+                    MemoryRelation.to_type == "memory",
+                )
+            )
+        ).scalars()
+    )
+    linked: set[UUID] = set()
+    for relation in relations:
+        linked.add(relation.from_id)
+        linked.add(relation.to_id)
+    orphan_ids = [memory.id for memory in memories if memory.id not in linked]
+    anomalies = _relation_anomalies(memories, relations)
+    return _analysis_payload(
+        memories, groups, conflicts, now, anomalies, orphan_ids
+    )
 
 
 async def list_optimizations(
@@ -425,6 +493,50 @@ async def generate_suggestions(
                 [memory.id],
                 {"category": "preference"},
             )
+
+    orphan_ids = list(analysis.get("_orphan_ids") or [])
+    if orphan_ids:
+        add(
+            "link_orphans",
+            f"为 {len(orphan_ids)} 条孤立记忆建立关联",
+            "这些记忆没有进入关系图谱，检索和追溯时容易被忽略。",
+            "补全关系后可以提升记忆发现率与上下文完整性。",
+            orphan_ids[:20],
+            {"actionable": False, "orphan_count": len(orphan_ids)},
+        )
+
+    anomaly_ids = list(analysis.get("_anomaly_ids") or [])
+    if anomaly_ids:
+        add(
+            "review_relations",
+            f"检查 {len(anomaly_ids)} 条异常关系",
+            "存在自关联、重复关系或与重复记忆矛盾的关联。",
+            "清理异常关系，避免图谱误导检索与质量分析。",
+            [],
+            {"actionable": False, "relation_ids": [str(item) for item in anomaly_ids[:20]]},
+        )
+
+    project_gap_ids = list(analysis.get("_project_gap_ids") or [])
+    if project_gap_ids:
+        add(
+            "supplement_project",
+            f"补充 {len(project_gap_ids)} 条项目记忆的项目绑定",
+            "这些记忆属于项目类别，但没有绑定具体项目。",
+            "绑定项目后可参与项目范围检索与权限控制。",
+            project_gap_ids[:20],
+            {"actionable": False},
+        )
+
+    rule_hints = list(analysis.get("_rule_hints") or [])
+    if rule_hints:
+        add(
+            "adjust_rules",
+            "调整记忆规则",
+            "当前数据质量指标提示需要调整提取或保留规则。",
+            "减少重复/冲突/不完整记忆的产生。",
+            [],
+            {"actionable": False, "rule_hints": rule_hints},
+        )
 
     for row in rows[:MAX_SUGGESTIONS]:
         session.add(row)
