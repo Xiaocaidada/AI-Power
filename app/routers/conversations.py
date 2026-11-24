@@ -104,6 +104,7 @@ from app.services.plugins import (
     plugin_tool_names,
     set_conversation_plugins,
 )
+from app.services.project_resources import project_agent_ids
 from app.services.projects import ProjectError, get_project
 from app.services.prompts import resolve_conversation_prompt
 from app.services.provider_configs import ProviderConfigError, ensure_model_capability
@@ -797,6 +798,20 @@ async def create_conversation(
             )
         except CustomAgentError:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found") from None
+    if project is not None and custom_agent is not None:
+        linked_agents = await project_agent_ids(session, project.id)
+        if (
+            linked_agents
+            and custom_agent.id not in linked_agents
+            and project.default_custom_agent_id != custom_agent.id
+        ):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                {
+                    "code": "agent_not_in_project",
+                    "message": "Add this Agent to the project before using it",
+                },
+            )
 
     if payload.provider_id == "":
         raise HTTPException(
@@ -1923,6 +1938,8 @@ async def _start_chat_turn(
         extra_tools = list(plugin_tool_names(plugin_tools))
         if conversation_kbs and "kb_search" not in extra_tools:
             extra_tools.append("kb_search")
+        if conversation.project_id is not None:
+            extra_tools.append("project_files")
         spec = build_agent_spec(custom_agent, tuple(extra_tools))
         if memory_block:
             spec = AgentSpec(

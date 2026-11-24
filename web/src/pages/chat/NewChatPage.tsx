@@ -31,6 +31,7 @@ import type {
   PersonalModel,
   Plugin,
   Project,
+  ProjectAgent,
   PromptTemplate,
 } from '../../lib/types'
 import { Composer } from './Composer'
@@ -106,6 +107,11 @@ export function NewChatPage() {
     queryFn: () => apiRequest<CustomAgent[]>('/agents'),
     staleTime: 60_000,
   })
+  const projectAgentsQuery = useQuery({
+    queryKey: ['project-agents', projectId],
+    queryFn: () => apiRequest<ProjectAgent[]>(`/projects/${projectId}/agents`),
+    enabled: projectId !== '',
+  })
   const pluginsQuery = useQuery({
     queryKey: ['plugins'],
     queryFn: () => apiRequest<Plugin[]>('/plugins'),
@@ -126,8 +132,22 @@ export function NewChatPage() {
   const selectedProject = (projectsQuery.data ?? []).find(
     (project) => project.id === projectId,
   )
-  const customAgents = (agentsQuery.data ?? []).filter((item) => !item.builtin)
+  const allCustomAgents = (agentsQuery.data ?? []).filter((item) => !item.builtin)
+  const projectAgentIds = new Set(
+    (projectAgentsQuery.data ?? []).map((agent) => agent.agent_id),
+  )
+  const customAgents =
+    projectId !== '' && projectAgentIds.size > 0
+      ? allCustomAgents.filter((item) => projectAgentIds.has(item.id))
+      : allCustomAgents
   const selectedAgent = customAgents.find((item) => item.id === customAgentId)
+
+  useEffect(() => {
+    if (projectId === '' || projectAgentIds.size === 0) return
+    if (customAgentId !== '' && !projectAgentIds.has(customAgentId)) {
+      setCustomAgentId('')
+    }
+  }, [customAgentId, projectAgentIds, projectId])
   const configuredPlugins = (pluginsQuery.data ?? []).filter(
     (plugin) => plugin.configured && plugin.config_enabled && plugin.enabled,
   )

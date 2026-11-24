@@ -29,7 +29,14 @@ from app.services.generation import normalize_generation_settings
 from app.services.memory_permissions import normalize_agent_permissions
 
 AGENT_TOOL_NAMES = frozenset(
-    {"kb_search", "current_time", "calculator", "memory_search", "memory_save"}
+    {
+        "kb_search",
+        "current_time",
+        "calculator",
+        "memory_search",
+        "memory_save",
+        "project_files",
+    }
 )
 AGENT_MODES = frozenset({"autonomous", "workflow", "hybrid"})
 BUILTIN_AGENT_IDS = frozenset({"builtin:supervisor", "builtin:retrieval", "builtin:math"})

@@ -211,6 +211,28 @@ export interface KnowledgeProcessAnalytics {
   recent: KnowledgeProcessAnalyticsRun[]
 }
 
+export interface KnowledgeProcessVersionMetric {
+  version_id: string
+  workflow_id: string
+  workflow_name: string
+  version: number
+  document_count: number
+  chunk_count: number
+  avg_chunk_chars: number
+  min_chunk_chars: number
+  max_chunk_chars: number
+  metadata_coverage: number
+  parent_coverage: number
+  keyword_coverage: number
+  summary_coverage: number
+  duplicate_ratio: number
+}
+
+export interface KnowledgeProcessVersionCompare {
+  sampled_chunks: number
+  versions: KnowledgeProcessVersionMetric[]
+}
+
 export interface KnowledgeBaseStats {
   document_count: number
   ready_count: number
@@ -439,6 +461,27 @@ export interface Project {
   owned: boolean
   created_at: string
   updated_at: string
+}
+
+export interface ProjectAgent {
+  agent_id: string
+  name: string
+  description: string
+  icon: string
+  category: string
+  mode: string
+  is_default: boolean
+}
+
+export interface ProjectFile {
+  document_id: string
+  filename: string
+  status: string
+  size_bytes: number
+  mime: string
+  tags: string[]
+  folder: string
+  created_at: string
 }
 
 export interface AgentRun {

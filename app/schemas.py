@@ -197,6 +197,28 @@ class KnowledgeProcessAnalyticsOut(BaseModel):
     recent: list[KnowledgeProcessAnalyticsRunOut] = Field(default_factory=list)
 
 
+class KnowledgeProcessVersionMetricOut(BaseModel):
+    version_id: UUID
+    workflow_id: UUID
+    workflow_name: str
+    version: int
+    document_count: int
+    chunk_count: int
+    avg_chunk_chars: float
+    min_chunk_chars: int
+    max_chunk_chars: int
+    metadata_coverage: float
+    parent_coverage: float
+    keyword_coverage: float
+    summary_coverage: float
+    duplicate_ratio: float
+
+
+class KnowledgeProcessVersionCompareOut(BaseModel):
+    sampled_chunks: int
+    versions: list[KnowledgeProcessVersionMetricOut] = Field(default_factory=list)
+
+
 class RetrievalSearchIn(BaseModel):
     query: str = Field(min_length=1, max_length=500)
     top_k: int | None = Field(default=None, ge=1, le=20)
@@ -996,6 +1018,36 @@ class ProjectOut(BaseModel):
     owned: bool
     created_at: datetime
     updated_at: datetime
+
+
+class ProjectAgentIn(BaseModel):
+    agent_id: UUID
+    set_default: bool = False
+
+
+class ProjectAgentOut(BaseModel):
+    agent_id: UUID
+    name: str
+    description: str = ""
+    icon: str = "🤖"
+    category: str = "general"
+    mode: str = "autonomous"
+    is_default: bool = False
+
+
+class ProjectFileIn(BaseModel):
+    document_id: UUID
+
+
+class ProjectFileOut(BaseModel):
+    document_id: UUID
+    filename: str
+    status: str
+    size_bytes: int
+    mime: str
+    tags: list[str] = Field(default_factory=list)
+    folder: str = ""
+    created_at: datetime
 
 
 def _validate_cover_url(value: object) -> object:

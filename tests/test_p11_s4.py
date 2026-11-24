@@ -143,6 +143,7 @@ async def test_agent_tool_catalog_mcp_binding_and_test(client, api, monkeypatch)
         "kb_search",
         "current_time",
         "calculator",
+        "project_files",
     }
     assert payload["mcp_servers"][0]["id"] == server["id"]
 

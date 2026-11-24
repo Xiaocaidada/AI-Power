@@ -27,6 +27,7 @@
 - 2026-11-24：P11-S8 完成，M-P0-4（孤儿/关系异常/项目缺口/规则提示）、M-P1-1（模型/Agent 读取白名单）、M-P1-3（最近变化分析）已落地；M-P0-5 完成项目活动来源。见 [p11-s8-memory-sources-quality.md](../tdd/p11-s8-memory-sources-quality.md)。
 - 2026-11-24：P11-S8b 完成，M-P0-5 补齐工作流运行与上传者授权文档来源，默认双重关闭并保持幂等。见 [p11-s8b-memory-sources.md](../tdd/p11-s8b-memory-sources.md)。
 - 2026-11-24：P11-S9 完成 P2 评估，并按需实现 P2-4 LLM 语义矛盾检测（显式触发、只生成建议）。其余 P2 项保持后续/不做。见 [p11-s9-p2-assessment.md](../plan/p11-s9-p2-assessment.md) 与 [p11-s9-semantic-conflicts.md](../tdd/p11-s9-semantic-conflicts.md)。
+- 2026-11-24：P11-S10 完成剩余 P0：A-P0-2 模板链路验证、A-P0-4 项目 Agent/文件关联与工具、K-P0-5 处理版本对比、M-P0-6 记忆过滤维度。见 [p11-s10-p0-closure.md](../tdd/p11-s10-p0-closure.md)。
 
 ## 2. P0：下一阶段必须补齐
 
@@ -44,9 +45,9 @@
 | ID | 缺口 | 现状 | 代码入口 | 改动范围 | 依赖 | 规模 |
 |---|---|---|---|---|---|---|
 | A-P0-1 ✅ | 基础 Agent 模型参数 UI（temperature/max_tokens/top_p） | P11-S4 已暴露参数表单、保存校验与会话/工作流生效 | `web/src/pages/studio/StudioConfigPanel.tsx`、`AgentStudioPage` 保存逻辑、`app/schemas.py` | 配置表单、保存校验、与运行参数合并 | 无 | S |
-| A-P0-2 | Agent 工作流模板与模板市场 | 只有知识处理模板；Agent 无模板 | `app/services/workflow/catalog.py`、`app/routers/workflows.py`、`web/src/pages/studio` | 模板定义、模板列表/复制、初始画布 | X-P0-1 | M |
+| A-P0-2 ✅ | Agent 工作流模板与模板市场 | P11-S4/S10 已提供三个模板、目录接口与 Studio 创建入口 | `app/services/workflow/catalog.py`、`app/routers/workflows.py`、`web/src/pages/studio` | 模板定义、模板列表/复制、初始画布 | X-P0-1 | M |
 | A-P0-3 ✅ | Agent 工具浏览/测试与 MCP 工具绑定 | P11-S4 已提供工具目录、MCP 发现/绑定与单工具测试 | `app/services/custom_agents.py`（`AGENT_TOOL_NAMES`）、`app/services/agent.py`、`app/tools/*`、`app/routers/mcp_servers.py` | MCP 工具适配为 Agent 工具、工具测试接口/UI、权限校验 | MCP 服务可用 | L |
-| A-P0-4 | 项目文件与多项目 Agent 关联 | 项目仅默认 Agent + KB | `app/services/projects.py`、`app/routers/projects.py`、`app/services/custom_agents.py` | 项目 Agent 列表、项目文件工具、项目作用域权限 | 项目文件中心 | M |
+| A-P0-4 ✅ | 项目文件与多项目 Agent 关联 | P11-S10 已新增项目 Agent/文件关联、会话约束与 `project_files` 工具 | `app/services/projects.py`、`app/routers/projects.py`、`app/services/custom_agents.py` | 项目 Agent 列表、项目文件工具、项目作用域权限 | 项目文件中心 | M |
 
 ### 2.3 知识库
 
@@ -56,7 +57,7 @@
 | K-P0-2 ✅ | 文档增强节点：标题/结构/元数据/关键词/摘要/去重 | P11-S5 已新增过滤/元数据/关键词/摘要/去重节点 | `app/services/knowledge/catalog.py`、`pipeline.py`、`app/services/parsing.py` | 节点实现、LLM/规则增强、错误处理、预览 | 模型调用 | L |
 | K-P0-3 ✅ | 检索节点补齐：元数据过滤、相似度阈值/去重、多 KB 联合检索 | P11-S6 已新增节点级元数据过滤、结果过滤/去重与多 KB 选择 | `app/services/knowledge/retrieval_catalog.py`、`retrieval_pipeline.py`、`app/services/retrieval.py` | 新节点、跨 KB 合并、KB 选择配置 | 检索画布 | L |
 | K-P0-4 ✅ | 知识库运行分析面板 | P11-S6 已新增运行统计 API 与“运行分析”页签 | `app/services/knowledge/metrics.py`、`app/metrics.py`、`app/routers/knowledge_bases.py`、`web/src/pages/knowledge/KnowledgeDetailPage.tsx` | 运行统计 API、失败原因聚合、前端面板 | 无 | M |
-| K-P0-5 | 处理配置对比评测 | 评测只绑定检索工作流 | `app/services/evaluation_runner.py`、`app/routers/evaluations.py`、`KnowledgeEvaluationPage.tsx` | 处理版本/配置维度、对比报告 | K-P0-1/K-P0-2 | M |
+| K-P0-5 ✅ | 处理配置对比评测 | P11-S10 已新增已应用处理版本对比报告（不重跑配置） | `app/services/evaluation_runner.py`、`app/routers/evaluations.py`、`KnowledgeEvaluationPage.tsx` | 处理版本/配置维度、对比报告 | K-P0-1/K-P0-2 | M |
 
 ### 2.4 记忆
 
@@ -67,7 +68,7 @@
 | M-P0-3 ✅ | 记忆版本 diff/变化分析 | P11-S7 已新增字段/内容 diff 与风险标记 | `app/services/memories.py`、`app/routers/memories.py`、`MemoryDetailDialog.tsx` | 快照 diff、变化摘要、风险提示 | 无 | S |
 | M-P0-4 ✅ | 质量建议广度 | P11-S8 已新增孤儿/关系异常/项目缺口/规则提示 | `app/services/memory_quality.py`、`MemoryQualityPanel.tsx` | 图谱优化、项目补充、规则调整、关系异常 | M-P0-1 | M |
 | M-P0-5 ✅ | 更多提取来源 | P11-S8/S8b 已新增项目活动、工作流运行与授权文档来源 | `app/services/memory_extraction.py`、`app/worker.py`、工作流/项目完成钩子 | 项目活动、工作流执行、文档授权提取 | 用户授权与去重 | L |
-| M-P0-6 | 检索过滤维度 | 无时间范围、关系关联检索、按使用场景筛选 | `app/services/memories.py::select_memories/list_memories`、`app/routers/memories.py` | 时间/关系/场景过滤、查询参数与 UI | 图谱关系 | M |
+| M-P0-6 ✅ | 检索过滤维度 | P11-S10 已新增时间/来源/使用场景/关系过滤（列表与选择器） | `app/services/memories.py::select_memories/list_memories`、`app/routers/memories.py` | 时间/关系/场景过滤、查询参数与 UI | 图谱关系 | M |
 
 ## 3. P1：体验与生态
 
@@ -124,6 +125,7 @@
 | P11-S7 ✅ | 记忆仪表盘/生命周期/diff | M-P0-1、M-P0-2、M-P0-3 | 无 |
 | P11-S8 ✅ | 记忆提取来源与质量广度 | M-P0-4、M-P0-5（部分）、M-P1-1/P1-3 | S7 |
 | P11-S9 ✅ | 高级能力评估 | P2-4 LLM 语义矛盾检测；其余 P2 评估后按需/不做 | S5/S6/S8 |
+| P11-S10 ✅ | 剩余 P0 收尾 | A-P0-2/A-P0-4、K-P0-5、M-P0-6 | S9 |
 
 ## 6. 验收基线
 

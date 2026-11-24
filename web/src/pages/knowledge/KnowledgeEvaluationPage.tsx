@@ -13,6 +13,7 @@ import type {
   EvalDataset,
   EvalRun,
   KnowledgeBase,
+  KnowledgeProcessVersionCompare,
   Workflow,
 } from '../../lib/types'
 import { cn } from '../../lib/utils'
@@ -90,6 +91,14 @@ export function KnowledgeEvaluationPage() {
     queryFn: () =>
       apiRequest<{ workflow_version_id: string | null }>(
         `/knowledge-bases/${id}/retrieval/binding`,
+      ),
+    enabled: id !== '',
+  })
+  const processComparison = useQuery({
+    queryKey: ['process-version-compare', id],
+    queryFn: () =>
+      apiRequest<KnowledgeProcessVersionCompare>(
+        `/knowledge-bases/${id}/processing/versions/compare`,
       ),
     enabled: id !== '',
   })
@@ -357,6 +366,89 @@ export function KnowledgeEvaluationPage() {
                 </div>
               ))}
             </div>
+          </section>
+
+          <section className="rounded-card border border-border bg-surface p-4">
+            <h2 className="text-sm font-medium text-ink">
+              {t('knowledgeEval.processing.title')}
+            </h2>
+            <p className="mt-1 text-[11px] text-ink-muted">
+              {t('knowledgeEval.processing.hint')}
+            </p>
+            {(processComparison.data?.versions ?? []).length === 0 ? (
+              <p className="mt-3 text-xs text-ink-muted">
+                {t('knowledgeEval.processing.empty')}
+              </p>
+            ) : (
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full text-left text-[11px]">
+                  <thead className="text-ink-muted">
+                    <tr>
+                      <th className="py-1 pr-3 font-medium">
+                        {t('knowledgeEval.processing.version')}
+                      </th>
+                      <th className="py-1 pr-3 font-medium">
+                        {t('knowledgeEval.processing.documents')}
+                      </th>
+                      <th className="py-1 pr-3 font-medium">
+                        {t('knowledgeEval.processing.chunks')}
+                      </th>
+                      <th className="py-1 pr-3 font-medium">
+                        {t('knowledgeEval.processing.avgChars')}
+                      </th>
+                      <th className="py-1 pr-3 font-medium">
+                        {t('knowledgeEval.processing.metadata')}
+                      </th>
+                      <th className="py-1 pr-3 font-medium">
+                        {t('knowledgeEval.processing.parent')}
+                      </th>
+                      <th className="py-1 pr-3 font-medium">
+                        {t('knowledgeEval.processing.keywords')}
+                      </th>
+                      <th className="py-1 pr-3 font-medium">
+                        {t('knowledgeEval.processing.summary')}
+                      </th>
+                      <th className="py-1 font-medium">
+                        {t('knowledgeEval.processing.duplicates')}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(processComparison.data?.versions ?? []).map((metric) => (
+                      <tr key={metric.version_id} className="border-t border-border">
+                        <td className="py-1 pr-3 text-ink">
+                          {metric.workflow_name} · v{metric.version}
+                        </td>
+                        <td className="py-1 pr-3 text-ink-muted">
+                          {metric.document_count}
+                        </td>
+                        <td className="py-1 pr-3 text-ink-muted">
+                          {metric.chunk_count}
+                        </td>
+                        <td className="py-1 pr-3 text-ink-muted">
+                          {metric.avg_chunk_chars.toFixed(1)}
+                        </td>
+                        <td className="py-1 pr-3 text-ink-muted">
+                          {(metric.metadata_coverage * 100).toFixed(0)}%
+                        </td>
+                        <td className="py-1 pr-3 text-ink-muted">
+                          {(metric.parent_coverage * 100).toFixed(0)}%
+                        </td>
+                        <td className="py-1 pr-3 text-ink-muted">
+                          {(metric.keyword_coverage * 100).toFixed(0)}%
+                        </td>
+                        <td className="py-1 pr-3 text-ink-muted">
+                          {(metric.summary_coverage * 100).toFixed(0)}%
+                        </td>
+                        <td className="py-1 text-ink-muted">
+                          {(metric.duplicate_ratio * 100).toFixed(1)}%
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </section>
 
           {compareRuns.length === 2 && (
