@@ -2359,6 +2359,19 @@ class ConversationBatchOut(BaseModel):
     updated: int
 
 
+class WebSourceOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    citation_index: int
+    title: str
+    site: str
+    url: str
+    snippet: str
+    published_at: str | None = None
+    provider: str = ""
+    retrieved_at: datetime
+
+
 class CitationOut(BaseModel):
     index: int
     document_id: UUID
@@ -2405,6 +2418,7 @@ class MessageOut(BaseModel):
     reply_to_message_id: UUID | None = None
     created_at: datetime
     citations: list[CitationOut] = Field(default_factory=list)
+    web_sources: list[WebSourceOut] = Field(default_factory=list)
     feedback: MessageFeedbackOut | None = None
     attachments: list[AttachmentOut] = Field(default_factory=list)
 
@@ -2568,6 +2582,64 @@ class ChatCapabilitiesOut(BaseModel):
     model_id: str
     capabilities: list[str] = Field(default_factory=list)
     thinking_levels: list[dict[str, object]]
+
+
+class SearchProviderCreate(BaseModel):
+    provider: Literal["tavily", "brave", "serper", "searxng"]
+    name: str = Field(default="", max_length=100)
+    base_url: str | None = Field(default=None, max_length=500)
+    api_key: str | None = Field(default=None, max_length=1000)
+    max_results: int = Field(default=5, ge=1, le=20)
+    timeout_seconds: int = Field(default=15, ge=3, le=60)
+    shared: bool = False
+    enabled: bool = True
+
+    @field_validator("name", "base_url", "api_key", mode="before")
+    @classmethod
+    def strip_search_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class SearchProviderUpdate(BaseModel):
+    name: str | None = Field(default=None, max_length=100)
+    base_url: str | None = Field(default=None, max_length=500)
+    api_key: str | None = Field(default=None, max_length=1000)
+    max_results: int | None = Field(default=None, ge=1, le=20)
+    timeout_seconds: int | None = Field(default=None, ge=3, le=60)
+    shared: bool | None = None
+    enabled: bool | None = None
+    is_default: bool | None = None
+
+    @field_validator("name", "base_url", "api_key", mode="before")
+    @classmethod
+    def strip_search_optional_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class SearchProviderOut(BaseModel):
+    id: UUID
+    provider: str
+    name: str
+    base_url: str
+    api_key_hint: str
+    max_results: int
+    timeout_seconds: int
+    enabled: bool
+    shared: bool
+    is_default: bool
+    owned: bool
+    status: str
+    last_error: str | None
+    last_tested_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SearchProviderTestOut(BaseModel):
+    status: str
+    error_code: str | None
+    message: str
+    result_count: int
 
 
 class MarketModelCreate(BaseModel):

@@ -159,6 +159,43 @@ export interface ChatModesResponse {
   thinking_levels: ThinkingLevel[]
 }
 
+export interface SearchProvider {
+  id: string
+  provider: 'tavily' | 'brave' | 'serper' | 'searxng'
+  name: string
+  base_url: string
+  api_key_hint: string
+  max_results: number
+  timeout_seconds: number
+  enabled: boolean
+  shared: boolean
+  is_default: boolean
+  owned: boolean
+  status: string
+  last_error: string | null
+  last_tested_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface SearchProviderTestResult {
+  status: string
+  error_code: string | null
+  message: string
+  result_count: number
+}
+
+export interface WebSource {
+  citation_index: number
+  title: string
+  site: string
+  url: string
+  snippet: string
+  published_at: string | null
+  provider: string
+  retrieved_at: string
+}
+
 export interface ProviderTestResult {
   status: string
   model_count: number
@@ -1805,6 +1842,7 @@ export interface Message {
   reply_to_message_id?: string | null
   created_at: string
   citations: Citation[]
+  web_sources?: WebSource[]
   feedback?: MessageFeedback | null
   attachments?: ChatAttachment[]
 }

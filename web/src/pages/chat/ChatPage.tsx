@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Archive, Download, MoreHorizontal, Quote, SlidersHorizontal } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useLocation, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { Button } from '../../components/ui/button'
 import { Dialog } from '../../components/ui/dialog'
@@ -40,7 +40,9 @@ import type {
   KnowledgeBase,
   ModelEntry,
   PersonalModel,
+  SearchProvider,
   ThinkingLevel,
+  WebSource,
 } from '../../lib/types'
 import { isModeImplemented, useChatModes } from '../../lib/useChatModes'
 import { ChatSettingsDialog } from './ChatSettingsDialog'
@@ -54,6 +56,8 @@ interface PendingStream {
   user: string
   assistant: string
   citations: Citation[]
+  webSources: WebSource[]
+  stage: string | null
   activity: AgentActivity[]
   attachments: ChatAttachment[]
   status: 'streaming' | 'failed' | 'cancelled'
@@ -92,6 +96,7 @@ export function ChatPage() {
   const [editLaterCount, setEditLaterCount] = useState(0)
   const [cooldown, setCooldown] = useState(0)
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('standard')
+  const [searchProviderId, setSearchProviderId] = useState('')
   const [modeError, setModeError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const activityIdRef = useRef(0)
@@ -122,8 +127,18 @@ export function ChatPage() {
     queryFn: () => apiRequest<PersonalModel[]>('/provider-configs/models'),
     staleTime: 60_000,
   })
+  const searchProviders = useQuery({
+    queryKey: ['search-providers'],
+    queryFn: () => apiRequest<SearchProvider[]>('/search-providers'),
+    staleTime: 60_000,
+  })
+  const enabledSearchProviders = (searchProviders.data ?? []).filter(
+    (item) => item.enabled,
+  )
+  const hasSearchProvider = enabledSearchProviders.length > 0
   const activeMode: ChatMode = conversation.data?.default_mode ?? 'chat'
   const modeImplemented = isModeImplemented(activeMode, chatModes.data)
+  const searchProviderMissing = activeMode === 'web_search' && !hasSearchProvider
   const platformModel = (platformModels.data ?? []).find(
     (model) =>
       model.provider_id === conversation.data?.provider_id &&
@@ -151,6 +166,8 @@ export function ChatPage() {
         user: userContent,
         assistant: '',
         citations: [],
+        webSources: [],
+        stage: null,
         activity: [],
         attachments: pendingAttachments,
         status: 'streaming',
@@ -210,6 +227,19 @@ export function ChatPage() {
           } else if (event.event === 'citation') {
             setPending((prev) =>
               prev ? { ...prev, citations: [...prev.citations, data as unknown as Citation] } : prev,
+            )
+          } else if (event.event === 'web_source') {
+            setPending((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    webSources: [...prev.webSources, data as unknown as WebSource],
+                  }
+                : prev,
+            )
+          } else if (event.event === 'stage') {
+            setPending((prev) =>
+              prev ? { ...prev, stage: String(data.stage ?? '') } : prev,
             )
           } else if (event.event === 'delta') {
             setPending((prev) =>
@@ -273,6 +303,12 @@ export function ChatPage() {
       setInput('')
       const snapshot = attachments
       setAttachments([])
+      const modeMeta: ChatModeMeta = metaOverride ?? {
+        thinking_level: thinkingLevel,
+        ...(activeMode === 'web_search' && searchProviderId !== ''
+          ? { search_provider_id: searchProviderId }
+          : {}),
+      }
       await runStream(
         (signal, onEvent) =>
           streamChat({
@@ -280,7 +316,7 @@ export function ChatPage() {
             content,
             attachmentIds: snapshot.map((item) => item.id),
             mode: activeMode,
-            modeMeta: metaOverride ?? { thinking_level: thinkingLevel },
+            modeMeta,
             signal,
             onEvent,
           }),
@@ -288,7 +324,14 @@ export function ChatPage() {
         snapshot,
       )
     },
-    [activeMode, attachments, conversationId, runStream, thinkingLevel],
+    [
+      activeMode,
+      attachments,
+      conversationId,
+      runStream,
+      searchProviderId,
+      thinkingLevel,
+    ],
   )
 
   const regenerate = useCallback(
@@ -340,6 +383,19 @@ export function ChatPage() {
       setThinkingLevel(latest.mode_meta.thinking_level)
     }
   }, [conversation.data?.id])
+
+  useEffect(() => {
+    const latest = [...(conversation.data?.messages ?? [])]
+      .reverse()
+      .find((message) => message.mode_meta?.search_provider_id !== undefined)
+    const enabled = (searchProviders.data ?? []).filter((item) => item.enabled)
+    const preferred =
+      latest?.mode_meta?.search_provider_id ??
+      enabled.find((item) => item.is_default)?.id ??
+      enabled[0]?.id ??
+      ''
+    if (preferred !== '') setSearchProviderId(preferred)
+  }, [conversation.data?.id, searchProviders.data])
 
   const changeMode = async (next: ChatMode) => {
     if (conversation.data === undefined) return
@@ -552,6 +608,7 @@ export function ChatPage() {
             content: pending.assistant,
             status: pending.status,
             citations: pending.citations,
+            web_sources: pending.webSources,
             agentActivity: pending.activity,
             streaming: pending.status === 'streaming',
             errorCode: pending.errorCode,
@@ -720,6 +777,11 @@ export function ChatPage() {
               onEdit={message.role === 'user' ? openEdit : undefined}
             />
           ))}
+          {pending?.stage !== null && pending?.stage !== undefined && (
+            <p className="text-xs text-ink-muted">
+              {t(`chat.stage_${pending.stage}`)}
+            </p>
+          )}
           {streamMessages.map((message) =>
             message.role === 'assistant' ? (
               <MessageItem
@@ -765,11 +827,19 @@ export function ChatPage() {
               })}
             </p>
           )}
+          {searchProviderMissing && (
+            <p role="alert" className="mb-2 rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
+              {t('chat.searchProviderMissing')}{' '}
+              <Link to="/settings/search" className="underline">
+                {t('chat.searchProviderSettings')}
+              </Link>
+            </p>
+          )}
           <Composer
             value={input}
             onValueChange={setInput}
             onSend={start}
-            disabled={cooldown > 0 || !modeImplemented}
+            disabled={cooldown > 0 || !modeImplemented || searchProviderMissing}
             streaming={pending?.status === 'streaming'}
             onStop={() => abortRef.current?.abort()}
             footerStart={
@@ -807,6 +877,23 @@ export function ChatPage() {
                     ))}
                   </select>
                 </label>
+                {activeMode === 'web_search' && enabledSearchProviders.length > 0 && (
+                  <label className="inline-flex items-center gap-1 text-[11px] text-ink-muted">
+                    <span>{t('chat.searchProvider')}</span>
+                    <select
+                      aria-label={t('chat.searchProvider')}
+                      className="h-6 max-w-40 rounded-md border border-border bg-surface px-1 text-[11px] text-ink"
+                      value={searchProviderId}
+                      onChange={(event) => setSearchProviderId(event.target.value)}
+                    >
+                      {enabledSearchProviders.map((provider) => (
+                        <option key={provider.id} value={provider.id}>
+                          {provider.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
               </>
             }
             attachments={attachments}

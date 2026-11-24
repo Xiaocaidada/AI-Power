@@ -1,4 +1,13 @@
-import { BarChart3, Building2, FileText, KeyRound, Server, UserRound, Webhook } from 'lucide-react'
+import {
+  BarChart3,
+  Building2,
+  FileText,
+  KeyRound,
+  Search,
+  Server,
+  UserRound,
+  Webhook,
+} from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -12,6 +21,12 @@ export function SettingsHubPage() {
       icon: Server,
       title: t('providerHub.title'),
       description: t('settingsHub.providers'),
+    },
+    {
+      to: '/settings/search',
+      icon: Search,
+      title: t('searchProviders.title'),
+      description: t('settingsHub.search'),
     },
     {
       to: '/settings/api-keys',

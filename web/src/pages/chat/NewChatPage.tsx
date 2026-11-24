@@ -6,7 +6,7 @@ import {
   SlidersHorizontal,
 } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
 import {
   THINKING_LEVELS,
@@ -43,6 +43,7 @@ import type {
   Project,
   ProjectAgent,
   PromptTemplate,
+  SearchProvider,
   ThinkingLevel,
 } from '../../lib/types'
 import { Composer } from './Composer'
@@ -89,6 +90,7 @@ export function NewChatPage() {
   const [pluginIds, setPluginIds] = useState<string[]>([])
   const [mode, setMode] = useState<ChatMode>('chat')
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('standard')
+  const [searchProviderId, setSearchProviderId] = useState('')
   const [confirmSensitive, setConfirmSensitive] = useState(false)
   const [templateId, setTemplateId] = useState('')
   const [variables, setVariables] = useState<Record<string, string>>({})
@@ -135,6 +137,11 @@ export function NewChatPage() {
   const templatesQuery = useQuery({
     queryKey: ['prompt-templates'],
     queryFn: () => apiRequest<PromptTemplate[]>('/prompt-templates'),
+    staleTime: 60_000,
+  })
+  const searchProvidersQuery = useQuery({
+    queryKey: ['search-providers'],
+    queryFn: () => apiRequest<SearchProvider[]>('/search-providers'),
     staleTime: 60_000,
   })
 
@@ -187,6 +194,11 @@ export function NewChatPage() {
   const modeLockedByAgent = customAgentId !== '' || pluginIds.length > 0
   const effectiveMode: ChatMode = modeLockedByAgent ? 'agent' : mode
   const modeImplemented = isModeImplemented(effectiveMode, chatModesQuery.data)
+  const enabledSearchProviders = (searchProvidersQuery.data ?? []).filter(
+    (item) => item.enabled,
+  )
+  const searchProviderMissing =
+    effectiveMode === 'web_search' && enabledSearchProviders.length === 0
   const supportedThinking =
     modelId === 'auto' || modelId === 'project' || modelId === 'agent'
       ? (['standard'] as ThinkingLevel[])
@@ -196,6 +208,13 @@ export function NewChatPage() {
     const next = normalizeThinkingLevel(thinkingLevel, supportedThinking)
     if (next !== thinkingLevel) setThinkingLevel(next)
   }, [supportedThinking, thinkingLevel])
+
+  useEffect(() => {
+    const enabled = (searchProvidersQuery.data ?? []).filter((item) => item.enabled)
+    const preferred =
+      enabled.find((item) => item.is_default)?.id ?? enabled[0]?.id ?? ''
+    if (preferred !== '') setSearchProviderId(preferred)
+  }, [searchProvidersQuery.data])
 
   useEffect(() => {
     if (appliedQueryRef.current || initialProvider === null || initialModel === null) return
@@ -259,7 +278,12 @@ export function NewChatPage() {
 
   const send = async (content: string) => {
     setError(null)
-    const modeMeta: ChatModeMeta = { thinking_level: thinkingLevel }
+    const modeMeta: ChatModeMeta = {
+      thinking_level: thinkingLevel,
+      ...(effectiveMode === 'web_search' && searchProviderId !== ''
+        ? { search_provider_id: searchProviderId }
+        : {}),
+    }
     const body: Record<string, unknown> = {
       prompt_version_id: selectedVersion?.id ?? null,
       prompt_variables: selectedVersion !== undefined ? variables : {},
@@ -436,7 +460,7 @@ export function NewChatPage() {
             value={value}
             onValueChange={setValue}
             onSend={send}
-            disabled={!canChat}
+            disabled={!canChat || searchProviderMissing}
             size="hero"
             autoFocus
             footerStart={modelSelect}
@@ -527,6 +551,14 @@ export function NewChatPage() {
             {t('chat.modePlannedNotice', {
               mode: t(modeLabelKey(effectiveMode)),
             })}
+          </p>
+        )}
+        {searchProviderMissing && (
+          <p className="mt-3 rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
+            {t('chat.searchProviderMissing')}{' '}
+            <Link to="/settings/search" className="underline">
+              {t('chat.searchProviderSettings')}
+            </Link>
           </p>
         )}
 
@@ -630,6 +662,30 @@ export function NewChatPage() {
             </div>
           )}
 
+          {effectiveMode === 'web_search' && (
+            <Field label={t('chat.searchProvider')}>
+              {enabledSearchProviders.length === 0 ? (
+                <p className="text-xs text-warning">
+                  {t('chat.searchProviderMissing')}{' '}
+                  <Link to="/settings/search" className="underline">
+                    {t('chat.searchProviderSettings')}
+                  </Link>
+                </p>
+              ) : (
+                <select
+                  className={selectClass}
+                  value={searchProviderId}
+                  onChange={(event) => setSearchProviderId(event.target.value)}
+                >
+                  {enabledSearchProviders.map((provider) => (
+                    <option key={provider.id} value={provider.id}>
+                      {provider.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+          )}
           <Field label={t('chat.thinkingLevel')}>
             <select
               className={selectClass}

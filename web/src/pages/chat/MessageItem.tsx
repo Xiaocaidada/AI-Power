@@ -1,6 +1,7 @@
 import {
   Check,
   Copy,
+  ExternalLink,
   FileText,
   Image as ImageIcon,
   Pencil,
@@ -25,6 +26,7 @@ import type {
   Citation,
   MessageFeedback,
   MessageMemoryRef,
+  WebSource,
 } from '../../lib/types'
 
 export interface DisplayMessage {
@@ -42,6 +44,7 @@ export interface DisplayMessage {
   request_id?: string | null
   mode?: ChatMode
   mode_meta?: ChatModeMeta
+  web_sources?: WebSource[]
   memory_refs?: MessageMemoryRef[]
   reply_to_message_id?: string | null
   feedback?: MessageFeedback | null
@@ -234,6 +237,40 @@ export function MessageItem({
           <Quote className="h-3 w-3" />
           {t('chat.citations')} {message.citations.length}
         </button>
+      )}
+
+      {(message.web_sources?.length ?? 0) > 0 && (
+        <div className="rounded-xl border border-border bg-surface-muted/30 px-3 py-2">
+          <p className="text-[11px] font-medium text-ink-muted">
+            {t('chat.webSources')}
+          </p>
+          <ol className="mt-1.5 space-y-1">
+            {(message.web_sources ?? []).map((source) => (
+              <li key={`${source.url}-${source.citation_index}`} className="text-xs">
+                <a
+                  href={source.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-start gap-1 text-ink hover:text-accent"
+                >
+                  <span className="shrink-0 text-ink-muted">
+                    [{source.citation_index}]
+                  </span>
+                  <span className="min-w-0">
+                    <span className="line-clamp-1">{source.title || source.url}</span>
+                    <span className="ml-1 text-[10px] text-ink-muted">
+                      {source.site}
+                      {source.published_at !== null
+                        ? ` · ${source.published_at}`
+                        : ''}
+                    </span>
+                  </span>
+                  <ExternalLink className="mt-0.5 h-3 w-3 shrink-0 text-ink-muted" />
+                </a>
+              </li>
+            ))}
+          </ol>
+        </div>
       )}
 
       {message.content !== '' && (

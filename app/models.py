@@ -1159,6 +1159,40 @@ class ProviderModel(Base):
     )
 
 
+class SearchProviderConfig(Base):
+    __tablename__ = "search_provider_configs"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    owner_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    provider: Mapped[str] = mapped_column(String(30))
+    name: Mapped[str] = mapped_column(String(100))
+    base_url: Mapped[str] = mapped_column(String(500), default="")
+    api_key_encrypted: Mapped[str] = mapped_column(String(1000), default="")
+    api_key_hint: Mapped[str] = mapped_column(String(20), default="")
+    max_results: Mapped[int] = mapped_column(Integer, default=5)
+    timeout_seconds: Mapped[int] = mapped_column(Integer, default=15)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    shared: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[str] = mapped_column(String(20), default="unknown")
+    last_error: Mapped[str | None] = mapped_column(String(200), default=None)
+    last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+    __table_args__ = (
+        Index("ix_search_provider_configs_workspace_deleted", "workspace_id", "deleted_at"),
+    )
+
+
 class MarketModel(Base):
     __tablename__ = "market_models"
 
@@ -1319,6 +1353,32 @@ class MessageCitation(Base):
 
     __table_args__ = (
         UniqueConstraint("message_id", "citation_index", name="uq_message_citations_message_index"),
+    )
+
+
+class MessageWebSource(Base):
+    __tablename__ = "message_web_sources"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    message_id: Mapped[UUID] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), index=True
+    )
+    citation_index: Mapped[int] = mapped_column(Integer)
+    title: Mapped[str] = mapped_column(String(500), default="")
+    site: Mapped[str] = mapped_column(String(200), default="")
+    url: Mapped[str] = mapped_column(String(1000))
+    snippet: Mapped[str] = mapped_column(Text, default="")
+    published_at: Mapped[str | None] = mapped_column(String(80), default=None)
+    provider: Mapped[str] = mapped_column(String(30), default="")
+    provider_config_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("search_provider_configs.id", ondelete="SET NULL"), default=None
+    )
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "message_id", "citation_index", name="uq_message_web_sources_message_index"
+        ),
     )
 
 

@@ -38,6 +38,7 @@ from app.models import (
     Message,
     MessageCitation,
     MessageFeedback,
+    MessageWebSource,
     Project,
     Trace,
 )
@@ -63,6 +64,7 @@ from app.schemas import (
     MessageUpdateIn,
     PluginCallOut,
     SendMessageIn,
+    WebSourceOut,
 )
 from app.services.access import get_owned_knowledge_base
 from app.services.agent import AgentFailure, AgentRunner
@@ -80,6 +82,7 @@ from app.services.attachments import (
 from app.services.budget import check_workspace_budget
 from app.services.chat_modes import (
     CHAT_MODE_AGENT,
+    CHAT_MODE_WEB_SEARCH,
     ChatModeError,
     normalize_mode,
     resolve_model_capabilities,
@@ -119,7 +122,16 @@ from app.services.quotas import add_token_usage, enforce_quota
 from app.services.rag import build_rag_messages, fit_context
 from app.services.retrieval import Citation, build_citations, retrieve_chunks
 from app.services.routing import record_failure, reset_failures, route_candidates
+from app.services.search_providers import SearchProviderError, resolve_search_config
 from app.services.usage_ledger import SOURCE_CHAT, write_usage_event
+from app.services.web_search import (
+    SearchRuntimeConfig,
+    WebSearchError,
+    build_web_search_messages,
+    generate_search_queries,
+    result_payload,
+    search_multi,
+)
 from app.services.webhooks import enqueue_event
 from app.tools.base import ToolContext, ToolRegistry
 
@@ -435,6 +447,7 @@ async def _stream_reply(
     api_key_id: UUID | None = None,
     mode: str = "chat",
     mode_meta: dict[str, object] | None = None,
+    emit_meta: bool = True,
 ) -> AsyncIterator[str]:
     parts: list[str] = []
     usage: Usage | None = None
@@ -450,17 +463,18 @@ async def _stream_reply(
             )
 
     try:
-        yield _sse(
-            "meta",
-            {
-                "message_id": str(assistant_id),
-                "provider": provider.id,
-                "model": model,
-                "conversation_id": str(conversation_id),
-                "mode": mode,
-                "mode_meta": mode_meta or {},
-            },
-        )
+        if emit_meta:
+            yield _sse(
+                "meta",
+                {
+                    "message_id": str(assistant_id),
+                    "provider": provider.id,
+                    "model": model,
+                    "conversation_id": str(conversation_id),
+                    "mode": mode,
+                    "mode_meta": mode_meta or {},
+                },
+            )
         for citation in citations:
             yield _sse(
                 "citation",
@@ -585,6 +599,124 @@ async def _stream_reply(
             redis=redis,
             api_key_id=api_key_id,
         )
+
+
+async def _stream_web_search_reply(
+    *,
+    provider: LLMProvider,
+    search_config: SearchRuntimeConfig,
+    query: str,
+    conversation_id: UUID,
+    assistant_id: UUID,
+    history: list[ChatMessage],
+    model: str,
+    workspace_id: UUID,
+    opts: dict[str, object] | None = None,
+    redis: RedisLike | None = None,
+    trace_id: UUID | None = None,
+    started: float | None = None,
+    api_key_id: UUID | None = None,
+    mode_meta: dict[str, object] | None = None,
+) -> AsyncIterator[str]:
+    yield _sse(
+        "meta",
+        {
+            "message_id": str(assistant_id),
+            "provider": provider.id,
+            "model": model,
+            "conversation_id": str(conversation_id),
+            "mode": CHAT_MODE_WEB_SEARCH,
+            "mode_meta": mode_meta or {},
+        },
+    )
+    yield _sse(
+        "stage",
+        {
+            "stage": "searching",
+            "provider": search_config.provider,
+            "config_id": str(search_config.id),
+            "query_count": len(generate_search_queries(query)),
+        },
+    )
+    try:
+        results = await search_multi(search_config, query, limit=search_config.max_results)
+    except WebSearchError as exc:
+        yield _sse("stage", {"stage": "search_failed", "code": exc.code})
+        yield _sse("error", {"code": exc.code, "message": exc.message})
+        if trace_id is not None:
+            await _update_trace(
+                trace_id,
+                status="failed",
+                error_code=exc.code,
+                total_ms=(
+                    round((time.perf_counter() - started) * 1000, 1)
+                    if started is not None
+                    else None
+                ),
+            )
+        await _finalize(
+            assistant_id,
+            "",
+            "failed",
+            None,
+            workspace_id,
+            redis=redis,
+            api_key_id=api_key_id,
+        )
+        return
+
+    retrieved_at = datetime.now(UTC)
+    if results:
+        try:
+            async with SessionLocal() as source_session:
+                source_session.add_all(
+                    [
+                        MessageWebSource(
+                            message_id=assistant_id,
+                            citation_index=index,
+                            title=item.title,
+                            site=item.site,
+                            url=item.url,
+                            snippet=item.snippet,
+                            published_at=item.published_at,
+                            provider=search_config.provider,
+                            provider_config_id=search_config.id,
+                            retrieved_at=retrieved_at,
+                        )
+                        for index, item in enumerate(results, start=1)
+                    ]
+                )
+                await source_session.commit()
+        except Exception:
+            logger.warning(
+                "failed to persist web sources for message %s",
+                assistant_id,
+                exc_info=True,
+            )
+    for index, item in enumerate(results, start=1):
+        yield _sse("web_source", result_payload(index, item))
+    yield _sse(
+        "stage",
+        {"stage": "answering", "provider": search_config.provider, "count": len(results)},
+    )
+    messages = build_web_search_messages(history, results)
+    async for event in _stream_reply(
+        provider=provider,
+        conversation_id=conversation_id,
+        assistant_id=assistant_id,
+        history=messages,
+        model=model,
+        workspace_id=workspace_id,
+        opts=opts,
+        redis=redis,
+        trace_id=trace_id,
+        started=started,
+        api_key_id=api_key_id,
+        mode=CHAT_MODE_WEB_SEARCH,
+        mode_meta=mode_meta,
+        emit_meta=False,
+    ):
+        yield event
 
 
 async def _stream_agent_reply(
@@ -1202,6 +1334,18 @@ async def _conversation_detail(
     if not kb_ids and conversation.kb_id is not None:
         kb_ids = [conversation.kb_id]
 
+    web_sources_by_message: dict[UUID, list[MessageWebSource]] = defaultdict(list)
+    if messages:
+        web_rows = (
+            await session.execute(
+                select(MessageWebSource)
+                .where(MessageWebSource.message_id.in_([message.id for message in messages]))
+                .order_by(MessageWebSource.message_id, MessageWebSource.citation_index)
+            )
+        ).scalars()
+        for source in web_rows:
+            web_sources_by_message[source.message_id].append(source)
+
     plugin_rows = await list_conversation_plugins(session, conversation.id)
     base = ConversationOut.model_validate(conversation).model_dump()
     base["kb_ids"] = kb_ids
@@ -1231,6 +1375,10 @@ async def _conversation_detail(
                         for citation in citations_by_message.get(message.id, [])
                     ],
                     "feedback": feedback_by_message.get(message.id),
+                    "web_sources": [
+                        WebSourceOut.model_validate(item)
+                        for item in web_sources_by_message.get(message.id, [])
+                    ],
                     "attachments": [
                         AttachmentOut.model_validate(item)
                         for item in attachment_map.get(message.id, [])
@@ -1781,6 +1929,34 @@ async def _start_chat_turn(
     except ChatModeError as exc:
         _raise_chat_mode_error(exc)
 
+    search_config = None
+    if turn_mode == CHAT_MODE_WEB_SEARCH:
+        try:
+            search_config = await resolve_search_config(
+                session,
+                workspace_id=context.workspace.id,
+                user_id=context.user.id,
+                config_id=turn_meta.get("search_provider_id"),
+            )
+        except SearchProviderError as exc:
+            status_code = (
+                status.HTTP_404_NOT_FOUND
+                if exc.code == "not_found"
+                else status.HTTP_409_CONFLICT
+                if exc.code == "provider_disabled"
+                else status.HTTP_422_UNPROCESSABLE_CONTENT
+            )
+            raise HTTPException(status_code, {"code": exc.code, "message": exc.message}) from None
+        search_config = SearchRuntimeConfig(
+            id=search_config.id,
+            provider=search_config.provider,
+            base_url=search_config.base_url,
+            api_key_encrypted=search_config.api_key_encrypted,
+            max_results=search_config.max_results,
+            timeout_seconds=search_config.timeout_seconds,
+        )
+        turn_meta = {**turn_meta, "search_provider_id": str(search_config.id)}
+
     history_conditions = [
         Message.conversation_id == conversation.id,
         Message.status.in_(("completed", "cancelled")),
@@ -1865,7 +2041,7 @@ async def _start_chat_turn(
 
     citations: list[Citation] = []
     conversation_kbs = await _conversation_kb_ids(session, conversation)
-    if conversation_kbs and not conversation.agent:
+    if conversation_kbs and not conversation.agent and turn_mode != CHAT_MODE_WEB_SEARCH:
         retrieval_started = time.perf_counter()
         try:
             retrieved = await retrieve_chunks(
@@ -1900,6 +2076,22 @@ async def _start_chat_turn(
     if provider is None and conversation.agent:
         candidates = await route_candidates(session, registry, redis)
         for provider_id, candidate_model in candidates:
+            try:
+                provider = registry.get(provider_id)
+            except ProviderError:
+                continue
+            routed_model = candidate_model
+            break
+        if provider is None:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                {
+                    "code": "no_provider_available",
+                    "message": "No provider is currently available",
+                },
+            )
+    elif provider is None and turn_mode == CHAT_MODE_WEB_SEARCH:
+        for provider_id, candidate_model in await route_candidates(session, registry, redis):
             try:
                 provider = registry.get(provider_id)
             except ProviderError:
@@ -2154,6 +2346,24 @@ async def _start_chat_turn(
             project_id=conversation.project_id,
             memory_access=agent_access,
             mode=turn_mode,
+            mode_meta=turn_meta,
+        )
+    elif turn_mode == CHAT_MODE_WEB_SEARCH:
+        assert search_config is not None
+        response_stream = _stream_web_search_reply(
+            provider=provider,
+            search_config=search_config,
+            query=content,
+            conversation_id=conversation.id,
+            assistant_id=assistant_message.id,
+            history=chat_history,
+            model=routed_model,
+            workspace_id=context.workspace.id,
+            opts=opts,
+            redis=redis,
+            trace_id=trace.id,
+            started=started,
+            api_key_id=context.api_key_id,
             mode_meta=turn_meta,
         )
     else:
