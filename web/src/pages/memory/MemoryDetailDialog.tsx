@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react'
+import { GitCompare, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 
 import { Badge } from '../../components/ui/badge'
@@ -9,7 +9,12 @@ import { Spinner } from '../../components/ui/spinner'
 import { errorTextKey } from '../../lib/errorText'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
-import type { AgentMemory, MemoryRelation, MemoryVersion } from '../../lib/types'
+import type {
+  AgentMemory,
+  MemoryRelation,
+  MemoryVersion,
+  MemoryVersionDiff,
+} from '../../lib/types'
 
 interface MemoryDetailDialogProps {
   memory: AgentMemory | null
@@ -31,6 +36,7 @@ export function MemoryDetailDialog({
   const [relationType, setRelationType] = useState('related')
   const [basis, setBasis] = useState('')
   const [savingRelation, setSavingRelation] = useState(false)
+  const [diffVersion, setDiffVersion] = useState<number | null>(null)
   const versions = useQuery({
     queryKey: ['memory-versions', memoryId],
     queryFn: () => apiRequest<MemoryVersion[]>(`/memories/${memoryId}/versions`),
@@ -45,6 +51,15 @@ export function MemoryDetailDialog({
     queryKey: ['memories', 'relation-targets'],
     queryFn: () => apiRequest<AgentMemory[]>('/memories?status=active&limit=100'),
     enabled: memoryId !== '',
+  })
+  const versionDiff = useQuery({
+    queryKey: ['memory-diff', memoryId, diffVersion],
+    queryFn: () =>
+      apiRequest<MemoryVersionDiff>(
+        `/memories/${memoryId}/versions/diff?to_version=${diffVersion}`,
+      ),
+    enabled: memoryId !== '' && diffVersion !== null,
+    retry: false,
   })
 
   if (memory === null) return null
@@ -295,11 +310,21 @@ export function MemoryDetailDialog({
                   <span className="text-ink-muted">
                     {new Date(version.created_at).toLocaleString()}
                   </span>
-                  {version.version !== memory.version && (
+                  {version.version > 1 && (
                     <Button
                       size="sm"
                       variant="ghost"
                       className="ml-auto"
+                      onClick={() => setDiffVersion(version.version)}
+                    >
+                      <GitCompare className="h-3 w-3" />
+                      {t('memory.diff.compare')}
+                    </Button>
+                  )}
+                  {version.version !== memory.version && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
                       onClick={() => void restore(version.version)}
                     >
                       <RotateCcw className="h-3 w-3" />
@@ -309,6 +334,63 @@ export function MemoryDetailDialog({
                 </li>
               ))}
             </ul>
+          )}
+          {diffVersion !== null && (
+            <div className="mt-3 rounded-lg border border-border bg-surface-muted p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-xs font-medium text-ink">
+                  {t('memory.diff.title')} v{versionDiff.data?.from_version ?? '–'} → v
+                  {versionDiff.data?.to_version ?? diffVersion}
+                </p>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="ml-auto"
+                  onClick={() => setDiffVersion(null)}
+                >
+                  {t('common.close')}
+                </Button>
+              </div>
+              {versionDiff.isLoading && <Spinner className="mt-2" />}
+              {versionDiff.isError && (
+                <p className="mt-2 text-[11px] text-danger">
+                  {t('memory.diff.loadError')}
+                </p>
+              )}
+              {versionDiff.data !== undefined && (
+                <div className="mt-2 space-y-2">
+                  {versionDiff.data.risk_flags.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {versionDiff.data.risk_flags.map((flag) => (
+                        <Badge key={flag} tone="warning">
+                          {t(`memory.diff.risk.${flag}`)}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                  {versionDiff.data.changes.length === 0 ? (
+                    <p className="text-[11px] text-ink-muted">
+                      {t('memory.diff.noChanges')}
+                    </p>
+                  ) : (
+                    <ul className="space-y-1 text-[11px] text-ink-muted">
+                      {versionDiff.data.changes.map((change) => (
+                        <li key={change.field}>
+                          <span className="font-mono text-ink">{change.field}</span>:{' '}
+                          {JSON.stringify(change.before)} →{' '}
+                          {JSON.stringify(change.after)}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {versionDiff.data.content_diff !== '' && (
+                    <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-surface p-2 text-[10px] text-ink">
+                      {versionDiff.data.content_diff}
+                    </pre>
+                  )}
+                </div>
+              )}
+            </div>
           )}
         </section>
       </div>

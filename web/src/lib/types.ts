@@ -682,6 +682,7 @@ export interface AgentMemory {
   favorite: boolean
   tags: string[]
   valid_until: string | null
+  retention_days?: number | null
   use_count: number
   version: number
   metadata: Record<string, unknown>
@@ -713,6 +714,27 @@ export interface MemoryCandidate {
   reviewed_at: string | null
 }
 
+export interface MemoryCompleteness {
+  average_score: number
+  complete: number
+  partial: number
+  sparse: number
+}
+
+export interface MemoryUsageModel {
+  provider_id: string
+  model: string
+  count: number
+  injected_chars: number
+}
+
+export interface MemoryUsageRef {
+  agent_id?: string | null
+  project_id?: string | null
+  context_id?: string | null
+  count: number
+}
+
 export interface MemoryStats {
   total: number
   active: number
@@ -723,8 +745,53 @@ export interface MemoryStats {
   archived: number
   by_category: Record<string, number>
   by_scope: Record<string, number>
+  by_status?: Record<string, number>
+  by_source?: Record<string, number>
+  completeness?: MemoryCompleteness
+  retention_days?: number | null
+  expiring_soon?: number
+  stale?: number
+  active_chars?: number
+  usage_total?: number
+  usage_chars?: number
+  usage_by_model?: MemoryUsageModel[]
+  usage_by_context?: Record<string, number>
+  usage_by_agent?: MemoryUsageRef[]
+  usage_by_project?: MemoryUsageRef[]
+  usage_by_conversation?: MemoryUsageRef[]
   recent: AgentMemory[]
   top_used: AgentMemory[]
+}
+
+export interface MemoryLifecycleItem {
+  id: string
+  title: string
+  updated_at: string
+  retention_days: number
+}
+
+export interface MemoryLifecycle {
+  retention_days: number | null
+  expiring_count: number
+  items: MemoryLifecycleItem[]
+}
+
+export interface MemoryDiffChange {
+  field: string
+  before: unknown
+  after: unknown
+}
+
+export interface MemoryVersionDiff {
+  from_version: number
+  to_version: number
+  from_created_at: string
+  to_created_at: string
+  from_reason: string
+  to_reason: string
+  changes: MemoryDiffChange[]
+  content_diff: string
+  risk_flags: string[]
 }
 
 export interface MemorySettings {

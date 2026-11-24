@@ -23,6 +23,7 @@
 - 2026-11-24：P11-S4 完成，A-P0-1（模型参数）、A-P0-3（工具/MCP 浏览、测试与绑定）、A-P1-1（封面/发布者/官方筛选）与 A-P1-2（Agent 模板）已落地，见 [p11-s4-agent-tools.md](../tdd/p11-s4-agent-tools.md)。
 - 2026-11-24：P11-S5 完成，K-P0-1（自定义/父子/语义切片与元数据保留）、K-P0-2（过滤/元数据/关键词/摘要/去重节点）已落地；K-P1-1 完成文本过滤与新节点库，OCR/格式专用解析/独立索引模式仍为边界。见 [p11-s5-knowledge-nodes.md](../tdd/p11-s5-knowledge-nodes.md)。另修复知识处理/检索画布空白页（hooks 顺序）并新增回归 E2E。
 - 2026-11-24：P11-S6 完成，K-P0-3（元数据过滤、结果过滤/去重、多 KB 检索）、K-P0-4（处理运行分析）已落地；K-P1-2 完成多查询与空结果回退，意图/分类/同义词扩展仍为边界。见 [p11-s6-retrieval-analytics.md](../tdd/p11-s6-retrieval-analytics.md)。同时修复自定义检索工作流的父块展开边界。
+- 2026-11-24：P11-S7 完成，M-P0-1（完整度/使用聚合）、M-P0-2（保留策略执行/blocked topic 统一拦截）、M-P0-3（版本 diff/风险提示）已落地。见 [p11-s7-memory-lifecycle.md](../tdd/p11-s7-memory-lifecycle.md)。
 
 ## 2. P0：下一阶段必须补齐
 
@@ -58,9 +59,9 @@
 
 | ID | 缺口 | 现状 | 代码入口 | 改动范围 | 依赖 | 规模 |
 |---|---|---|---|---|---|---|
-| M-P0-1 | 记忆完整度与使用聚合 | 总览有计数；缺完整度分析、按模型/Agent/项目/会话聚合 | `app/services/memories.py::memory_stats`、`app/routers/memories.py`、`MemoryPage.tsx` | 聚合查询、完整度维度、前端图表 | 无 | M |
-| M-P0-2 | 生命周期策略执行 | `retention_days` 未执行；无按记忆更新策略；`blocked_topics` 只在提取链路 | `app/services/memories.py`、`memory_extraction.py`、`app/worker.py` | 创建/更新统一拦截、过期清理任务、策略字段 | 无 | M |
-| M-P0-3 | 记忆版本 diff/变化分析 | 只有版本列表与恢复 | `app/services/memories.py`、`app/routers/memories.py`、`MemoryDetailDialog.tsx` | 快照 diff、变化摘要、风险提示 | 无 | S |
+| M-P0-1 ✅ | 记忆完整度与使用聚合 | P11-S7 已新增完整度评分与按模型/Agent/项目/会话聚合 | `app/services/memories.py::memory_stats`、`app/routers/memories.py`、`MemoryPage.tsx` | 聚合查询、完整度维度、前端图表 | 无 | M |
+| M-P0-2 ✅ | 生命周期策略执行 | P11-S7 已新增单条保留覆盖、每日过期任务与 blocked topic 统一拦截 | `app/services/memories.py`、`memory_extraction.py`、`app/worker.py` | 创建/更新统一拦截、过期清理任务、策略字段 | 无 | M |
+| M-P0-3 ✅ | 记忆版本 diff/变化分析 | P11-S7 已新增字段/内容 diff 与风险标记 | `app/services/memories.py`、`app/routers/memories.py`、`MemoryDetailDialog.tsx` | 快照 diff、变化摘要、风险提示 | 无 | S |
 | M-P0-4 | 质量建议广度 | 只覆盖重复/冲突/过期/未用/分类 | `app/services/memory_quality.py`、`MemoryQualityPanel.tsx` | 图谱优化、项目补充、规则调整、关系异常 | M-P0-1 | M |
 | M-P0-5 | 更多提取来源 | 主要来自聊天消息 | `app/services/memory_extraction.py`、`app/worker.py`、工作流/项目完成钩子 | 项目活动、工作流执行、文档授权提取 | 用户授权与去重 | L |
 | M-P0-6 | 检索过滤维度 | 无时间范围、关系关联检索、按使用场景筛选 | `app/services/memories.py::select_memories/list_memories`、`app/routers/memories.py` | 时间/关系/场景过滤、查询参数与 UI | 图谱关系 | M |
@@ -117,7 +118,7 @@
 | P11-S4 ✅ | Agent 配置与工具生态 | A-P0-1、A-P0-3、A-P1-1/P1-2 | S1 |
 | P11-S5 ✅ | 知识处理节点扩展 | K-P0-1、K-P0-2、K-P1-1（部分） | S1 |
 | P11-S6 ✅ | 知识检索/多 KB/运行分析 | K-P0-3、K-P0-4、K-P1-2（部分） | S5 |
-| P11-S7 | 记忆仪表盘/生命周期/diff | M-P0-1、M-P0-2、M-P0-3 | 无 |
+| P11-S7 ✅ | 记忆仪表盘/生命周期/diff | M-P0-1、M-P0-2、M-P0-3 | 无 |
 | P11-S8 | 记忆提取来源与质量广度 | M-P0-4、M-P0-5、M-P1-1/P1-3 | S7 |
 | P11-S9 | 高级能力评估 | P2 项按需 | S5/S6/S8 |
 

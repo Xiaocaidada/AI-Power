@@ -18,6 +18,7 @@ from app.schemas import (
     MemoryGraphOut,
     MemoryGraphRebuildOut,
     MemoryIn,
+    MemoryLifecycleOut,
     MemoryOptimizationOut,
     MemoryOut,
     MemoryQualityOut,
@@ -28,6 +29,7 @@ from app.schemas import (
     MemoryStatsOut,
     MemoryUpdate,
     MemoryUsageOut,
+    MemoryVersionDiffOut,
     MemoryVersionOut,
 )
 from app.services.memories import (
@@ -45,10 +47,12 @@ from app.services.memories import (
     list_memory_versions,
     memory_stats,
     restore_memory_version,
+    retention_preview,
     update_memory,
     update_memory_settings,
     validate_memory_targets,
 )
+from app.services.memory_diff import MemoryDiffError, diff_memory_versions
 from app.services.memory_eval import (
     MemoryEvalError,
     create_case,
@@ -201,6 +205,7 @@ async def create_workspace_memory(
             pinned=payload.pinned,
             favorite=payload.favorite,
             valid_until=payload.valid_until,
+            retention_days=payload.retention_days,
             metadata=payload.metadata,
         )
     except MemoryError as exc:
@@ -599,6 +604,17 @@ async def list_memory_eval_runs(
     return [MemoryEvalRunOut.model_validate(row) for row in rows]
 
 
+@router.get("/lifecycle", response_model=MemoryLifecycleOut)
+async def get_memory_lifecycle(
+    context: JwtContext, session: SessionDep
+) -> MemoryLifecycleOut:
+    preview = await retention_preview(
+        session, context.workspace.id, context.user.id
+    )
+    await session.commit()
+    return MemoryLifecycleOut.model_validate(preview)
+
+
 @router.get("/{memory_id}", response_model=MemoryOut)
 async def get_memory_endpoint(
     memory_id: UUID, context: JwtContext, session: SessionDep
@@ -643,6 +659,7 @@ async def update_workspace_memory(
             sensitivity=payload.sensitivity,
             confidence=payload.confidence,
             valid_until=payload.valid_until,
+            retention_days=payload.retention_days,
             metadata=payload.metadata,
             change_reason=payload.change_reason,
             changed_by=context.user.id,
@@ -681,6 +698,39 @@ async def list_versions(
         raise _error(exc) from None
     rows = await list_memory_versions(session, memory)
     return [MemoryVersionOut.model_validate(row) for row in rows]
+
+
+@router.get(
+    "/{memory_id}/versions/diff",
+    response_model=MemoryVersionDiffOut,
+)
+async def diff_versions(
+    memory_id: UUID,
+    context: JwtContext,
+    session: SessionDep,
+    from_version: Annotated[int | None, Query(ge=1)] = None,
+    to_version: Annotated[int | None, Query(ge=1)] = None,
+) -> MemoryVersionDiffOut:
+    try:
+        memory = await get_memory(
+            session, context.workspace.id, context.user.id, memory_id
+        )
+        result = await diff_memory_versions(
+            session,
+            memory,
+            from_version=from_version,
+            to_version=to_version,
+        )
+    except MemoryError as exc:
+        raise _error(exc) from None
+    except MemoryDiffError as exc:
+        code = (
+            status.HTTP_404_NOT_FOUND
+            if exc.code == "not_found"
+            else status.HTTP_422_UNPROCESSABLE_CONTENT
+        )
+        raise HTTPException(code, {"code": exc.code, "message": exc.message}) from None
+    return MemoryVersionDiffOut.model_validate(result)
 
 
 @router.post("/{memory_id}/versions/{version}/restore", response_model=MemoryOut)
