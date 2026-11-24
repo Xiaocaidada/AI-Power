@@ -70,6 +70,7 @@
 
 - K-P1-2 仅部分完成：未新增意图识别/分类路由、同义词扩展、查询去重；目标：后续知识检索增强切片（未排期）。
 - 多 KB 检索使用第一个 KB 的 Embedding/Rerank 配置；不同 Embedding 维度的 KB 不能混合检索。目标：跨模型多 KB 检索（未排期）。
+- 搜索节点的 `kb_ids` 在执行时会校验工作区归属，缺失或不可访问返回 `invalid_knowledge_base`；`metadata_filter` 的键限制为 `[A-Za-z0-9_.-]`，防止 JSONPath 注入。
 - `multi_query` 的变体解析按行文本处理，不解析 JSON 数组。
 - 运行分析最多采样最近 1000 条运行，不做长期趋势存储。
 - 结果过滤的 `min_rerank_score`/`min_fused_score` 只对已有对应分数的结果生效。

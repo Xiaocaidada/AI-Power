@@ -2,6 +2,9 @@ import time
 from dataclasses import dataclass, field
 from uuid import UUID
 
+from sqlalchemy import select
+
+from app.models import KnowledgeBase
 from app.providers.base import ChatMessage, ProviderError
 from app.providers.registry import ProviderRegistry
 from app.services.knowledge.retrieval_schema import (
@@ -170,7 +173,11 @@ async def run_retrieval_workflow(
                     raise RetrievalWorkflowError(
                         "multi_query_failed", "Query variant generation was empty"
                     )
-                search_ids = list(config.kb_ids) or list(kb_ids)
+                search_ids = await _resolve_search_ids(
+                    session,
+                    workspace_id,
+                    list(config.kb_ids) or list(kb_ids),
+                )
                 merged: list[RetrievedChunk] = []
                 for variant in [query, *variants]:
                     result_chunks = await hybrid_search_chunks(
@@ -194,7 +201,11 @@ async def run_retrieval_workflow(
                 chunks = await vector_search_chunks(
                     session,
                     workspace_id=workspace_id,
-                    kb_ids=list(config.kb_ids) or list(kb_ids),
+                    kb_ids=await _resolve_search_ids(
+                        session,
+                        workspace_id,
+                        list(config.kb_ids) or list(kb_ids),
+                    ),
                     query=query,
                     top_k=config.top_k,
                     metadata_filter=config.metadata_filter or None,
@@ -204,7 +215,11 @@ async def run_retrieval_workflow(
                 chunks = await lexical_search_chunks(
                     session,
                     workspace_id=workspace_id,
-                    kb_ids=list(config.kb_ids) or list(kb_ids),
+                    kb_ids=await _resolve_search_ids(
+                        session,
+                        workspace_id,
+                        list(config.kb_ids) or list(kb_ids),
+                    ),
                     query=query,
                     top_k=config.top_k,
                     metadata_filter=config.metadata_filter or None,
@@ -214,7 +229,11 @@ async def run_retrieval_workflow(
                 chunks = await hybrid_search_chunks(
                     session,
                     workspace_id=workspace_id,
-                    kb_ids=list(config.kb_ids) or list(kb_ids),
+                    kb_ids=await _resolve_search_ids(
+                        session,
+                        workspace_id,
+                        list(config.kb_ids) or list(kb_ids),
+                    ),
                     query=query,
                     top_k=config.top_k,
                     candidate_k=config.candidate_k,
@@ -319,6 +338,33 @@ async def run_retrieval_workflow(
     state.chunks = chunks
     state.traces = traces
     return state
+
+
+async def _resolve_search_ids(
+    session, workspace_id: UUID, requested: list[UUID]
+) -> list[UUID]:
+    ids = list(dict.fromkeys(requested))
+    if not ids:
+        raise RetrievalWorkflowError(
+            "no_knowledge_base", "No knowledge base selected for this search node"
+        )
+    rows = set(
+        (
+            await session.execute(
+                select(KnowledgeBase.id).where(
+                    KnowledgeBase.id.in_(ids),
+                    KnowledgeBase.workspace_id == workspace_id,
+                    KnowledgeBase.deleted_at.is_(None),
+                )
+            )
+        ).scalars()
+    )
+    if rows != set(ids):
+        raise RetrievalWorkflowError(
+            "invalid_knowledge_base",
+            "A search node references a missing or inaccessible knowledge base",
+        )
+    return ids
 
 
 def _filter_results(
