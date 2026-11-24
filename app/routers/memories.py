@@ -25,6 +25,8 @@ from app.schemas import (
     MemoryQualityOut,
     MemoryRelationIn,
     MemoryRelationOut,
+    MemorySemanticIn,
+    MemorySemanticOut,
     MemorySettingsIn,
     MemorySettingsOut,
     MemoryStatsOut,
@@ -87,6 +89,7 @@ from app.services.memory_quality import (
     quality_overview,
     rollback_optimization,
 )
+from app.services.memory_semantic import detect_semantic_contradictions
 
 router = APIRouter(prefix="/memories", tags=["memories"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -451,6 +454,38 @@ async def analyze_quality(
     )
     await session.commit()
     return MemoryQualityOut.model_validate(result)
+
+
+@router.post("/quality/semantic", response_model=MemorySemanticOut)
+async def analyze_semantic_conflicts(
+    payload: MemorySemanticIn, context: JwtContext, session: SessionDep
+) -> MemorySemanticOut:
+    try:
+        result = await detect_semantic_contradictions(
+            session,
+            context.workspace.id,
+            context.user.id,
+            provider_id=payload.provider_id,
+            model=payload.model,
+            limit=payload.limit,
+        )
+    except QualityError as exc:
+        raise _quality_error(exc) from None
+    await session.commit()
+    rows = result["suggestions"]
+    suggestions = (
+        [MemoryOptimizationOut.model_validate(row) for row in rows]
+        if isinstance(rows, list)
+        else []
+    )
+    return MemorySemanticOut(
+        pairs_checked=int(result["pairs_checked"]),
+        contradictions=int(result["contradictions"]),
+        created=len(suggestions),
+        provider_id=result["provider_id"],
+        model=result["model"],
+        suggestions=suggestions,
+    )
 
 
 @router.get("/optimizations", response_model=list[MemoryOptimizationOut])

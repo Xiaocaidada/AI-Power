@@ -1,11 +1,21 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Play, Plus, RefreshCw, RotateCcw, Trash2, X } from 'lucide-react'
+import {
+  Check,
+  Play,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  Sparkles,
+  Trash2,
+  X,
+} from 'lucide-react'
 import { useState } from 'react'
 
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { EmptyState } from '../../components/ui/empty-state'
 import { Spinner } from '../../components/ui/spinner'
+import { errorTextKey } from '../../lib/errorText'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
 import type {
@@ -14,6 +24,7 @@ import type {
   MemoryEvalRun,
   MemoryOptimization,
   MemoryQuality,
+  MemorySemanticResult,
 } from '../../lib/types'
 
 const STATUS_TONE: Record<string, 'neutral' | 'success' | 'warning' | 'danger'> = {
@@ -35,6 +46,7 @@ export function MemoryQualityPanel() {
   const { t } = useI18n()
   const queryClient = useQueryClient()
   const [busy, setBusy] = useState('')
+  const [semanticMessage, setSemanticMessage] = useState<string | null>(null)
   const [caseName, setCaseName] = useState('')
   const [caseQuery, setCaseQuery] = useState('')
   const [caseNotes, setCaseNotes] = useState('')
@@ -76,6 +88,29 @@ export function MemoryQualityPanel() {
         method: 'POST',
       })
       await refreshQuality()
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const analyzeSemantics = async () => {
+    setBusy('semantic')
+    setSemanticMessage(null)
+    try {
+      const result = await apiRequest<MemorySemanticResult>(
+        '/memories/quality/semantic',
+        { method: 'POST', body: { limit: 12 } },
+      )
+      setSemanticMessage(
+        t('memory.quality.semanticResult', {
+          checked: result.pairs_checked,
+          contradictions: result.contradictions,
+          created: result.created,
+        }),
+      )
+      await refreshQuality()
+    } catch (caught) {
+      setSemanticMessage(t(errorTextKey(caught)))
     } finally {
       setBusy('')
     }
@@ -155,11 +190,31 @@ export function MemoryQualityPanel() {
               {t('memory.quality.analysisHint')}
             </p>
           </div>
-          <Button size="sm" disabled={busy === 'analyze'} onClick={() => void analyze()}>
-            <RefreshCw className="h-3.5 w-3.5" />
-            {t('memory.quality.analyze')}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={busy === 'semantic'}
+              onClick={() => void analyzeSemantics()}
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              {busy === 'semantic'
+                ? t('memory.quality.semanticRunning')
+                : t('memory.quality.semanticAnalyze')}
+            </Button>
+            <Button
+              size="sm"
+              disabled={busy === 'analyze'}
+              onClick={() => void analyze()}
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              {t('memory.quality.analyze')}
+            </Button>
+          </div>
         </div>
+        {semanticMessage !== null && (
+          <p className="mt-2 text-xs text-ink-muted">{semanticMessage}</p>
+        )}
         {analysis === undefined ? (
           <div className="flex justify-center py-6">
             <Spinner />

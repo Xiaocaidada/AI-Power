@@ -933,6 +933,15 @@ export interface MemoryQuality {
   suggestions: MemoryOptimization[]
 }
 
+export interface MemorySemanticResult {
+  pairs_checked: number
+  contradictions: number
+  created: number
+  provider_id: string | null
+  model: string | null
+  suggestions: MemoryOptimization[]
+}
+
 export interface MemoryEvalCase {
   id: string
   name: string

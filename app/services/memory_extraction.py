@@ -416,7 +416,7 @@ async def _persist_candidates(
     return saved, pending
 
 
-async def _resolve_extraction_model(
+async def resolve_memory_model(
     session: AsyncSession,
     current: Settings,
     definition: dict[str, object] | None,
@@ -656,7 +656,7 @@ async def run_workflow_memory_extraction(
             return {"status": "skipped", "reason": "workflow_extraction_disabled"}
 
         version = await session.get(WorkflowVersion, run.version_id)
-        provider_id, model = await _resolve_extraction_model(
+        provider_id, model = await resolve_memory_model(
             session, current, version.definition if version is not None else None
         )
         if not provider_id or not model:
@@ -812,7 +812,7 @@ async def run_document_memory_extraction(
         if len(body.strip()) < 20:
             return {"status": "skipped", "reason": "no_text"}
 
-        provider_id, model = await _resolve_extraction_model(
+        provider_id, model = await resolve_memory_model(
             session, current, None
         )
         if not provider_id or not model:
