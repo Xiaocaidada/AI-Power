@@ -9,21 +9,30 @@ import { Button } from '../../components/ui/button'
 import { errorTextKey } from '../../lib/errorText'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
-import type { CustomAgent, RunAccepted, WorkflowRun } from '../../lib/types'
+import type {
+  CustomAgent,
+  RunAccepted,
+  WorkflowDefinition,
+  WorkflowRun,
+} from '../../lib/types'
 
 interface StudioRunPanelProps {
   agent: CustomAgent
   workflowId: string | null
+  definition?: WorkflowDefinition
   onRunId: (runId: string) => void
 }
 
 export function StudioRunPanel({
   agent,
   workflowId,
+  definition,
   onRunId,
 }: StudioRunPanelProps) {
   const { t } = useI18n()
   const [input, setInput] = useState('')
+  const [startNodeId, setStartNodeId] = useState('')
+  const [nodeOutputs, setNodeOutputs] = useState('{}')
   const [runId, setRunId] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -39,13 +48,36 @@ export function StudioRunPanel({
   })
 
   const start = async () => {
-    if (workflowId === null || input.trim() === '') return
+    if (
+      workflowId === null ||
+      (input.trim() === '' && startNodeId === '')
+    ) {
+      return
+    }
     setLoading(true)
     setError(null)
+    let outputs: Record<string, string> = {}
+    try {
+      outputs =
+        nodeOutputs.trim() === ''
+          ? {}
+          : (JSON.parse(nodeOutputs) as Record<string, string>)
+    } catch {
+      setError(t('studio.debugInvalidJson'))
+      setLoading(false)
+      return
+    }
     try {
       const accepted = await apiRequest<RunAccepted>(
         `/workflows/${workflowId}/runs`,
-        { method: 'POST', body: { input: input.trim() } },
+        {
+          method: 'POST',
+          body: {
+            input: input.trim(),
+            ...(startNodeId !== '' ? { start_node_id: startNodeId } : {}),
+            ...(startNodeId !== '' ? { node_outputs: outputs } : {}),
+          },
+        },
       )
       setRunId(accepted.run_id)
       onRunId(accepted.run_id)
@@ -77,10 +109,40 @@ export function StudioRunPanel({
                 placeholder={t('studio.runInput')}
                 className="mt-3 min-h-36 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-ink"
               />
+              <label className="mt-3 block text-xs text-ink-muted">
+                {t('studio.runStartNode')}
+                <select
+                  value={startNodeId}
+                  onChange={(event) => setStartNodeId(event.target.value)}
+                  className="mt-1 h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm text-ink"
+                >
+                  <option value="">{t('studio.runFromStart')}</option>
+                  {(definition?.nodes ?? []).map((node) => (
+                    <option key={node.id} value={node.id}>
+                      {node.id} · {node.type}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {startNodeId !== '' && (
+                <label className="mt-2 block text-xs text-ink-muted">
+                  {t('studio.runNodeOutputs')}
+                  <textarea
+                    value={nodeOutputs}
+                    onChange={(event) => setNodeOutputs(event.target.value)}
+                    className="mt-1 min-h-20 w-full rounded-lg border border-border bg-surface px-2 py-1.5 font-mono text-[11px] text-ink"
+                  />
+                  <span className="mt-0.5 block text-[10px] text-ink-muted">
+                    {t('studio.runNodeOutputsHint')}
+                  </span>
+                </label>
+              )}
               <div className="mt-3 flex items-center gap-3">
                 <Button
                   size="sm"
-                  disabled={loading || input.trim() === ''}
+                  disabled={
+                    loading || (input.trim() === '' && startNodeId === '')
+                  }
                   onClick={() => void start()}
                 >
                   <Play className="h-3.5 w-3.5" />

@@ -11,9 +11,15 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.registry import build_agent_registry
 from app.clients import RedisLike, get_redis
 from app.db import SessionLocal, get_session
-from app.deps import AuthContext, get_jwt_context, require_scope
+from app.deps import (
+    AuthContext,
+    get_jwt_context,
+    get_scoped_registry,
+    require_scope,
+)
 from app.metrics import track_sse_stream
 from app.models import (
     AuditLog,
@@ -25,12 +31,15 @@ from app.models import (
     WorkflowRunEvent,
     WorkflowVersion,
 )
+from app.providers.registry import ProviderRegistry
 from app.schemas import (
     RunAcceptedOut,
     RunCancelOut,
     WorkflowCreate,
     WorkflowDraftIn,
     WorkflowDraftOut,
+    WorkflowNodeDebugIn,
+    WorkflowNodeDebugOut,
     WorkflowNodeRunOut,
     WorkflowOut,
     WorkflowRunCreate,
@@ -67,11 +76,13 @@ from app.services.run_events import (
     list_workflow_events,
 )
 from app.services.workflow.catalog import build_node_catalog
+from app.services.workflow.runner import NodeFailure, WorkflowRunner
 from app.services.workflow.schema import (
     WorkflowDefinition,
     WorkflowValidationError,
     validate_definition,
 )
+from app.tools.registry import build_tool_registry
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 logger = logging.getLogger(__name__)
@@ -81,6 +92,7 @@ ChatContext = Annotated[AuthContext, Depends(require_scope("chat:write"))]
 RunContext = Annotated[AuthContext, Depends(require_scope("workflow:run"))]
 RedisDep = Annotated[RedisLike, Depends(get_redis)]
 QueueDep = Annotated[JobQueue, Depends(get_queue)]
+ScopedRegistryDep = Annotated[ProviderRegistry, Depends(get_scoped_registry)]
 
 
 def _invalid_workflow(exc: WorkflowValidationError) -> HTTPException:
@@ -544,6 +556,14 @@ async def create_workflow_run(
             },
         )
     if is_knowledge:
+        if payload.start_node_id is not None:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                {
+                    "code": "start_node_not_supported",
+                    "message": "Start-node runs are only available for agent workflows",
+                },
+            )
         if payload.document_id is None:
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -573,12 +593,21 @@ async def create_workflow_run(
         input_payload = {"document_id": str(document.id)}
         _parse_definition(version.definition, "knowledge_process")
     else:
-        if not input_text:
+        if not input_text and payload.start_node_id is None:
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_CONTENT,
                 {"code": "input_required", "message": "input is required"},
             )
-        _parse_definition(version.definition, workflow.kind)
+        definition = _parse_definition(version.definition, workflow.kind)
+        if payload.start_node_id is not None:
+            if definition.node_map().get(payload.start_node_id) is None:
+                raise HTTPException(
+                    status.HTTP_404_NOT_FOUND,
+                    {"code": "node_not_found", "message": "Start node not found"},
+                )
+            input_payload["start_node_id"] = payload.start_node_id
+            if payload.node_outputs:
+                input_payload["node_outputs"] = payload.node_outputs
     if kb_id is not None:
         await get_owned_knowledge_base(kb_id, context.workspace.id, session)
     await enforce_quota(redis, context)
@@ -611,6 +640,126 @@ async def create_workflow_run(
             {"code": "queue_unavailable", "message": "Workflow queue is unavailable"},
         ) from None
     return RunAcceptedOut(run_id=run_id, status="queued")
+
+
+@router.post(
+    "/{workflow_id}/nodes/{node_id}/debug",
+    response_model=WorkflowNodeDebugOut,
+)
+async def debug_workflow_node(
+    workflow_id: UUID,
+    node_id: str,
+    payload: WorkflowNodeDebugIn,
+    context: RunContext,
+    session: SessionDep,
+    redis: RedisDep,
+    registry: ScopedRegistryDep,
+) -> WorkflowNodeDebugOut:
+    workflow = await _get_owned_workflow(workflow_id, context.workspace.id, session)
+    if workflow.kind != "agent":
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {
+                "code": "node_debug_not_supported",
+                "message": "Single-node debug is only available for agent workflows",
+            },
+        )
+    version_statement = select(WorkflowVersion).where(
+        WorkflowVersion.workflow_id == workflow.id
+    )
+    if payload.version is None:
+        version_statement = version_statement.order_by(
+            WorkflowVersion.version.desc()
+        ).limit(1)
+    else:
+        version_statement = version_statement.where(
+            WorkflowVersion.version == payload.version
+        )
+    version = (await session.execute(version_statement)).scalar_one_or_none()
+    if version is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Workflow version not found")
+    definition = _parse_definition(version.definition, "agent")
+    node = definition.node_map().get(node_id)
+    if node is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Workflow node not found")
+    if node.type == "review":
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {
+                "code": "review_node_requires_run",
+                "message": "Review nodes need a queued run and human reviewer",
+            },
+        )
+    await enforce_quota(redis, context)
+    run = WorkflowRun(
+        workflow_id=workflow.id,
+        version_id=version.id,
+        workspace_id=context.workspace.id,
+        user_id=context.user.id,
+        api_key_id=context.api_key_id,
+        status="running",
+        input_text=payload.input,
+        input_payload={"debug_node": node_id},
+    )
+    session.add(run)
+    await session.commit()
+    await session.refresh(run)
+    runner = WorkflowRunner(
+        run_id=run.id,
+        workflow_id=workflow.id,
+        version=version.version,
+        definition=definition,
+        provider_registry=registry,
+        tool_registry=build_tool_registry(),
+        agent_registry=build_agent_registry(),
+        workspace_id=context.workspace.id,
+        user_id=context.user.id,
+        kb_id=None,
+        redis=redis,
+        input_text=payload.input,
+        quota_guard=lambda: enforce_quota(redis, context),
+        api_key_id=context.api_key_id,
+        start_node_id=node_id,
+        seed_outputs=payload.node_outputs,
+    )
+    try:
+        outcome = await runner.debug_node(node_id)
+    except NodeFailure as exc:
+        run.status = "failed"
+        run.error_code = exc.code
+        run.finished_at = datetime.now(UTC)
+        await session.commit()
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {"code": exc.code, "message": exc.message},
+        ) from None
+    run.status = "completed" if outcome.status == "completed" else "failed"
+    run.error_code = outcome.error_code
+    run.total_ms = outcome.duration_ms
+    run.finished_at = datetime.now(UTC)
+    await session.commit()
+    node_run = (
+        await session.execute(
+            select(WorkflowNodeRun)
+            .where(
+                WorkflowNodeRun.run_id == run.id,
+                WorkflowNodeRun.node_id == node_id,
+            )
+            .order_by(WorkflowNodeRun.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    return WorkflowNodeDebugOut(
+        run_id=run.id,
+        node_id=node_id,
+        node_type=node.type,
+        status=outcome.status,
+        output=outcome.output,
+        input_summary=outcome.input_summary,
+        error_code=outcome.error_code,
+        duration_ms=outcome.duration_ms,
+        node_run_id=node_run.id if node_run is not None else None,
+    )
 
 
 @router.get("/runs/{run_id}/events")

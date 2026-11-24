@@ -133,6 +133,8 @@ class WorkflowRunner:
         quota_guard: Callable[[], Awaitable[None]] | None = None,
         api_key_id: UUID | None = None,
         resume_state: dict[str, object] | None = None,
+        start_node_id: str | None = None,
+        seed_outputs: dict[str, str] | None = None,
     ) -> None:
         self._run_id = run_id
         self._workflow_id = workflow_id
@@ -149,7 +151,9 @@ class WorkflowRunner:
         self._quota_guard = quota_guard
         self._api_key_id = api_key_id
         self._settings = get_settings()
-        self._outputs: dict[str, str] = {}
+        self._start_node_id = start_node_id
+        self._seed_outputs = dict(seed_outputs or {})
+        self._outputs: dict[str, str] = dict(self._seed_outputs)
         self._prompt_tokens = 0
         self._completion_tokens = 0
         self._cost = 0.0
@@ -219,6 +223,17 @@ class WorkflowRunner:
         await self._finish_run("completed", total_ms, None)
         yield self._end_event("completed", total_ms, None)
 
+    async def debug_node(self, node_id: str) -> NodeOutcome:
+        node = self._definition.node_map().get(node_id)
+        if node is None:
+            raise NodeFailure("node_not_found", f"Node not found: {node_id}")
+        if node.type == "review":
+            raise NodeFailure(
+                "review_node_requires_run",
+                "Review nodes need a queued run and human reviewer",
+            )
+        return await self._execute_node_with_retries(node)
+
     def _end_event(self, status: str, total_ms: float, error_code: str | None) -> WorkflowEvent:
         data: dict[str, object] = {
             "run_id": str(self._run_id),
@@ -243,8 +258,22 @@ class WorkflowRunner:
             (edge.from_node, edge.to): None for edges in outgoing.values() for edge in edges
         }
         ready: list[str] = []
+        if self._start_node_id is not None:
+            if self._start_node_id not in nodes:
+                raise NodeFailure(
+                    "start_node_not_found",
+                    f"Start node not found: {self._start_node_id}",
+                )
+            for node_id in self._seed_outputs:
+                if node_id not in states:
+                    continue
+                states[node_id] = "completed"
+                for edge in outgoing[node_id]:
+                    edge_state[(node_id, edge.to)] = True
+            states[self._start_node_id] = "ready"
+            ready.append(self._start_node_id)
         resume_states = self._resume_state.get("node_states")
-        if isinstance(resume_states, dict):
+        if self._start_node_id is None and isinstance(resume_states, dict):
             for node_id, status in resume_states.items():
                 if node_id not in states:
                     continue
@@ -268,7 +297,7 @@ class WorkflowRunner:
                     key = (source, target)
                     if key in edge_state and isinstance(value, bool):
                         edge_state[key] = value
-        else:
+        elif self._start_node_id is None:
             entry = next(node_id for node_id, edges in incoming.items() if not edges)
             states[entry] = "ready"
             ready.append(entry)

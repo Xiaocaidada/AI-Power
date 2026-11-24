@@ -6,8 +6,13 @@ import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { MultiPopoverSelect } from '../../components/ui/multi-popover-select'
 import { PopoverSelect } from '../../components/ui/popover-select'
+import { errorTextKey } from '../../lib/errorText'
+import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
-import type { WorkflowCatalogNode } from '../../lib/types'
+import type {
+  WorkflowCatalogNode,
+  WorkflowNodeDebugResult,
+} from '../../lib/types'
 import type { StudioNodeData, StudioResources } from './types'
 
 interface JsonFieldProps {
@@ -47,6 +52,9 @@ interface StudioNodePanelProps {
   meta: WorkflowCatalogNode | undefined
   edges: Edge[]
   resources: StudioResources
+  workflowId?: string | null
+  version?: number
+  debuggable?: boolean
   onChange: (config: Record<string, unknown>) => void
   onEdgeWhen: (edgeId: string, when: 'true' | 'false') => void
   onRemove: () => void
@@ -57,11 +65,20 @@ export function StudioNodePanel({
   meta,
   edges,
   resources,
+  workflowId = null,
+  version,
+  debuggable = false,
   onChange,
   onEdgeWhen,
   onRemove,
 }: StudioNodePanelProps) {
   const { t } = useI18n()
+  const [debugInput, setDebugInput] = useState('')
+  const [debugOutputs, setDebugOutputs] = useState('{}')
+  const [debugging, setDebugging] = useState(false)
+  const [debugError, setDebugError] = useState<string | null>(null)
+  const [debugResult, setDebugResult] =
+    useState<WorkflowNodeDebugResult | null>(null)
   const config = node.data.config
   const set = (name: string, value: unknown) =>
     onChange({ ...config, [name]: value })
@@ -75,6 +92,42 @@ export function StudioNodePanel({
       config.provider_id === '' ||
       item.provider_id === config.provider_id,
   )
+
+  const runDebug = async () => {
+    if (workflowId === null) return
+    setDebugging(true)
+    setDebugError(null)
+    setDebugResult(null)
+    let outputs: Record<string, string> = {}
+    try {
+      outputs =
+        debugOutputs.trim() === ''
+          ? {}
+          : (JSON.parse(debugOutputs) as Record<string, string>)
+    } catch {
+      setDebugError(t('studio.debugInvalidJson'))
+      setDebugging(false)
+      return
+    }
+    try {
+      const result = await apiRequest<WorkflowNodeDebugResult>(
+        `/workflows/${workflowId}/nodes/${node.id}/debug`,
+        {
+          method: 'POST',
+          body: {
+            version,
+            input: debugInput,
+            node_outputs: outputs,
+          },
+        },
+      )
+      setDebugResult(result)
+    } catch (caught) {
+      setDebugError(t(errorTextKey(caught)))
+    } finally {
+      setDebugging(false)
+    }
+  }
 
   return (
     <div className="p-4">
@@ -308,6 +361,77 @@ export function StudioNodePanel({
           )
         })}
       </div>
+
+      {debuggable && workflowId !== null && node.data.nodeType !== 'review' && (
+        <div className="mt-4 border-t border-border pt-3">
+          <p className="text-xs font-medium text-ink">{t('studio.debugTitle')}</p>
+          <p className="mt-0.5 text-[10px] text-ink-muted">
+            {t('studio.debugHint')}
+          </p>
+          <textarea
+            value={debugInput}
+            onChange={(event) => setDebugInput(event.target.value)}
+            placeholder={t('studio.debugInput')}
+            className="mt-2 min-h-16 w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-[11px] text-ink"
+          />
+          <textarea
+            value={debugOutputs}
+            onChange={(event) => setDebugOutputs(event.target.value)}
+            placeholder={t('studio.debugOutputs')}
+            className="mt-2 min-h-16 w-full rounded-lg border border-border bg-surface px-2 py-1.5 font-mono text-[11px] text-ink"
+          />
+          <div className="mt-2 flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={debugging}
+              onClick={() => void runDebug()}
+            >
+              {debugging ? t('studio.debugRunning') : t('studio.debugRun')}
+            </Button>
+            {debugError !== null && (
+              <span className="text-[10px] text-danger">{debugError}</span>
+            )}
+          </div>
+          {debugResult !== null && (
+            <div className="mt-2 space-y-1 rounded-lg bg-surface-muted p-2 text-[11px]">
+              <div className="flex items-center gap-2">
+                <span
+                  className={
+                    debugResult.status === 'completed'
+                      ? 'text-success'
+                      : 'text-danger'
+                  }
+                >
+                  {debugResult.status}
+                </span>
+                <span className="text-ink-muted">
+                  {debugResult.duration_ms.toFixed(0)} ms
+                </span>
+                {debugResult.error_code !== null && (
+                  <span className="font-mono text-danger">
+                    {debugResult.error_code}
+                  </span>
+                )}
+              </div>
+              {debugResult.input_summary !== '' && (
+                <div>
+                  <p className="text-ink-muted">{t('studio.debugInputSummary')}</p>
+                  <pre className="max-h-28 overflow-auto whitespace-pre-wrap font-mono text-[10px] text-ink">
+                    {debugResult.input_summary}
+                  </pre>
+                </div>
+              )}
+              <div>
+                <p className="text-ink-muted">{t('studio.debugOutput')}</p>
+                <pre className="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[10px] text-ink">
+                  {debugResult.output || '—'}
+                </pre>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {node.data.nodeType === 'condition' && (
         <div className="mt-4 border-t border-border pt-3">

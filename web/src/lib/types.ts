@@ -1191,6 +1191,18 @@ export interface WorkflowNodeRun {
   created_at: string
 }
 
+export interface WorkflowNodeDebugResult {
+  run_id: string
+  node_id: string
+  node_type: string
+  status: string
+  output: string
+  input_summary: string
+  error_code: string | null
+  duration_ms: number
+  node_run_id: string | null
+}
+
 export interface KnowledgeProcessBinding {
   workflow_version_id: string | null
   workflow_id: string | null
