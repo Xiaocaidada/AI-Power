@@ -44,7 +44,7 @@ async def test_chat_modes_expose_unimplemented_modes(client, api):
     assert modes["agent"]["implemented"] is True
     assert modes["web_search"]["implemented"] is True
     assert modes["deep_research"]["implemented"] is False
-    assert modes["study"]["implemented"] is False
+    assert modes["study"]["implemented"] is True
 
 
 async def test_create_conversation_defaults_to_chat_mode(client, api, registry):
@@ -58,15 +58,15 @@ async def test_create_conversation_defaults_to_chat_mode(client, api, registry):
 
 
 async def test_create_conversation_persists_planned_mode(client, api, registry):
-    headers = await api.headers("p12-study-mode@example.com")
+    headers = await api.headers("p12-research-mode@example.com")
 
-    response = await _create(client, headers, mode="study")
+    response = await _create(client, headers, mode="deep_research")
 
     assert response.status_code == 201
-    assert response.json()["default_mode"] == "study"
+    assert response.json()["default_mode"] == "deep_research"
     conversation_id = response.json()["id"]
     detail = await client.get(f"/conversations/{conversation_id}", headers=headers)
-    assert detail.json()["default_mode"] == "study"
+    assert detail.json()["default_mode"] == "deep_research"
 
 
 async def test_planned_mode_send_returns_typed_error(client, api, registry):

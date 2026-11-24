@@ -1193,6 +1193,48 @@ class SearchProviderConfig(Base):
     )
 
 
+class StudySession(Base):
+    __tablename__ = "study_sessions"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    conversation_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="SET NULL"), default=None, index=True
+    )
+    topic: Mapped[str] = mapped_column(String(200))
+    level: Mapped[str] = mapped_column(String(20), default="intermediate")
+    mode: Mapped[str] = mapped_column(String(20), default="guided")
+    goals: Mapped[str] = mapped_column(Text, default="")
+    kb_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    status: Mapped[str] = mapped_column(String(20), default="active", index=True)
+    mastery: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    __table_args__ = (Index("ix_study_sessions_user_conversation", "user_id", "conversation_id"),)
+
+
+class StudyAttempt(Base):
+    __tablename__ = "study_attempts"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    session_id: Mapped[UUID] = mapped_column(
+        ForeignKey("study_sessions.id", ondelete="CASCADE"), index=True
+    )
+    question: Mapped[dict] = mapped_column(JSON, default=dict)
+    answer: Mapped[str] = mapped_column(Text, default="")
+    score: Mapped[float | None] = mapped_column(Float, default=None)
+    feedback: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    graded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+
 class MarketModel(Base):
     __tablename__ = "market_models"
 

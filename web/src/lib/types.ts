@@ -196,6 +196,66 @@ export interface WebSource {
   retrieved_at: string
 }
 
+export type StudyLevel = 'beginner' | 'intermediate' | 'advanced'
+export type StudyMode = 'explain' | 'guided' | 'practice' | 'quiz' | 'review'
+export type StudyQuestionType =
+  | 'single_choice'
+  | 'multiple_choice'
+  | 'true_false'
+  | 'short_answer'
+
+export interface StudyOption {
+  id: string
+  text: string
+}
+
+export interface StudyAttempt {
+  id: string
+  type: StudyQuestionType
+  prompt: string
+  options: StudyOption[]
+  status: 'pending' | 'graded'
+  answer: string
+  score: number | null
+  feedback: string
+  correct_answer?: string[] | null
+  explanation?: string | null
+  created_at: string
+  graded_at: string | null
+}
+
+export interface StudyMastery {
+  answered?: number
+  correct?: number
+  accuracy?: number
+  weak_points?: string[]
+  suggestions?: string[]
+  by_type?: Record<string, { answered: number; correct: number }>
+}
+
+export interface StudySession {
+  id: string
+  conversation_id: string | null
+  topic: string
+  level: StudyLevel
+  mode: StudyMode
+  goals: string
+  kb_ids: string[]
+  status: 'active' | 'completed' | 'archived'
+  mastery: StudyMastery
+  created_at: string
+  updated_at: string
+}
+
+export interface StudySessionDetail extends StudySession {
+  attempts: StudyAttempt[]
+}
+
+export interface StudyAnswerResult {
+  attempt: StudyAttempt
+  mastery: StudyMastery
+}
+
 export interface ProviderTestResult {
   status: string
   model_count: number

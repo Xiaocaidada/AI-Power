@@ -42,6 +42,7 @@ from app.routers import (
     providers,
     search,
     search_providers,
+    study,
     traces,
     usage,
     webhooks,
@@ -140,6 +141,7 @@ app.include_router(provider_configs.router)
 app.include_router(models.router)
 app.include_router(chat_modes.router)
 app.include_router(search_providers.router)
+app.include_router(study.router)
 app.include_router(market.router)
 app.include_router(market.admin_router)
 app.include_router(content.router)

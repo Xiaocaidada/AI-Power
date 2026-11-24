@@ -38,7 +38,7 @@ _MODE_SPECS: dict[str, tuple[bool, tuple[str, ...]]] = {
     CHAT_MODE_CHAT: (True, ()),
     CHAT_MODE_WEB_SEARCH: (True, ()),
     CHAT_MODE_DEEP_RESEARCH: (False, ()),
-    CHAT_MODE_STUDY: (False, ()),
+    CHAT_MODE_STUDY: (True, ()),
     CHAT_MODE_AGENT: (True, ("tools",)),
 }
 

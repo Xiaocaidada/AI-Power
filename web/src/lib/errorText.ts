@@ -15,6 +15,13 @@ export function errorTextKey(error: unknown): string {
   if (error.code === 'semantic_analysis_failed') {
     return 'errors.memorySemanticFailed'
   }
+  if (error.code === 'quiz_generation_failed') {
+    return 'errors.quizGenerationFailed'
+  }
+  if (error.code === 'study_session_required') {
+    return 'errors.studySessionRequired'
+  }
+  if (error.code === 'model_required') return 'errors.studyModelRequired'
   if (error.code === 'parse_failed') return 'errors.parseFailed'
   if (error.code === 'unsupported_parse') return 'errors.parseUnsupported'
   if (error.code === 'agent_attachments_disabled') {

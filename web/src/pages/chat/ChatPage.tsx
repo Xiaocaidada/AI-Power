@@ -50,6 +50,7 @@ import { CitationDrawer } from './CitationDrawer'
 import { Composer } from './Composer'
 import { MessageItem, type DisplayMessage } from './MessageItem'
 import { ModeSelector } from './ModeSelector'
+import { StudyPanel } from './StudyPanel'
 import { TraceDialog } from './TraceDialog'
 
 interface PendingStream {
@@ -97,6 +98,7 @@ export function ChatPage() {
   const [cooldown, setCooldown] = useState(0)
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('standard')
   const [searchProviderId, setSearchProviderId] = useState('')
+  const [studySessionId, setStudySessionId] = useState('')
   const [modeError, setModeError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const activityIdRef = useRef(0)
@@ -139,6 +141,7 @@ export function ChatPage() {
   const activeMode: ChatMode = conversation.data?.default_mode ?? 'chat'
   const modeImplemented = isModeImplemented(activeMode, chatModes.data)
   const searchProviderMissing = activeMode === 'web_search' && !hasSearchProvider
+  const studySessionMissing = activeMode === 'study' && studySessionId === ''
   const platformModel = (platformModels.data ?? []).find(
     (model) =>
       model.provider_id === conversation.data?.provider_id &&
@@ -308,6 +311,9 @@ export function ChatPage() {
         ...(activeMode === 'web_search' && searchProviderId !== ''
           ? { search_provider_id: searchProviderId }
           : {}),
+        ...(activeMode === 'study' && studySessionId !== ''
+          ? { study_session_id: studySessionId }
+          : {}),
       }
       await runStream(
         (signal, onEvent) =>
@@ -330,6 +336,7 @@ export function ChatPage() {
       conversationId,
       runStream,
       searchProviderId,
+      studySessionId,
       thinkingLevel,
     ],
   )
@@ -397,6 +404,15 @@ export function ChatPage() {
     if (preferred !== '') setSearchProviderId(preferred)
   }, [conversation.data?.id, searchProviders.data])
 
+  useEffect(() => {
+    const latest = [...(conversation.data?.messages ?? [])]
+      .reverse()
+      .find((message) => message.mode_meta?.study_session_id !== undefined)
+    if (latest?.mode_meta?.study_session_id !== undefined) {
+      setStudySessionId(latest.mode_meta.study_session_id)
+    }
+  }, [conversation.data?.id])
+
   const changeMode = async (next: ChatMode) => {
     if (conversation.data === undefined) return
     setModeError(null)
@@ -425,6 +441,9 @@ export function ChatPage() {
     startedRef.current = true
     if (state?.pendingModeMeta?.thinking_level !== undefined) {
       setThinkingLevel(state.pendingModeMeta.thinking_level)
+    }
+    if (state?.pendingModeMeta?.study_session_id !== undefined) {
+      setStudySessionId(state.pendingModeMeta.study_session_id)
     }
     navigate(location.pathname, { replace: true, state: null })
     void start(pendingMessage, state?.pendingModeMeta)
@@ -835,11 +854,24 @@ export function ChatPage() {
               </Link>
             </p>
           )}
+          {activeMode === 'study' && conversation.data !== undefined && (
+            <StudyPanel
+              conversationId={conversationId}
+              defaultTopic={conversation.data.title || t('study.defaultTopic')}
+              selectedSessionId={studySessionId}
+              onSelectSession={setStudySessionId}
+            />
+          )}
           <Composer
             value={input}
             onValueChange={setInput}
             onSend={start}
-            disabled={cooldown > 0 || !modeImplemented || searchProviderMissing}
+            disabled={
+              cooldown > 0 ||
+              !modeImplemented ||
+              searchProviderMissing ||
+              studySessionMissing
+            }
             streaming={pending?.status === 'streaming'}
             onStop={() => abortRef.current?.abort()}
             footerStart={

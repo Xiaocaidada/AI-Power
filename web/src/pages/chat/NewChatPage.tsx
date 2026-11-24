@@ -44,6 +44,9 @@ import type {
   ProjectAgent,
   PromptTemplate,
   SearchProvider,
+  StudyLevel,
+  StudyMode,
+  StudySession,
   ThinkingLevel,
 } from '../../lib/types'
 import { Composer } from './Composer'
@@ -91,6 +94,9 @@ export function NewChatPage() {
   const [mode, setMode] = useState<ChatMode>('chat')
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('standard')
   const [searchProviderId, setSearchProviderId] = useState('')
+  const [studyLevel, setStudyLevel] = useState<StudyLevel>('intermediate')
+  const [studyMode, setStudyMode] = useState<StudyMode>('guided')
+  const [studyGoals, setStudyGoals] = useState('')
   const [confirmSensitive, setConfirmSensitive] = useState(false)
   const [templateId, setTemplateId] = useState('')
   const [variables, setVariables] = useState<Record<string, string>>({})
@@ -324,10 +330,24 @@ export function NewChatPage() {
         method: 'POST',
         body,
       })
+      let pendingMeta = modeMeta
+      if (effectiveMode === 'study') {
+        const study = await apiRequest<StudySession>('/study/sessions', {
+          method: 'POST',
+          body: {
+            topic: content.trim().slice(0, 200) || t('study.defaultTopic'),
+            conversation_id: conversation.id,
+            level: studyLevel,
+            mode: studyMode,
+            goals: studyGoals,
+          },
+        })
+        pendingMeta = { ...modeMeta, study_session_id: study.id }
+      }
       await queryClient.invalidateQueries({ queryKey: ['conversations'] })
       navigate(`/chat/${conversation.id}`, {
         state: modeImplemented
-          ? { pendingMessage: content, pendingModeMeta: modeMeta }
+          ? { pendingMessage: content, pendingModeMeta: pendingMeta }
           : { pendingModeNotice: effectiveMode },
       })
     } catch (caught) {
@@ -662,6 +682,47 @@ export function NewChatPage() {
             </div>
           )}
 
+          {effectiveMode === 'study' && (
+            <>
+              <Field label={t('study.level')}>
+                <select
+                  className={selectClass}
+                  value={studyLevel}
+                  onChange={(event) =>
+                    setStudyLevel(event.target.value as StudyLevel)
+                  }
+                >
+                  <option value="beginner">{t('study.levelBeginner')}</option>
+                  <option value="intermediate">
+                    {t('study.levelIntermediate')}
+                  </option>
+                  <option value="advanced">{t('study.levelAdvanced')}</option>
+                </select>
+              </Field>
+              <Field label={t('study.mode')}>
+                <select
+                  className={selectClass}
+                  value={studyMode}
+                  onChange={(event) =>
+                    setStudyMode(event.target.value as StudyMode)
+                  }
+                >
+                  <option value="explain">{t('study.modeExplain')}</option>
+                  <option value="guided">{t('study.modeGuided')}</option>
+                  <option value="practice">{t('study.modePractice')}</option>
+                  <option value="quiz">{t('study.modeQuiz')}</option>
+                  <option value="review">{t('study.modeReview')}</option>
+                </select>
+              </Field>
+              <Field label={t('study.goals')}>
+                <Input
+                  value={studyGoals}
+                  onChange={(event) => setStudyGoals(event.target.value)}
+                  placeholder={t('study.goalsPlaceholder')}
+                />
+              </Field>
+            </>
+          )}
           {effectiveMode === 'web_search' && (
             <Field label={t('chat.searchProvider')}>
               {enabledSearchProviders.length === 0 ? (

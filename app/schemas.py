@@ -2584,6 +2584,87 @@ class ChatCapabilitiesOut(BaseModel):
     thinking_levels: list[dict[str, object]]
 
 
+class StudySessionCreate(BaseModel):
+    topic: str = Field(min_length=1, max_length=200)
+    conversation_id: UUID | None = None
+    level: Literal["beginner", "intermediate", "advanced"] = "intermediate"
+    mode: Literal["explain", "guided", "practice", "quiz", "review"] = "guided"
+    goals: str = Field(default="", max_length=2000)
+    kb_ids: list[UUID] = Field(default_factory=list, max_length=10)
+
+    @field_validator("topic", "goals", mode="before")
+    @classmethod
+    def strip_study_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class StudySessionUpdate(BaseModel):
+    topic: str | None = Field(default=None, min_length=1, max_length=200)
+    level: Literal["beginner", "intermediate", "advanced"] | None = None
+    mode: Literal["explain", "guided", "practice", "quiz", "review"] | None = None
+    goals: str | None = Field(default=None, max_length=2000)
+    kb_ids: list[UUID] | None = Field(default=None, max_length=10)
+    status: Literal["active", "completed", "archived"] | None = None
+
+
+class StudyAttemptOut(BaseModel):
+    id: UUID
+    type: str
+    prompt: str
+    options: list[dict[str, str]] = Field(default_factory=list)
+    status: str
+    answer: str = ""
+    score: float | None = None
+    feedback: str = ""
+    correct_answer: list[str] | None = None
+    explanation: str | None = None
+    created_at: datetime
+    graded_at: datetime | None = None
+
+
+class StudySessionOut(BaseModel):
+    id: UUID
+    conversation_id: UUID | None
+    topic: str
+    level: str
+    mode: str
+    goals: str
+    kb_ids: list[str] = Field(default_factory=list)
+    status: str
+    mastery: dict = Field(default_factory=dict)
+    created_at: datetime
+    updated_at: datetime
+
+
+class StudySessionDetailOut(StudySessionOut):
+    attempts: list[StudyAttemptOut] = Field(default_factory=list)
+
+
+class StudyQuizCreate(BaseModel):
+    count: int = Field(default=5, ge=1, le=10)
+    types: (
+        list[Literal["single_choice", "multiple_choice", "true_false", "short_answer"]] | None
+    ) = None
+    provider_id: str | None = Field(default=None, max_length=50)
+    model: str | None = Field(default=None, max_length=200)
+
+
+class StudyAnswerIn(BaseModel):
+    answer: str | list[str]
+
+    @field_validator("answer", mode="before")
+    @classmethod
+    def strip_study_answer(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
+class StudyAnswerOut(BaseModel):
+    attempt: StudyAttemptOut
+    mastery: dict = Field(default_factory=dict)
+
+
 class SearchProviderCreate(BaseModel):
     provider: Literal["tavily", "brave", "serper", "searxng"]
     name: str = Field(default="", max_length=100)

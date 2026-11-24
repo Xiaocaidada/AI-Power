@@ -19,6 +19,7 @@ SOURCE_KNOWLEDGE_EVAL = "knowledge_eval"
 SOURCE_MEMORY_EXTRACTION = "memory_extraction"
 SOURCE_MEMORY_QUALITY = "memory_quality"
 SOURCE_MEMORY_EVAL = "memory_eval"
+SOURCE_STUDY = "study"
 ALLOWED_SOURCES = frozenset(
     {
         SOURCE_CHAT,
@@ -33,6 +34,7 @@ ALLOWED_SOURCES = frozenset(
         SOURCE_MEMORY_EXTRACTION,
         SOURCE_MEMORY_QUALITY,
         SOURCE_MEMORY_EVAL,
+        SOURCE_STUDY,
     }
 )
 

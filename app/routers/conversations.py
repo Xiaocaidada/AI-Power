@@ -82,6 +82,7 @@ from app.services.attachments import (
 from app.services.budget import check_workspace_budget
 from app.services.chat_modes import (
     CHAT_MODE_AGENT,
+    CHAT_MODE_STUDY,
     CHAT_MODE_WEB_SEARCH,
     ChatModeError,
     normalize_mode,
@@ -123,6 +124,13 @@ from app.services.rag import build_rag_messages, fit_context
 from app.services.retrieval import Citation, build_citations, retrieve_chunks
 from app.services.routing import record_failure, reset_failures, route_candidates
 from app.services.search_providers import SearchProviderError, resolve_search_config
+from app.services.study import (
+    StudyError,
+    build_study_system_prompt,
+)
+from app.services.study import (
+    get_session as get_study_session,
+)
 from app.services.usage_ledger import SOURCE_CHAT, write_usage_event
 from app.services.web_search import (
     SearchRuntimeConfig,
@@ -1985,6 +1993,73 @@ async def _start_chat_turn(
         )
         turn_meta = {**turn_meta, "search_provider_id": str(search_config.id)}
 
+    study_kb_ids: list[UUID] | None = None
+    effective_system_prompt = conversation.system_prompt
+    if turn_mode == CHAT_MODE_STUDY:
+        raw_session_id = turn_meta.get("study_session_id")
+        if not raw_session_id:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                {
+                    "code": "study_session_required",
+                    "message": "Create or select a study session first",
+                },
+            )
+        try:
+            study_session_id = UUID(str(raw_session_id))
+        except ValueError:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                {
+                    "code": "study_session_invalid",
+                    "message": "Invalid study session id",
+                },
+            ) from None
+        try:
+            study_session = await get_study_session(
+                session,
+                study_session_id,
+                context.workspace.id,
+                context.user.id,
+            )
+        except StudyError as exc:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND,
+                {"code": exc.code, "message": exc.message},
+            ) from None
+        if study_session.status != "active":
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                {
+                    "code": "study_session_inactive",
+                    "message": "Study session is not active",
+                },
+            )
+        if study_session.conversation_id is not None and (
+            study_session.conversation_id != conversation.id
+        ):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                {
+                    "code": "study_session_mismatch",
+                    "message": "Study session belongs to another conversation",
+                },
+            )
+        try:
+            study_kb_ids = [UUID(str(item)) for item in (study_session.kb_ids or [])]
+        except ValueError:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                {
+                    "code": "study_session_invalid",
+                    "message": "Study session has invalid knowledge bases",
+                },
+            ) from None
+        turn_meta = {**turn_meta, "study_session_id": str(study_session.id)}
+        effective_system_prompt = build_study_system_prompt(
+            study_session, conversation.system_prompt
+        )
+
     history_conditions = [
         Message.conversation_id == conversation.id,
         Message.status.in_(("completed", "cancelled")),
@@ -2069,6 +2144,8 @@ async def _start_chat_turn(
 
     citations: list[Citation] = []
     conversation_kbs = await _conversation_kb_ids(session, conversation)
+    if turn_mode == CHAT_MODE_STUDY and study_kb_ids:
+        conversation_kbs = list(dict.fromkeys(study_kb_ids))
     if conversation_kbs and not conversation.agent and turn_mode != CHAT_MODE_WEB_SEARCH:
         retrieval_started = time.perf_counter()
         try:
@@ -2088,11 +2165,11 @@ async def _start_chat_turn(
         used_chunks = fit_context(retrieved, get_settings().retrieval_max_context_chars)
         citations = build_citations(used_chunks)
         chat_history = build_rag_messages(
-            used_chunks, chat_history, base_prompt=conversation.system_prompt
+            used_chunks, chat_history, base_prompt=effective_system_prompt
         )
-    elif conversation.system_prompt and not conversation.agent:
+    elif effective_system_prompt and not conversation.agent:
         chat_history = [
-            ChatMessage(role="system", content=conversation.system_prompt),
+            ChatMessage(role="system", content=effective_system_prompt),
             *chat_history,
         ]
 
