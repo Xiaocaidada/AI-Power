@@ -73,6 +73,7 @@ class ModelCatalog(Base):
     input_price: Mapped[float] = mapped_column(default=0.0)
     output_price: Mapped[float] = mapped_column(default=0.0)
     tags: Mapped[str] = mapped_column(String(300), default="")
+    reasoning_levels: Mapped[list[str]] = mapped_column(JSON, default=list)
     priority: Mapped[int] = mapped_column(Integer, default=100)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -152,12 +153,8 @@ class Workflow(Base):
     description: Mapped[str] = mapped_column(String(500), default="")
     kind: Mapped[str] = mapped_column(String(30), default="agent", index=True)
     memory_extract_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
-    draft_definition: Mapped[dict[str, object] | None] = mapped_column(
-        JSON, default=None
-    )
-    draft_saved_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), default=None
-    )
+    draft_definition: Mapped[dict[str, object] | None] = mapped_column(JSON, default=None)
+    draft_saved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
@@ -279,12 +276,8 @@ class WorkflowReview(Base):
         ForeignKey("users.id", ondelete="SET NULL"), default=None
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    resolved_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), default=None
-    )
-    expires_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), default=None
-    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
     __table_args__ = (
         Index("ix_workflow_reviews_workspace_status", "workspace_id", "status", "created_at"),
@@ -439,9 +432,7 @@ class CustomAgent(Base):
     published: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     featured: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     public_slug: Mapped[str | None] = mapped_column(String(80), default=None)
-    published_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), default=None
-    )
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     allow_copy: Mapped[bool] = mapped_column(Boolean, default=True)
     show_structure: Mapped[bool] = mapped_column(Boolean, default=True)
     published_snapshot: Mapped[dict | None] = mapped_column(JSON, default=None)
@@ -517,9 +508,7 @@ class AgentMemory(Base):
     workspace_id: Mapped[UUID] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
     )
-    user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True
-    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     agent_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("custom_agents.id", ondelete="SET NULL"), default=None, index=True
     )
@@ -545,17 +534,13 @@ class AgentMemory(Base):
     pinned: Mapped[bool] = mapped_column(Boolean, default=False)
     favorite: Mapped[bool] = mapped_column(Boolean, default=False)
     tags: Mapped[list[str]] = mapped_column(JSON, default=list)
-    valid_until: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), default=None
-    )
+    valid_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     retention_days: Mapped[int | None] = mapped_column(Integer, default=None)
     use_count: Mapped[int] = mapped_column(Integer, default=0)
     content_hash: Mapped[str | None] = mapped_column(String(64), default=None, index=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
     memory_metadata: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
-    last_used_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), default=None
-    )
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
@@ -579,9 +564,7 @@ class MemoryCandidate(Base):
     workspace_id: Mapped[UUID] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
     )
-    user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True
-    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     project_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("projects.id", ondelete="SET NULL"), default=None, index=True
     )
@@ -606,13 +589,9 @@ class MemoryCandidate(Base):
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     reason: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    reviewed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), default=None
-    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
-    __table_args__ = (
-        Index("ix_memory_candidates_user_status", "user_id", "status", "created_at"),
-    )
+    __table_args__ = (Index("ix_memory_candidates_user_status", "user_id", "status", "created_at"),)
 
 
 class MemoryExtractionRun(Base):
@@ -622,18 +601,14 @@ class MemoryExtractionRun(Base):
     workspace_id: Mapped[UUID] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
     )
-    user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True
-    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     source_type: Mapped[str] = mapped_column(String(30), default="message")
     source_id: Mapped[str] = mapped_column(String(100), index=True)
     status: Mapped[str] = mapped_column(String(20), default="running", index=True)
     candidate_count: Mapped[int] = mapped_column(Integer, default=0)
     error_code: Mapped[str | None] = mapped_column(String(50), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    finished_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), default=None
-    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
     __table_args__ = (
         UniqueConstraint("source_type", "source_id", name="uq_memory_extraction_source"),
@@ -667,9 +642,7 @@ class MemoryRelation(Base):
     workspace_id: Mapped[UUID] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
     )
-    user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True
-    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     from_type: Mapped[str] = mapped_column(String(20), default="memory")
     from_id: Mapped[UUID] = mapped_column(index=True)
     to_type: Mapped[str] = mapped_column(String(20), default="memory")
@@ -700,9 +673,7 @@ class MemoryUsageEvent(Base):
     workspace_id: Mapped[UUID] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
     )
-    user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True
-    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     memory_id: Mapped[UUID] = mapped_column(
         ForeignKey("agent_memories.id", ondelete="CASCADE"), index=True
     )
@@ -714,9 +685,7 @@ class MemoryUsageEvent(Base):
     injected_chars: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
-    __table_args__ = (
-        Index("ix_memory_usage_user_created", "user_id", "created_at"),
-    )
+    __table_args__ = (Index("ix_memory_usage_user_created", "user_id", "created_at"),)
 
 
 class MemoryFeedback(Base):
@@ -726,9 +695,7 @@ class MemoryFeedback(Base):
     workspace_id: Mapped[UUID] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
     )
-    user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True
-    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     memory_id: Mapped[UUID] = mapped_column(
         ForeignKey("agent_memories.id", ondelete="CASCADE"), index=True
     )
@@ -760,9 +727,7 @@ class MemorySettings(Base):
     workspace_id: Mapped[UUID] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
     )
-    user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True
-    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     auto_extract: Mapped[bool] = mapped_column(Boolean, default=True)
     auto_save: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -797,9 +762,7 @@ class MemoryOptimization(Base):
     workspace_id: Mapped[UUID] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
     )
-    user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True
-    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     kind: Mapped[str] = mapped_column(String(40), index=True)
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     title: Mapped[str] = mapped_column(String(200), default="")
@@ -808,12 +771,8 @@ class MemoryOptimization(Base):
     memory_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     payload: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
     before_snapshot: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
-    applied_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), default=None
-    )
-    rolled_back_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), default=None
-    )
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    rolled_back_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
@@ -836,9 +795,7 @@ class MemoryEvalCase(Base):
     workspace_id: Mapped[UUID] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
     )
-    user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True
-    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(120), default="")
     query: Mapped[str] = mapped_column(Text)
     expected_memory_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
@@ -862,9 +819,7 @@ class MemoryEvalRun(Base):
     workspace_id: Mapped[UUID] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
     )
-    user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True
-    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     status: Mapped[str] = mapped_column(String(20), default="completed", index=True)
     cases_count: Mapped[int] = mapped_column(Integer, default=0)
     metrics: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
@@ -883,9 +838,7 @@ class AgentReview(Base):
     workspace_id: Mapped[UUID] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
     )
-    user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True
-    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     rating: Mapped[int] = mapped_column(Integer)
     content: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(20), default="visible", index=True)
@@ -918,9 +871,7 @@ class AgentReport(Base):
     )
     resolution: Mapped[str] = mapped_column(String(500), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    handled_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), default=None
-    )
+    handled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
 
 class Project(Base):
@@ -971,9 +922,7 @@ class ProjectAgent(Base):
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
-    __table_args__ = (
-        UniqueConstraint("project_id", "agent_id", name="uq_project_agents_pair"),
-    )
+    __table_args__ = (UniqueConstraint("project_id", "agent_id", name="uq_project_agents_pair"),)
 
 
 class ProjectDocument(Base):
@@ -1021,6 +970,7 @@ class Conversation(Base):
     )
     system_prompt: Mapped[str | None] = mapped_column(Text, default=None)
     agent: Mapped[bool] = mapped_column(Boolean, default=False)
+    default_mode: Mapped[str] = mapped_column(String(20), default="chat")
     pinned: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     memory_enabled: Mapped[bool | None] = mapped_column(Boolean, default=None)
     excluded_memory_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
@@ -1089,9 +1039,7 @@ class ConversationKnowledgeBase(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     __table_args__ = (
-        UniqueConstraint(
-            "conversation_id", "kb_id", name="uq_conversation_knowledge_bases_pair"
-        ),
+        UniqueConstraint("conversation_id", "kb_id", name="uq_conversation_knowledge_bases_pair"),
     )
 
 
@@ -1111,6 +1059,8 @@ class Message(Base):
     prompt_tokens: Mapped[int | None] = mapped_column(default=None)
     completion_tokens: Mapped[int | None] = mapped_column(default=None)
     request_id: Mapped[str | None] = mapped_column(String(64), default=None)
+    mode: Mapped[str] = mapped_column(String(20), default="chat")
+    mode_meta: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
     memory_refs: Mapped[list[dict[str, object]]] = mapped_column(JSON, default=list)
     reply_to_message_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("messages.id", ondelete="SET NULL"), default=None
@@ -1196,6 +1146,7 @@ class ProviderModel(Base):
     model_id: Mapped[str] = mapped_column(String(200))
     display_name: Mapped[str] = mapped_column(String(200), default="")
     capabilities: Mapped[list[str]] = mapped_column(JSON, default=list)
+    reasoning_levels: Mapped[list[str]] = mapped_column(JSON, default=list)
     source: Mapped[str] = mapped_column(String(20), default="manual")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -1458,9 +1409,7 @@ class WorkflowArtifact(Base):
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
-    __table_args__ = (
-        UniqueConstraint("run_id", "node_id", name="uq_workflow_artifacts_run_node"),
-    )
+    __table_args__ = (UniqueConstraint("run_id", "node_id", name="uq_workflow_artifacts_run_node"),)
 
 
 class KnowledgeChunkDraft(Base):
@@ -1486,9 +1435,7 @@ class KnowledgeChunkDraft(Base):
     text: Mapped[str] = mapped_column(Text)
     token_count: Mapped[int | None] = mapped_column(Integer, default=None)
     chunk_meta: Mapped[dict] = mapped_column(JSON, default=dict)
-    embedding: Mapped[list[float] | None] = mapped_column(
-        EmbeddingVector(1024), default=None
-    )
+    embedding: Mapped[list[float] | None] = mapped_column(EmbeddingVector(1024), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -1710,9 +1657,7 @@ class KnowledgeOptimization(Base):
     applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     reverted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
-    __table_args__ = (
-        Index("ix_knowledge_optimizations_kb_created", "kb_id", "created_at"),
-    )
+    __table_args__ = (Index("ix_knowledge_optimizations_kb_created", "kb_id", "created_at"),)
 
 
 class ModelEvalDataset(Base):
@@ -1778,9 +1723,7 @@ class ModelEvalRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
-    __table_args__ = (
-        Index("ix_model_eval_runs_workspace_created", "workspace_id", "created_at"),
-    )
+    __table_args__ = (Index("ix_model_eval_runs_workspace_created", "workspace_id", "created_at"),)
 
 
 class ModelEvalItem(Base):
@@ -1909,9 +1852,7 @@ class ArenaRound(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
-    __table_args__ = (
-        Index("ix_arena_rounds_workspace_created", "workspace_id", "created_at"),
-    )
+    __table_args__ = (Index("ix_arena_rounds_workspace_created", "workspace_id", "created_at"),)
 
 
 class ArenaResponse(Base):

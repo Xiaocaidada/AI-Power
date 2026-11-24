@@ -127,6 +127,36 @@ export interface PersonalModel {
   model_id: string
   display_name: string
   capabilities: string[]
+  reasoning_levels?: string[]
+}
+
+export type ChatMode =
+  | 'chat'
+  | 'web_search'
+  | 'deep_research'
+  | 'study'
+  | 'agent'
+
+export type ThinkingLevel = 'fast' | 'standard' | 'deep'
+
+export interface ChatModeMeta {
+  thinking_level?: ThinkingLevel
+  search_provider_id?: string
+  research_task_id?: string
+  study_session_id?: string
+  agent_task_id?: string
+  web_search_enabled?: boolean
+}
+
+export interface ChatModeOption {
+  id: ChatMode
+  implemented: boolean
+  requires: string[]
+}
+
+export interface ChatModesResponse {
+  modes: ChatModeOption[]
+  thinking_levels: ThinkingLevel[]
 }
 
 export interface ProviderTestResult {
@@ -1314,6 +1344,7 @@ export interface Conversation {
   project_id?: string | null
   custom_agent_id?: string | null
   agent: boolean
+  default_mode?: ChatMode
   pinned?: boolean
   memory_enabled?: boolean | null
   excluded_memory_ids?: string[]
@@ -1768,6 +1799,8 @@ export interface Message {
   prompt_tokens: number | null
   completion_tokens: number | null
   request_id?: string | null
+  mode?: ChatMode
+  mode_meta?: ChatModeMeta
   memory_refs?: MessageMemoryRef[]
   reply_to_message_id?: string | null
   created_at: string
@@ -1801,6 +1834,7 @@ export interface ModelEntry {
   input_price: number
   output_price: number
   tags: string[]
+  reasoning_levels?: string[]
   priority: number
   available: boolean
 }

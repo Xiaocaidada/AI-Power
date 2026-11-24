@@ -8,6 +8,14 @@ import {
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 
+import {
+  THINKING_LEVELS,
+  modelReasoningLevels,
+  modeLabelKey,
+  normalizeThinkingLevel,
+  thinkingLabelKey,
+} from '../../lib/chatModes'
+import { useChatModes, isModeImplemented } from '../../lib/useChatModes'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { Dialog } from '../../components/ui/dialog'
@@ -24,6 +32,8 @@ import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
 import type {
   ChatAttachment,
+  ChatMode,
+  ChatModeMeta,
   Conversation,
   CustomAgent,
   KnowledgeBase,
@@ -33,8 +43,10 @@ import type {
   Project,
   ProjectAgent,
   PromptTemplate,
+  ThinkingLevel,
 } from '../../lib/types'
 import { Composer } from './Composer'
+import { ModeSelector } from './ModeSelector'
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -75,6 +87,8 @@ export function NewChatPage() {
     () => searchParams.get('agent') ?? '',
   )
   const [pluginIds, setPluginIds] = useState<string[]>([])
+  const [mode, setMode] = useState<ChatMode>('chat')
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('standard')
   const [confirmSensitive, setConfirmSensitive] = useState(false)
   const [templateId, setTemplateId] = useState('')
   const [variables, setVariables] = useState<Record<string, string>>({})
@@ -82,6 +96,7 @@ export function NewChatPage() {
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const chatModesQuery = useChatModes()
   const modelsQuery = useQuery({
     queryKey: ['models'],
     queryFn: () => apiRequest<ModelEntry[]>('/models'),
@@ -169,6 +184,18 @@ export function NewChatPage() {
     isAuto ||
     selected !== undefined ||
     (personalSelected !== undefined && personalSupportsChat)
+  const modeLockedByAgent = customAgentId !== '' || pluginIds.length > 0
+  const effectiveMode: ChatMode = modeLockedByAgent ? 'agent' : mode
+  const modeImplemented = isModeImplemented(effectiveMode, chatModesQuery.data)
+  const supportedThinking =
+    modelId === 'auto' || modelId === 'project' || modelId === 'agent'
+      ? (['standard'] as ThinkingLevel[])
+      : modelReasoningLevels(personalSelected ?? selected)
+
+  useEffect(() => {
+    const next = normalizeThinkingLevel(thinkingLevel, supportedThinking)
+    if (next !== thinkingLevel) setThinkingLevel(next)
+  }, [supportedThinking, thinkingLevel])
 
   useEffect(() => {
     if (appliedQueryRef.current || initialProvider === null || initialModel === null) return
@@ -191,7 +218,10 @@ export function NewChatPage() {
   }, [availableModels, initialModel, initialProvider, personalModels])
 
   useEffect(() => {
-    if (!supportsTools) setAgent(false)
+    if (!supportsTools) {
+      setAgent(false)
+      setMode('chat')
+    }
   }, [supportsTools])
 
   useEffect(() => {
@@ -229,10 +259,13 @@ export function NewChatPage() {
 
   const send = async (content: string) => {
     setError(null)
+    const modeMeta: ChatModeMeta = { thinking_level: thinkingLevel }
     const body: Record<string, unknown> = {
       prompt_version_id: selectedVersion?.id ?? null,
       prompt_variables: selectedVersion !== undefined ? variables : {},
+      mode: effectiveMode,
     }
+    if (effectiveMode !== 'agent') body.agent = false
     if (attachments.length > 0) {
       body.attachment_ids = attachments.map((attachment) => attachment.id)
     }
@@ -268,7 +301,11 @@ export function NewChatPage() {
         body,
       })
       await queryClient.invalidateQueries({ queryKey: ['conversations'] })
-      navigate(`/chat/${conversation.id}`, { state: { pendingMessage: content } })
+      navigate(`/chat/${conversation.id}`, {
+        state: modeImplemented
+          ? { pendingMessage: content, pendingModeMeta: modeMeta }
+          : { pendingModeNotice: effectiveMode },
+      })
     } catch (caught) {
       setError(t(errorTextKey(caught)))
       throw caught
@@ -427,6 +464,20 @@ export function NewChatPage() {
             }}
           />
 
+          <ModeSelector
+            value={effectiveMode}
+            catalog={chatModesQuery.data}
+            disabled={modeLockedByAgent}
+            onChange={(next) => {
+              setMode(next)
+              if (next === 'agent') {
+                setAgent(true)
+              } else if (!modeLockedByAgent) {
+                setAgent(false)
+              }
+            }}
+          />
+
           <PopoverSelect
             icon={<Bot className="h-3.5 w-3.5" />}
             label={t('chat.agent')}
@@ -437,9 +488,11 @@ export function NewChatPage() {
               if (next !== '') {
                 setModelId('agent')
                 setAgent(true)
+                setMode('agent')
               } else if (modelId === 'agent') {
                 setModelId('auto')
                 setAgent(pluginIds.length > 0)
+                setMode(pluginIds.length > 0 ? 'agent' : 'chat')
               }
             }}
           />
@@ -468,6 +521,14 @@ export function NewChatPage() {
             {t('chat.advanced')}
           </Button>
         </div>
+
+        {!modeImplemented && (
+          <p className="mt-3 rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
+            {t('chat.modePlannedNotice', {
+              mode: t(modeLabelKey(effectiveMode)),
+            })}
+          </p>
+        )}
 
         {selectedProject !== undefined && (
           <p className="mt-2 text-xs text-ink-muted">
@@ -569,6 +630,32 @@ export function NewChatPage() {
             </div>
           )}
 
+          <Field label={t('chat.thinkingLevel')}>
+            <select
+              className={selectClass}
+              value={thinkingLevel}
+              onChange={(event) =>
+                setThinkingLevel(event.target.value as ThinkingLevel)
+              }
+            >
+              {THINKING_LEVELS.map((level) => (
+                <option
+                  key={level}
+                  value={level}
+                  disabled={!supportedThinking.includes(level)}
+                >
+                  {t(thinkingLabelKey(level))}
+                  {supportedThinking.includes(level)
+                    ? ''
+                    : ` · ${t('chat.thinkingUnsupported')}`}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-[11px] text-ink-muted">
+              {t('chat.thinkingHint')}
+            </p>
+          </Field>
+
           <label className="flex items-start gap-2 rounded-lg border border-border bg-surface px-3 py-2.5 text-sm">
             <input
               type="checkbox"
@@ -580,7 +667,10 @@ export function NewChatPage() {
                 customAgentId !== '' ||
                 pluginIds.length > 0
               }
-              onChange={(event) => setAgent(event.target.checked)}
+              onChange={(event) => {
+                setAgent(event.target.checked)
+                setMode(event.target.checked ? 'agent' : 'chat')
+              }}
             />
             <span>
               <span className="block text-ink">{t('chat.agentMode')}</span>
@@ -605,7 +695,10 @@ export function NewChatPage() {
                           ? pluginIds.filter((item) => item !== plugin.id)
                           : [...pluginIds, plugin.id]
                         setPluginIds(next)
-                        if (next.length > 0) setAgent(true)
+                        if (next.length > 0) {
+                          setAgent(true)
+                          setMode('agent')
+                        }
                       }}
                     />
                     {plugin.name}

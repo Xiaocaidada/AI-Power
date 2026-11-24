@@ -6,7 +6,7 @@ from collections import defaultdict
 from collections.abc import AsyncIterator, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Literal, NoReturn
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -78,6 +78,13 @@ from app.services.attachments import (
     unlinked_conversation_attachments,
 )
 from app.services.budget import check_workspace_budget
+from app.services.chat_modes import (
+    CHAT_MODE_AGENT,
+    ChatModeError,
+    normalize_mode,
+    resolve_model_capabilities,
+    validate_turn_mode,
+)
 from app.services.custom_agents import (
     CustomAgentError,
     build_agent_spec,
@@ -130,6 +137,13 @@ AgentRegistryDep = Annotated[AgentRegistry, Depends(get_agent_registry)]
 
 HISTORY_MESSAGE_LIMIT = 12
 TITLE_MAX_LENGTH = 30
+
+
+def _raise_chat_mode_error(exc: ChatModeError) -> NoReturn:
+    raise HTTPException(
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        {"code": exc.code, "message": exc.message},
+    ) from None
 
 
 def _sse(event: str, data: dict[str, object]) -> str:
@@ -419,6 +433,8 @@ async def _stream_reply(
     trace_id: UUID | None = None,
     started: float | None = None,
     api_key_id: UUID | None = None,
+    mode: str = "chat",
+    mode_meta: dict[str, object] | None = None,
 ) -> AsyncIterator[str]:
     parts: list[str] = []
     usage: Usage | None = None
@@ -441,6 +457,8 @@ async def _stream_reply(
                 "provider": provider.id,
                 "model": model,
                 "conversation_id": str(conversation_id),
+                "mode": mode,
+                "mode_meta": mode_meta or {},
             },
         )
         for citation in citations:
@@ -455,9 +473,7 @@ async def _stream_reply(
                 },
             )
         chunk_stream = (
-            stream
-            if stream is not None
-            else provider.stream_chat(history, model, **(opts or {}))
+            stream if stream is not None else provider.stream_chat(history, model, **(opts or {}))
         )
 
         async def chunks() -> AsyncIterator[ChatChunk]:
@@ -595,6 +611,8 @@ async def _stream_agent_reply(
     agent_id: UUID | None = None,
     project_id: UUID | None = None,
     memory_access: MemoryAccess | None = None,
+    mode: str = "agent",
+    mode_meta: dict[str, object] | None = None,
 ) -> AsyncIterator[str]:
     tool_citations: list[Citation] = []
     runner = AgentRunner(
@@ -642,6 +660,8 @@ async def _stream_agent_reply(
                 "model": model,
                 "conversation_id": str(conversation_id),
                 "agent": True,
+                "mode": mode,
+                "mode_meta": mode_meta or {},
             },
         )
         for citation in citations:
@@ -860,9 +880,7 @@ async def create_conversation(
     ):
         model = custom_agent.default_model
     elif (
-        project is not None
-        and project.default_provider_id == provider_id
-        and project.default_model
+        project is not None and project.default_provider_id == provider_id and project.default_model
     ):
         model = project.default_model
     else:
@@ -871,9 +889,7 @@ async def create_conversation(
             {"code": "invalid_model", "message": "model is required"},
         )
 
-    project_kb_ids = (
-        [UUID(item) for item in project.kb_ids] if project is not None else []
-    )
+    project_kb_ids = [UUID(item) for item in project.kb_ids] if project is not None else []
     explicit_kbs = "kb_id" in payload.model_fields_set or bool(payload.kb_ids)
     if "kb_id" in payload.model_fields_set:
         kb_id = payload.kb_id
@@ -910,6 +926,21 @@ async def create_conversation(
     else:
         plugin_ids = []
     if plugin_ids:
+        agent = True
+    try:
+        requested_mode = normalize_mode(payload.mode)
+    except ChatModeError as exc:
+        _raise_chat_mode_error(exc)
+    if agent and requested_mode not in ("chat", CHAT_MODE_AGENT):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {
+                "code": "mode_conflict",
+                "message": "Agent conversations cannot use this chat mode",
+            },
+        )
+    default_mode = CHAT_MODE_AGENT if agent else requested_mode
+    if default_mode == CHAT_MODE_AGENT:
         agent = True
     confirmed_ids = set(payload.confirmed_plugin_ids)
 
@@ -957,9 +988,7 @@ async def create_conversation(
         )
     if project is not None and project.instructions and custom_agent is None:
         system_prompt = (
-            f"{project.instructions}\n\n{system_prompt}"
-            if system_prompt
-            else project.instructions
+            f"{project.instructions}\n\n{system_prompt}" if system_prompt else project.instructions
         )
 
     conversation = Conversation(
@@ -972,6 +1001,7 @@ async def create_conversation(
         model=model,
         kb_id=kb_id,
         agent=agent,
+        default_mode=default_mode,
         prompt_version_id=prompt_version_id,
         system_prompt=system_prompt,
         generation_settings=(
@@ -987,9 +1017,7 @@ async def create_conversation(
     if kb_ids:
         session.add_all(
             [
-                ConversationKnowledgeBase(
-                    conversation_id=conversation.id, kb_id=item
-                )
+                ConversationKnowledgeBase(conversation_id=conversation.id, kb_id=item)
                 for item in kb_ids
             ]
         )
@@ -1099,9 +1127,7 @@ async def list_conversations(
     return list(result.scalars())
 
 
-async def _conversation_kb_ids(
-    session: AsyncSession, conversation: Conversation
-) -> list[UUID]:
+async def _conversation_kb_ids(session: AsyncSession, conversation: Conversation) -> list[UUID]:
     ids = list(
         (
             await session.execute(
@@ -1216,9 +1242,7 @@ async def _conversation_detail(
     )
 
 
-async def _delete_conversations(
-    session: AsyncSession, conversation_ids: list[UUID]
-) -> None:
+async def _delete_conversations(session: AsyncSession, conversation_ids: list[UUID]) -> None:
     await delete_attachment_rows(session, conversation_ids)
     await session.execute(
         delete(ConversationKnowledgeBase).where(
@@ -1232,17 +1256,11 @@ async def _delete_conversations(
     await session.execute(
         delete(MessageFeedback).where(MessageFeedback.message_id.in_(message_ids))
     )
+    await session.execute(delete(Message).where(Message.conversation_id.in_(conversation_ids)))
     await session.execute(
-        delete(Message).where(Message.conversation_id.in_(conversation_ids))
+        delete(ConversationPlugin).where(ConversationPlugin.conversation_id.in_(conversation_ids))
     )
-    await session.execute(
-        delete(ConversationPlugin).where(
-            ConversationPlugin.conversation_id.in_(conversation_ids)
-        )
-    )
-    await session.execute(
-        delete(Conversation).where(Conversation.id.in_(conversation_ids))
-    )
+    await session.execute(delete(Conversation).where(Conversation.id.in_(conversation_ids)))
 
 
 @router.get("/{conversation_id}", response_model=ConversationDetailOut)
@@ -1287,6 +1305,39 @@ async def update_conversation(
         conversation.title = data.pop("title") or ""
     if "pinned" in data:
         conversation.pinned = bool(data.pop("pinned"))
+    if "default_mode" in data:
+        try:
+            next_mode = normalize_mode(data.pop("default_mode"))
+        except ChatModeError as exc:
+            _raise_chat_mode_error(exc)
+        if next_mode == CHAT_MODE_AGENT:
+            conversation.agent = True
+        elif conversation.custom_agent_id is not None:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                {
+                    "code": "mode_conflict",
+                    "message": "An Agent conversation must use agent mode",
+                },
+            )
+        elif conversation.agent:
+            plugins = (
+                await session.execute(
+                    select(ConversationPlugin.id)
+                    .where(ConversationPlugin.conversation_id == conversation.id)
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if plugins is not None:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    {
+                        "code": "mode_conflict",
+                        "message": "Remove plugins before leaving agent mode",
+                    },
+                )
+            conversation.agent = False
+        conversation.default_mode = next_mode
     if "provider_id" in data or "model" in data:
         provider_id = data.pop("provider_id", conversation.provider_id)
         model = data.pop("model", conversation.model)
@@ -1318,9 +1369,7 @@ async def update_conversation(
     return conversation
 
 
-@router.patch(
-    "/{conversation_id}/messages/{message_id}", response_model=MessageEditOut
-)
+@router.patch("/{conversation_id}/messages/{message_id}", response_model=MessageEditOut)
 async def edit_message(
     conversation_id: UUID,
     message_id: UUID,
@@ -1328,15 +1377,9 @@ async def edit_message(
     context: JwtContext,
     session: SessionDep,
 ) -> MessageEditOut:
-    conversation = await _get_owned_conversation(
-        conversation_id, context.workspace.id, session
-    )
+    conversation = await _get_owned_conversation(conversation_id, context.workspace.id, session)
     target = await session.get(Message, message_id)
-    if (
-        target is None
-        or target.conversation_id != conversation.id
-        or target.role != "user"
-    ):
+    if target is None or target.conversation_id != conversation.id or target.role != "user":
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Message not found")
     if target.status != "completed":
         raise HTTPException(
@@ -1371,9 +1414,7 @@ async def edit_message(
         later_attachments = list(
             (
                 await session.execute(
-                    select(ChatAttachment).where(
-                        ChatAttachment.message_id.in_(later_ids)
-                    )
+                    select(ChatAttachment).where(ChatAttachment.message_id.in_(later_ids))
                 )
             ).scalars()
         )
@@ -1414,9 +1455,7 @@ async def reply_to_message(
     tool_registry: ToolRegistryDep,
     agent_registry: AgentRegistryDep,
 ) -> StreamingResponse:
-    conversation = await _get_owned_conversation(
-        conversation_id, context.workspace.id, session
-    )
+    conversation = await _get_owned_conversation(conversation_id, context.workspace.id, session)
     target = await session.get(Message, message_id)
     if (
         target is None
@@ -1501,9 +1540,7 @@ async def get_conversation_plugins(
     conversation = await _get_workspace_conversation(
         conversation_id, context.workspace.id, session, include_archived=True
     )
-    return _conversation_plugins_out(
-        await list_conversation_plugins(session, conversation.id)
-    )
+    return _conversation_plugins_out(await list_conversation_plugins(session, conversation.id))
 
 
 @router.put("/{conversation_id}/plugins", response_model=list[ConversationPluginOut])
@@ -1549,9 +1586,7 @@ async def confirm_conversation_plugin_endpoint(
     except PluginError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, exc.message) from None
     await session.commit()
-    return _conversation_plugins_out(
-        await list_conversation_plugins(session, conversation.id)
-    )
+    return _conversation_plugins_out(await list_conversation_plugins(session, conversation.id))
 
 
 @router.delete(
@@ -1569,9 +1604,7 @@ async def unconfirm_conversation_plugin_endpoint(
     except PluginError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, exc.message) from None
     await session.commit()
-    return _conversation_plugins_out(
-        await list_conversation_plugins(session, conversation.id)
-    )
+    return _conversation_plugins_out(await list_conversation_plugins(session, conversation.id))
 
 
 @router.get("/{conversation_id}/plugin-calls", response_model=list[PluginCallOut])
@@ -1715,6 +1748,8 @@ async def _start_chat_turn(
     persist_user_message: bool = True,
     attachment_ids: Sequence[UUID] = (),
     current_attachments: Sequence[ChatAttachment] | None = None,
+    mode: str | None = None,
+    mode_meta: dict[str, object] | None = None,
 ) -> StreamingResponse:
     await enforce_quota(redis, context)
     started = time.perf_counter()
@@ -1727,6 +1762,24 @@ async def _start_chat_turn(
             provider = registry.get(conversation.provider_id)
         except ProviderError as exc:
             raise HTTPException(status.HTTP_409_CONFLICT, exc.message) from None
+
+    capabilities = await resolve_model_capabilities(
+        session,
+        workspace_id=context.workspace.id,
+        user_id=context.user.id,
+        provider_id=conversation.provider_id,
+        model_id=conversation.model,
+    )
+    try:
+        turn_mode, turn_meta = validate_turn_mode(
+            mode=mode or conversation.default_mode,
+            mode_meta=mode_meta,
+            capabilities=capabilities.capabilities,
+            reasoning_levels=capabilities.reasoning_levels,
+            agent=conversation.agent,
+        )
+    except ChatModeError as exc:
+        _raise_chat_mode_error(exc)
 
     history_conditions = [
         Message.conversation_id == conversation.id,
@@ -1873,9 +1926,7 @@ async def _start_chat_turn(
         if candidate is not None and candidate.archived_at is None:
             custom_agent = candidate
     plugin_tools = await build_plugin_tools(session, conversation)
-    effective_tools = (
-        tool_registry.with_tools(plugin_tools) if plugin_tools else tool_registry
-    )
+    effective_tools = tool_registry.with_tools(plugin_tools) if plugin_tools else tool_registry
     if custom_agent is not None:
         mcp_tools = await build_mcp_tool_specs(session, custom_agent.tools)
         if mcp_tools:
@@ -1883,9 +1934,7 @@ async def _start_chat_turn(
     effective_agents = agent_registry
     root_agent = SUPERVISOR_AGENT
 
-    memory_settings = await get_memory_settings(
-        session, context.workspace.id, context.user.id
-    )
+    memory_settings = await get_memory_settings(session, context.workspace.id, context.user.id)
     conversation_project: Project | None = None
     if conversation.project_id is not None:
         candidate_project = await session.get(Project, conversation.project_id)
@@ -1902,10 +1951,7 @@ async def _start_chat_turn(
     )
     if not memory_settings.enabled:
         memory_allowed = False
-    if (
-        conversation_project is not None
-        and project_memory_allowed(conversation_project) is False
-    ):
+    if conversation_project is not None and project_memory_allowed(conversation_project) is False:
         memory_allowed = False
     agent_access: MemoryAccess | None = None
     if custom_agent is not None:
@@ -1927,10 +1973,7 @@ async def _start_chat_turn(
             read_scopes = set(agent_access.read_scopes)
             if conversation_project is None:
                 read_scopes.discard("project")
-        if (
-            conversation_project is not None
-            and not project_allows_global(conversation_project)
-        ):
+        if conversation_project is not None and not project_allows_global(conversation_project):
             read_scopes.discard("global")
         selection = await select_memories(
             session,
@@ -1982,9 +2025,7 @@ async def _start_chat_turn(
         effective_agents = AgentRegistry(specs)
     if memory_block and custom_agent is None:
         supervisor = effective_agents.get(SUPERVISOR_AGENT)
-        specs = [
-            spec for spec in effective_agents.all() if spec.name != SUPERVISOR_AGENT
-        ]
+        specs = [spec for spec in effective_agents.all() if spec.name != SUPERVISOR_AGENT]
         specs.insert(
             0,
             AgentSpec(
@@ -2019,6 +2060,8 @@ async def _start_chat_turn(
             provider_id=provider.id,
             model=routed_model,
             request_id=request_id,
+            mode=turn_mode,
+            mode_meta=turn_meta,
         )
         messages_to_add.append(user_message)
     assistant_message = Message(
@@ -2030,6 +2073,8 @@ async def _start_chat_turn(
         provider_id=provider.id,
         model=routed_model,
         request_id=request_id,
+        mode=turn_mode,
+        mode_meta=turn_meta,
         memory_refs=(
             [
                 {
@@ -2071,10 +2116,7 @@ async def _start_chat_turn(
             session,
             workspace_id=context.workspace.id,
             user_id=context.user.id,
-            memories=[
-                (item.memory, item.score, item.injected_chars)
-                for item in memory_items
-            ],
+            memories=[(item.memory, item.score, item.injected_chars) for item in memory_items],
             context_type="agent" if conversation.agent else "chat",
             context_id=str(assistant_message.id),
             provider_id=provider.id,
@@ -2111,6 +2153,8 @@ async def _start_chat_turn(
             agent_id=custom_agent.id if custom_agent is not None else None,
             project_id=conversation.project_id,
             memory_access=agent_access,
+            mode=turn_mode,
+            mode_meta=turn_meta,
         )
     else:
         response_stream = _stream_reply(
@@ -2128,6 +2172,8 @@ async def _start_chat_turn(
             trace_id=trace.id,
             started=started,
             api_key_id=context.api_key_id,
+            mode=turn_mode,
+            mode_meta=turn_meta,
         )
 
     return StreamingResponse(
@@ -2173,6 +2219,8 @@ async def send_message(
         tool_registry=tool_registry,
         agent_registry=agent_registry,
         attachment_ids=payload.attachment_ids,
+        mode=payload.mode,
+        mode_meta=payload.mode_meta,
     )
 
 
@@ -2201,11 +2249,7 @@ async def regenerate_message(
 ) -> StreamingResponse:
     conversation = await _get_owned_conversation(conversation_id, context.workspace.id, session)
     target = await session.get(Message, message_id)
-    if (
-        target is None
-        or target.conversation_id != conversation.id
-        or target.role != "assistant"
-    ):
+    if target is None or target.conversation_id != conversation.id or target.role != "assistant":
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Message not found")
     if target.status not in ("completed", "cancelled"):
         raise HTTPException(status.HTTP_409_CONFLICT, "Message cannot be regenerated")
@@ -2240,6 +2284,8 @@ async def regenerate_message(
         history_before=user_message.created_at,
         persist_user_message=False,
         current_attachments=current_attachments,
+        mode=user_message.mode,
+        mode_meta=user_message.mode_meta,
     )
 
 

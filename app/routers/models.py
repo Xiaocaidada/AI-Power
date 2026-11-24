@@ -33,6 +33,7 @@ def _out(entry: ModelEntry) -> ModelOut:
         input_price=entry.input_price,
         output_price=entry.output_price,
         tags=entry.tags,
+        reasoning_levels=entry.reasoning_levels,
         priority=entry.priority,
         available=entry.available,
     )

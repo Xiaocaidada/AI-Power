@@ -967,7 +967,11 @@ class ProjectCreate(BaseModel):
     allow_agent_writes: bool = False
 
     @field_validator(
-        "name", "description", "instructions", "default_provider_id", "default_model",
+        "name",
+        "description",
+        "instructions",
+        "default_provider_id",
+        "default_model",
         mode="before",
     )
     @classmethod
@@ -991,7 +995,11 @@ class ProjectUpdate(BaseModel):
     archived: bool | None = None
 
     @field_validator(
-        "name", "description", "instructions", "default_provider_id", "default_model",
+        "name",
+        "description",
+        "instructions",
+        "default_provider_id",
+        "default_model",
         mode="before",
     )
     @classmethod
@@ -1055,9 +1063,7 @@ def _validate_cover_url(value: object) -> object:
         return value
     text = value.strip()
     if text and not (
-        text.startswith("/")
-        or text.startswith("http://")
-        or text.startswith("https://")
+        text.startswith("/") or text.startswith("http://") or text.startswith("https://")
     ):
         raise ValueError("cover_url must be site-relative or http(s)")
     return text
@@ -1095,8 +1101,13 @@ class CustomAgentCreate(BaseModel):
     memory_write_mode: Literal["candidate", "create", "upsert"] = "candidate"
 
     @field_validator(
-        "name", "description", "instructions", "category", "default_provider_id",
-        "default_model", mode="before",
+        "name",
+        "description",
+        "instructions",
+        "category",
+        "default_provider_id",
+        "default_model",
+        mode="before",
     )
     @classmethod
     def strip_custom_agent_text(cls, value: object) -> object:
@@ -1141,8 +1152,13 @@ class CustomAgentUpdate(BaseModel):
     memory_write_mode: Literal["candidate", "create", "upsert"] | None = None
 
     @field_validator(
-        "name", "description", "instructions", "category", "default_provider_id",
-        "default_model", mode="before",
+        "name",
+        "description",
+        "instructions",
+        "category",
+        "default_provider_id",
+        "default_model",
+        mode="before",
     )
     @classmethod
     def strip_custom_agent_optional(cls, value: object) -> object:
@@ -1450,9 +1466,7 @@ MemoryCategory = Literal[
     "relation",
     "summary",
 ]
-MemoryStatus = Literal[
-    "candidate", "active", "conflict", "expired", "archived", "rejected"
-]
+MemoryStatus = Literal["candidate", "active", "conflict", "expired", "archived", "rejected"]
 
 
 def _clean_memory_tags(value: object) -> object:
@@ -1814,16 +1828,16 @@ class MemoryEvalRunOut(BaseModel):
 class MemoryRelationIn(BaseModel):
     to_type: Literal["memory", "project", "document", "agent"] = "memory"
     to_id: UUID
-    relation_type: Literal[
-        "related", "supports", "contradicts", "supersedes", "derived_from"
-    ] = "related"
+    relation_type: Literal["related", "supports", "contradicts", "supersedes", "derived_from"] = (
+        "related"
+    )
     basis: str = Field(default="", max_length=500)
 
 
 class MemoryRelationUpdate(BaseModel):
-    relation_type: Literal[
-        "related", "supports", "contradicts", "supersedes", "derived_from"
-    ] | None = None
+    relation_type: (
+        Literal["related", "supports", "contradicts", "supersedes", "derived_from"] | None
+    ) = None
     basis: str | None = Field(default=None, max_length=500)
 
 
@@ -2175,8 +2189,9 @@ class PluginCreate(BaseModel):
     enabled: bool = True
     timeout_seconds: int = Field(default=10, ge=1, le=30)
 
-    @field_validator("slug", "name", "description", "category", "docs_url", "endpoint_url",
-                     mode="before")
+    @field_validator(
+        "slug", "name", "description", "category", "docs_url", "endpoint_url", mode="before"
+    )
     @classmethod
     def strip_plugin_text(cls, value: object) -> object:
         return value.strip() if isinstance(value, str) else value
@@ -2204,8 +2219,7 @@ class PluginUpdate(BaseModel):
     enabled: bool | None = None
     timeout_seconds: int | None = Field(default=None, ge=1, le=30)
 
-    @field_validator("name", "description", "category", "docs_url", "endpoint_url",
-                     mode="before")
+    @field_validator("name", "description", "category", "docs_url", "endpoint_url", mode="before")
     @classmethod
     def strip_plugin_optional(cls, value: object) -> object:
         return value.strip() if isinstance(value, str) else value
@@ -2276,6 +2290,7 @@ class PluginCallOut(BaseModel):
 class ConversationCreate(BaseModel):
     provider_id: str | None = Field(default=None, max_length=50)
     model: str | None = Field(default=None, max_length=200)
+    mode: str = Field(default="chat", max_length=20)
     kb_id: UUID | None = None
     kb_ids: list[UUID] = Field(default_factory=list, max_length=10)
     attachment_ids: list[UUID] = Field(default_factory=list, max_length=10)
@@ -2305,6 +2320,7 @@ class ConversationOut(BaseModel):
     project_id: UUID | None = None
     custom_agent_id: UUID | None = None
     agent: bool = False
+    default_mode: str = "chat"
     pinned: bool = False
     memory_enabled: bool | None = None
     excluded_memory_ids: list[UUID] = Field(default_factory=list)
@@ -2322,6 +2338,7 @@ class ConversationUpdate(BaseModel):
     archived: bool | None = None
     provider_id: str | None = Field(default=None, max_length=50)
     model: str | None = Field(default=None, max_length=200)
+    default_mode: str | None = Field(default=None, max_length=20)
     memory_enabled: bool | None = None
     excluded_memory_ids: list[UUID] | None = Field(default=None, max_length=50)
     generation_settings: GenerationSettings | None = None
@@ -2382,6 +2399,8 @@ class MessageOut(BaseModel):
     prompt_tokens: int | None
     completion_tokens: int | None
     request_id: str | None = None
+    mode: str = "chat"
+    mode_meta: dict[str, object] = Field(default_factory=dict)
     memory_refs: list[dict[str, object]] = Field(default_factory=list)
     reply_to_message_id: UUID | None = None
     created_at: datetime
@@ -2422,6 +2441,8 @@ class MessageFeedbackIn(BaseModel):
 class SendMessageIn(BaseModel):
     content: str = Field(min_length=1, max_length=20000)
     attachment_ids: list[UUID] = Field(default_factory=list, max_length=10)
+    mode: str | None = Field(default=None, max_length=20)
+    mode_meta: dict[str, object] | None = None
 
     @field_validator("content", mode="before")
     @classmethod
@@ -2483,6 +2504,7 @@ class ProviderModelCreate(BaseModel):
     model_id: str = Field(min_length=1, max_length=200)
     display_name: str = Field(default="", max_length=200)
     capabilities: list[str] | None = None
+    reasoning_levels: list[str] | None = None
 
     @field_validator("model_id", "display_name", mode="before")
     @classmethod
@@ -2493,6 +2515,7 @@ class ProviderModelCreate(BaseModel):
 class ProviderModelUpdate(BaseModel):
     display_name: str | None = Field(default=None, max_length=200)
     capabilities: list[str] | None = None
+    reasoning_levels: list[str] | None = None
     enabled: bool | None = None
 
 
@@ -2503,6 +2526,7 @@ class ProviderModelOut(BaseModel):
     model_id: str
     display_name: str
     capabilities: list[str]
+    reasoning_levels: list[str] = Field(default_factory=list)
     source: str
     enabled: bool
 
@@ -2525,6 +2549,25 @@ class PersonalModelOut(BaseModel):
     model_id: str
     display_name: str
     capabilities: list[str]
+    reasoning_levels: list[str] = Field(default_factory=list)
+
+
+class ChatModeOptionOut(BaseModel):
+    id: str
+    implemented: bool
+    requires: list[str] = Field(default_factory=list)
+
+
+class ChatModesOut(BaseModel):
+    modes: list[ChatModeOptionOut]
+    thinking_levels: list[str]
+
+
+class ChatCapabilitiesOut(BaseModel):
+    provider_id: str
+    model_id: str
+    capabilities: list[str] = Field(default_factory=list)
+    thinking_levels: list[dict[str, object]]
 
 
 class MarketModelCreate(BaseModel):
@@ -2830,9 +2873,7 @@ def clean_document_folder(value: object) -> object:
     if not isinstance(value, str):
         return value
     segments = [
-        segment.strip()
-        for segment in value.replace("\\", "/").split("/")
-        if segment.strip()
+        segment.strip() for segment in value.replace("\\", "/").split("/") if segment.strip()
     ]
     return "/".join(segments)[:255]
 
@@ -3307,6 +3348,7 @@ class ModelOut(BaseModel):
     input_price: float
     output_price: float
     tags: list[str]
+    reasoning_levels: list[str] = Field(default_factory=list)
     priority: int
     available: bool
 

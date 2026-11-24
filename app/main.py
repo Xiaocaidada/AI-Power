@@ -18,6 +18,7 @@ from app.routers import (
     arena,
     attachments,
     auth,
+    chat_modes,
     collaborations,
     content,
     conversations,
@@ -136,6 +137,7 @@ app.include_router(traces.router)
 app.include_router(providers.router)
 app.include_router(provider_configs.router)
 app.include_router(models.router)
+app.include_router(chat_modes.router)
 app.include_router(market.router)
 app.include_router(market.admin_router)
 app.include_router(content.router)

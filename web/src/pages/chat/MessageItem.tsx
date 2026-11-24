@@ -14,11 +14,14 @@ import ReactMarkdown from 'react-markdown'
 
 import { Badge } from '../../components/ui/badge'
 import { downloadChatAttachment } from '../../lib/attachments'
+import { modeLabelKey, thinkingLabelKey } from '../../lib/chatModes'
 import { formatTime } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
 import type {
   AgentActivity,
   ChatAttachment,
+  ChatMode,
+  ChatModeMeta,
   Citation,
   MessageFeedback,
   MessageMemoryRef,
@@ -37,6 +40,8 @@ export interface DisplayMessage {
   prompt_tokens?: number | null
   completion_tokens?: number | null
   request_id?: string | null
+  mode?: ChatMode
+  mode_meta?: ChatModeMeta
   memory_refs?: MessageMemoryRef[]
   reply_to_message_id?: string | null
   feedback?: MessageFeedback | null
@@ -139,6 +144,7 @@ export function MessageItem({
   const hasMemories = (message.memory_refs?.length ?? 0) > 0
   const hasDetails =
     (message.model !== null && message.model !== undefined) ||
+    message.mode !== undefined ||
     hasTokens ||
     hasMemories
 
@@ -296,6 +302,15 @@ export function MessageItem({
             {message.model !== null && message.model !== undefined && (
               <span className="font-mono">
                 {message.provider_id} · {message.model}
+              </span>
+            )}
+            {message.mode !== undefined && (
+              <span>{t(modeLabelKey(message.mode))}</span>
+            )}
+            {message.mode_meta?.thinking_level !== undefined && (
+              <span>
+                {t('chat.thinkingLevel')}:{' '}
+                {t(thinkingLabelKey(message.mode_meta.thinking_level))}
               </span>
             )}
             {hasTokens && (

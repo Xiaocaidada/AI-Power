@@ -12,6 +12,7 @@ from app.models import ProviderConfig, ProviderModel
 from app.providers.base import ProviderError
 from app.providers.openai_compat import OpenAICompatProvider
 from app.providers.registry import ProviderRegistry, build_registry
+from app.services.chat_modes import THINKING_LEVELS
 from app.services.provider_secrets import api_key_hint, decrypt_api_key, encrypt_api_key
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,13 @@ def _normalize_capabilities(capabilities: list[str] | None) -> list[str]:
     values = capabilities or DEFAULT_CAPABILITIES
     unique = sorted({item for item in values if item in ALLOWED_CAPABILITIES})
     return unique or list(DEFAULT_CAPABILITIES)
+
+
+def _normalize_reasoning_levels(levels: list[str] | None) -> list[str]:
+    if not levels:
+        return []
+    allowed = {item for item in levels if item in THINKING_LEVELS}
+    return [item for item in THINKING_LEVELS if item in allowed]
 
 
 def _config_query(config_id: UUID, workspace_id: UUID, user_id: UUID, *, owner_only: bool):
@@ -290,6 +298,7 @@ async def add_model(
     model_id: str,
     display_name: str,
     capabilities: list[str] | None,
+    reasoning_levels: list[str] | None = None,
 ) -> ProviderModel:
     existing = (
         await session.execute(
@@ -306,6 +315,7 @@ async def add_model(
         model_id=model_id.strip(),
         display_name=display_name.strip() or model_id.strip(),
         capabilities=_normalize_capabilities(capabilities),
+        reasoning_levels=_normalize_reasoning_levels(reasoning_levels),
         source="manual",
     )
     session.add(model)
@@ -319,12 +329,15 @@ async def update_model(
     *,
     display_name: str | None = None,
     capabilities: list[str] | None = None,
+    reasoning_levels: list[str] | None = None,
     enabled: bool | None = None,
 ) -> ProviderModel:
     if display_name is not None:
         model.display_name = display_name.strip() or model.model_id
     if capabilities is not None:
         model.capabilities = _normalize_capabilities(capabilities)
+    if reasoning_levels is not None:
+        model.reasoning_levels = _normalize_reasoning_levels(reasoning_levels)
     if enabled is not None:
         model.enabled = enabled
     await session.flush()
@@ -357,6 +370,7 @@ async def accessible_models(
             "model_id": model.model_id,
             "display_name": model.display_name or model.model_id,
             "capabilities": list(model.capabilities),
+            "reasoning_levels": list(model.reasoning_levels or []),
         }
         for model, config in rows
     ]

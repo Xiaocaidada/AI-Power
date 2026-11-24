@@ -1,6 +1,7 @@
 import { API_BASE } from './config'
 import { toApiError } from './errors'
 import { getAccessToken } from './tokens'
+import type { ChatMode, ChatModeMeta } from './types'
 import { getActiveWorkspaceId } from './workspace'
 
 export interface SseEvent {
@@ -62,6 +63,8 @@ export interface StreamChatOptions {
   conversationId: string
   content: string
   attachmentIds?: string[]
+  mode?: ChatMode
+  modeMeta?: ChatModeMeta
   signal?: AbortSignal
   onEvent: SseHandler
 }
@@ -161,12 +164,19 @@ export async function streamChat({
   conversationId,
   content,
   attachmentIds = [],
+  mode,
+  modeMeta,
   signal,
   onEvent,
 }: StreamChatOptions): Promise<void> {
   return streamResponse(
     `${API_BASE}/conversations/${conversationId}/messages`,
-    { content, attachment_ids: attachmentIds },
+    {
+      content,
+      attachment_ids: attachmentIds,
+      ...(mode !== undefined ? { mode } : {}),
+      ...(modeMeta !== undefined ? { mode_meta: modeMeta } : {}),
+    },
     signal,
     onEvent,
   )

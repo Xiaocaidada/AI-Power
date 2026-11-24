@@ -8,6 +8,13 @@ import { Dialog } from '../../components/ui/dialog'
 import { Textarea } from '../../components/ui/input'
 import { Spinner } from '../../components/ui/spinner'
 import { uploadChatAttachment } from '../../lib/attachments'
+import {
+  THINKING_LEVELS,
+  modelReasoningLevels,
+  modeLabelKey,
+  normalizeThinkingLevel,
+  thinkingLabelKey,
+} from '../../lib/chatModes'
 import { errorTextKey } from '../../lib/errorText'
 import { ApiError } from '../../lib/errors'
 import {
@@ -25,15 +32,22 @@ import {
 import type {
   AgentActivity,
   ChatAttachment,
+  ChatMode,
+  ChatModeMeta,
   ChatUsage,
   Citation,
   ConversationDetail,
   KnowledgeBase,
+  ModelEntry,
+  PersonalModel,
+  ThinkingLevel,
 } from '../../lib/types'
+import { isModeImplemented, useChatModes } from '../../lib/useChatModes'
 import { ChatSettingsDialog } from './ChatSettingsDialog'
 import { CitationDrawer } from './CitationDrawer'
 import { Composer } from './Composer'
 import { MessageItem, type DisplayMessage } from './MessageItem'
+import { ModeSelector } from './ModeSelector'
 import { TraceDialog } from './TraceDialog'
 
 interface PendingStream {
@@ -77,6 +91,8 @@ export function ChatPage() {
   const [editError, setEditError] = useState<string | null>(null)
   const [editLaterCount, setEditLaterCount] = useState(0)
   const [cooldown, setCooldown] = useState(0)
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('standard')
+  const [modeError, setModeError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const activityIdRef = useRef(0)
   const startedRef = useRef(false)
@@ -95,6 +111,34 @@ export function ChatPage() {
     queryFn: () => apiRequest<KnowledgeBase[]>('/knowledge-bases'),
     staleTime: 60_000,
   })
+  const chatModes = useChatModes()
+  const platformModels = useQuery({
+    queryKey: ['models'],
+    queryFn: () => apiRequest<ModelEntry[]>('/models'),
+    staleTime: 60_000,
+  })
+  const personalModels = useQuery({
+    queryKey: ['provider-configs', 'models'],
+    queryFn: () => apiRequest<PersonalModel[]>('/provider-configs/models'),
+    staleTime: 60_000,
+  })
+  const activeMode: ChatMode = conversation.data?.default_mode ?? 'chat'
+  const modeImplemented = isModeImplemented(activeMode, chatModes.data)
+  const platformModel = (platformModels.data ?? []).find(
+    (model) =>
+      model.provider_id === conversation.data?.provider_id &&
+      model.model_id === conversation.data?.model,
+  )
+  const personalModel = (personalModels.data ?? []).find(
+    (model) =>
+      model.provider_id === conversation.data?.provider_id &&
+      model.model_id === conversation.data?.model,
+  )
+  const supportedThinking: ThinkingLevel[] =
+    conversation.data?.provider_id === 'auto' || conversation.data === undefined
+      ? ['standard']
+      : modelReasoningLevels(personalModel ?? platformModel)
+  const supportedThinkingKey = supportedThinking.join(',')
 
   const runStream = useCallback(
     async (
@@ -223,7 +267,7 @@ export function ChatPage() {
   }
 
   const start = useCallback(
-    async (content: string) => {
+    async (content: string, metaOverride?: ChatModeMeta) => {
       if (conversationId === '') return
       stickRef.current = true
       setInput('')
@@ -235,6 +279,8 @@ export function ChatPage() {
             conversationId,
             content,
             attachmentIds: snapshot.map((item) => item.id),
+            mode: activeMode,
+            modeMeta: metaOverride ?? { thinking_level: thinkingLevel },
             signal,
             onEvent,
           }),
@@ -242,7 +288,7 @@ export function ChatPage() {
         snapshot,
       )
     },
-    [attachments, conversationId, runStream],
+    [activeMode, attachments, conversationId, runStream, thinkingLevel],
   )
 
   const regenerate = useCallback(
@@ -280,12 +326,53 @@ export function ChatPage() {
   }, [cooldown])
 
   useEffect(() => {
-    const pendingMessage = (location.state as { pendingMessage?: string } | null)?.pendingMessage
+    setThinkingLevel((current) =>
+      normalizeThinkingLevel(current, supportedThinking),
+    )
+  }, [supportedThinkingKey])
+
+  useEffect(() => {
+    if (conversation.data === undefined) return
+    const latest = [...conversation.data.messages]
+      .reverse()
+      .find((message) => message.mode_meta?.thinking_level !== undefined)
+    if (latest?.mode_meta?.thinking_level !== undefined) {
+      setThinkingLevel(latest.mode_meta.thinking_level)
+    }
+  }, [conversation.data?.id])
+
+  const changeMode = async (next: ChatMode) => {
+    if (conversation.data === undefined) return
+    setModeError(null)
+    try {
+      await apiRequest(`/conversations/${conversationId}`, {
+        method: 'PATCH',
+        body: { default_mode: next },
+      })
+      await queryClient.invalidateQueries({
+        queryKey: ['conversation', conversationId],
+      })
+      await queryClient.invalidateQueries({ queryKey: ['conversations'] })
+    } catch (caught) {
+      setModeError(t(errorTextKey(caught)))
+    }
+  }
+
+  useEffect(() => {
+    const state = location.state as {
+      pendingMessage?: string
+      pendingModeMeta?: ChatModeMeta
+    } | null
+    const pendingMessage = state?.pendingMessage
     if (pendingMessage === undefined || startedRef.current) return
+    if (conversation.data === undefined) return
     startedRef.current = true
+    if (state?.pendingModeMeta?.thinking_level !== undefined) {
+      setThinkingLevel(state.pendingModeMeta.thinking_level)
+    }
     navigate(location.pathname, { replace: true, state: null })
-    void start(pendingMessage)
-  }, [location, navigate, start])
+    void start(pendingMessage, state?.pendingModeMeta)
+  }, [conversation.data, location, navigate, start])
 
   const serverMessages = conversation.data?.messages ?? []
   const messageCount = serverMessages.length
@@ -666,13 +753,62 @@ export function ChatPage() {
               {attachError}
             </p>
           )}
+          {modeError !== null && (
+            <p role="alert" className="mb-2 rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">
+              {modeError}
+            </p>
+          )}
+          {!modeImplemented && conversation.data !== undefined && (
+            <p role="status" className="mb-2 rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
+              {t('chat.modePlannedNotice', {
+                mode: t(modeLabelKey(activeMode)),
+              })}
+            </p>
+          )}
           <Composer
             value={input}
             onValueChange={setInput}
             onSend={start}
-            disabled={cooldown > 0}
+            disabled={cooldown > 0 || !modeImplemented}
             streaming={pending?.status === 'streaming'}
             onStop={() => abortRef.current?.abort()}
+            footerStart={
+              <>
+                <ModeSelector
+                  value={activeMode}
+                  catalog={chatModes.data}
+                  variant="ghost"
+                  placement="top"
+                  disabled={conversation.data?.agent === true}
+                  onChange={(next) => void changeMode(next)}
+                />
+                <label className="inline-flex items-center gap-1 text-[11px] text-ink-muted">
+                  <span>{t('chat.thinkingLevel')}</span>
+                  <select
+                    aria-label={t('chat.thinkingLevel')}
+                    className="h-6 rounded-md border border-border bg-surface px-1 text-[11px] text-ink"
+                    value={thinkingLevel}
+                    disabled={!modeImplemented}
+                    onChange={(event) =>
+                      setThinkingLevel(event.target.value as ThinkingLevel)
+                    }
+                  >
+                    {THINKING_LEVELS.map((level) => (
+                      <option
+                        key={level}
+                        value={level}
+                        disabled={!supportedThinking.includes(level)}
+                      >
+                        {t(thinkingLabelKey(level))}
+                        {supportedThinking.includes(level)
+                          ? ''
+                          : ` · ${t('chat.thinkingUnsupported')}`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            }
             attachments={attachments}
             attaching={attaching}
             onAttachFiles={(files) => void attachFiles(files)}

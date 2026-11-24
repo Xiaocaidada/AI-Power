@@ -1,5 +1,5 @@
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,6 +28,7 @@ class ModelEntry:
     tags: list[str]
     priority: int
     available: bool
+    reasoning_levels: list[str] = field(default_factory=list)
 
 
 def _failure_key(provider_id: str) -> str:
@@ -70,6 +71,15 @@ def _tags(raw: str) -> list[str]:
     return [tag for tag in raw.split(",") if tag]
 
 
+def _reasoning_levels(row: ModelCatalog) -> list[str]:
+    if row.reasoning_levels:
+        allowed = {item for item in row.reasoning_levels if item in ("fast", "standard", "deep")}
+        return [item for item in ("fast", "standard", "deep") if item in allowed]
+    if "reasoning" in _tags(row.tags):
+        return ["standard", "deep"]
+    return []
+
+
 async def catalog_entries(
     session: AsyncSession, registry: ProviderRegistry, redis: RedisLike
 ) -> list[ModelEntry]:
@@ -105,6 +115,7 @@ async def catalog_entries(
                     tags=_tags(row.tags),
                     priority=row.priority,
                     available=not open_cache[row.provider_id],
+                    reasoning_levels=_reasoning_levels(row),
                 )
             )
         return entries
