@@ -17,6 +17,8 @@ from app.schemas import (
     MemoryEvalCaseOut,
     MemoryEvalRunIn,
     MemoryEvalRunOut,
+    MemoryFeedbackIn,
+    MemoryFeedbackOut,
     MemoryGraphOut,
     MemoryGraphRebuildOut,
     MemoryIn,
@@ -42,8 +44,10 @@ from app.services.memories import (
     create_memory,
     create_memory_relation,
     delete_memory,
+    delete_memory_feedback,
     delete_memory_relation,
     get_memory,
+    get_memory_feedback,
     get_memory_settings,
     list_memories,
     list_memory_relations,
@@ -54,6 +58,7 @@ from app.services.memories import (
     retention_preview,
     update_memory,
     update_memory_settings,
+    upsert_memory_feedback,
     validate_memory_targets,
 )
 from app.services.memory_diff import (
@@ -700,6 +705,85 @@ async def get_memory_endpoint(
     except MemoryError as exc:
         raise _error(exc) from None
     return _memory_out(memory)
+
+
+@router.get("/{memory_id}/feedback", response_model=MemoryFeedbackOut)
+async def get_memory_feedback_endpoint(
+    memory_id: UUID, context: JwtContext, session: SessionDep
+) -> MemoryFeedbackOut:
+    try:
+        await get_memory(session, context.workspace.id, context.user.id, memory_id)
+    except MemoryError as exc:
+        raise _error(exc) from None
+    own, helpful, unhelpful = await get_memory_feedback(
+        session,
+        workspace_id=context.workspace.id,
+        user_id=context.user.id,
+        memory_id=memory_id,
+    )
+    return MemoryFeedbackOut(
+        rating=own.rating if own is not None else None,
+        comment=own.comment if own is not None else "",
+        helpful_count=helpful,
+        unhelpful_count=unhelpful,
+    )
+
+
+@router.put("/{memory_id}/feedback", response_model=MemoryFeedbackOut)
+async def upsert_memory_feedback_endpoint(
+    memory_id: UUID,
+    payload: MemoryFeedbackIn,
+    context: JwtContext,
+    session: SessionDep,
+) -> MemoryFeedbackOut:
+    try:
+        await get_memory(session, context.workspace.id, context.user.id, memory_id)
+    except MemoryError as exc:
+        raise _error(exc) from None
+    try:
+        await upsert_memory_feedback(
+            session,
+            workspace_id=context.workspace.id,
+            user_id=context.user.id,
+            memory_id=memory_id,
+            rating=payload.rating,
+            comment=payload.comment,
+            context_type=payload.context_type,
+            context_id=payload.context_id,
+        )
+    except MemoryError as exc:
+        raise _error(exc) from None
+    await session.commit()
+    own, helpful, unhelpful = await get_memory_feedback(
+        session,
+        workspace_id=context.workspace.id,
+        user_id=context.user.id,
+        memory_id=memory_id,
+    )
+    return MemoryFeedbackOut(
+        rating=own.rating if own is not None else None,
+        comment=own.comment if own is not None else "",
+        helpful_count=helpful,
+        unhelpful_count=unhelpful,
+    )
+
+
+@router.delete("/{memory_id}/feedback", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_memory_feedback_endpoint(
+    memory_id: UUID, context: JwtContext, session: SessionDep
+) -> Response:
+    try:
+        await get_memory(session, context.workspace.id, context.user.id, memory_id)
+    except MemoryError as exc:
+        raise _error(exc) from None
+    await delete_memory_feedback(
+        session,
+        workspace_id=context.workspace.id,
+        user_id=context.user.id,
+        memory_id=memory_id,
+    )
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.patch("/{memory_id}", response_model=MemoryOut)

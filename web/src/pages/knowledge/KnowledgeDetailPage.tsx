@@ -39,6 +39,7 @@ import { PAGE_SIZE, mergePages, pageFromItems } from '../../lib/pagination'
 import type {
   DocumentFolder,
   DocumentItem,
+  DocumentParsePreview,
   KnowledgeBase,
   KnowledgeBaseSettings,
   KnowledgeBaseStats,
@@ -83,6 +84,12 @@ export function KnowledgeDetailPage() {
   const [metadataTags, setMetadataTags] = useState('')
   const [metadataJson, setMetadataJson] = useState('{}')
   const [metadataMemory, setMetadataMemory] = useState(false)
+  const [parseTarget, setParseTarget] = useState<DocumentItem | null>(null)
+  const [parsePreview, setParsePreview] = useState<DocumentParsePreview | null>(
+    null,
+  )
+  const [parseError, setParseError] = useState<string | null>(null)
+  const [parsing, setParsing] = useState(false)
   const [folderRenameOpen, setFolderRenameOpen] = useState(false)
   const [folderRenameValue, setFolderRenameValue] = useState('')
 
@@ -277,6 +284,23 @@ export function KnowledgeDetailPage() {
     setMetadataTags((document.tags ?? []).join(', '))
     setMetadataJson(JSON.stringify(document.doc_metadata ?? {}, null, 2))
     setMetadataMemory(document.memory_extract_enabled === true)
+  }
+
+  const openParsePreview = async (document: DocumentItem) => {
+    setParseTarget(document)
+    setParsePreview(null)
+    setParseError(null)
+    setParsing(true)
+    try {
+      const preview = await apiRequest<DocumentParsePreview>(
+        `/documents/${document.id}/parse-preview`,
+      )
+      setParsePreview(preview)
+    } catch (caught) {
+      setParseError(t(errorTextKey(caught)))
+    } finally {
+      setParsing(false)
+    }
   }
 
   const saveMetadata = async () => {
@@ -670,6 +694,15 @@ export function KnowledgeDetailPage() {
                             <Button
                               variant="ghost"
                               size="sm"
+                              aria-label={t('documents.parsePreview')}
+                              title={t('documents.parsePreview')}
+                              onClick={() => void openParsePreview(document)}
+                            >
+                              <FileText className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
                               aria-label={t('documents.editMetadata')}
                               title={t('documents.editMetadata')}
                               onClick={() => openMetadata(document)}
@@ -834,6 +867,73 @@ export function KnowledgeDetailPage() {
               className="h-8 w-20 rounded-lg border border-border bg-surface px-2 text-xs text-ink"
             />
           </label>
+        )}
+      </Dialog>
+
+      <Dialog
+        open={parseTarget !== null}
+        onClose={() => {
+          setParseTarget(null)
+          setParsePreview(null)
+          setParseError(null)
+        }}
+        title={
+          parseTarget !== null
+            ? `${t('documents.parsePreview')} · ${parseTarget.filename}`
+            : t('documents.parsePreview')
+        }
+        className="max-w-3xl"
+        footer={
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              setParseTarget(null)
+              setParsePreview(null)
+              setParseError(null)
+            }}
+          >
+            {t('common.close')}
+          </Button>
+        }
+      >
+        {parsing && (
+          <div className="flex justify-center py-8">
+            <Spinner />
+          </div>
+        )}
+        {!parsing && parseError !== null && (
+          <p className="rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">
+            {parseError}
+          </p>
+        )}
+        {!parsing && parsePreview !== null && (
+          <div className="space-y-3">
+            <p className="text-xs text-ink-muted">
+              {t('documents.parseSummary', {
+                pages: parsePreview.page_count,
+                chars: parsePreview.char_count,
+              })}
+              {parsePreview.truncated ? ` · ${t('documents.parseTruncated')}` : ''}
+            </p>
+            <div className="max-h-[28rem] space-y-3 overflow-y-auto">
+              {parsePreview.pages.map((page, index) => (
+                <div
+                  key={`${page.page_no ?? 'page'}-${index}`}
+                  className="rounded-lg border border-border bg-surface-muted p-3"
+                >
+                  <p className="mb-1 text-[10px] uppercase tracking-wide text-ink-muted">
+                    {page.page_no === null
+                      ? t('documents.parseNoPage')
+                      : t('documents.parsePage', { page: page.page_no })}
+                  </p>
+                  <pre className="whitespace-pre-wrap break-words font-mono text-[11px] text-ink">
+                    {page.text}
+                  </pre>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
       </Dialog>
 

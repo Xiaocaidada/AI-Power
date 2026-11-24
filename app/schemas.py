@@ -1232,6 +1232,42 @@ class AgentRunOut(BaseModel):
     href: str = ""
 
 
+class AgentSlowNodeOut(BaseModel):
+    node_id: str
+    node_type: str
+    count: int
+    failures: int
+    avg_duration_ms: float
+
+
+class AgentAnalyticsSuggestionOut(BaseModel):
+    kind: str
+    title: str
+    detail: str
+
+
+class AgentAnalyticsOut(BaseModel):
+    window_days: int
+    total_runs: int
+    chat_runs: int
+    workflow_runs: int
+    completed: int
+    failed: int
+    cancelled: int
+    running: int
+    success_rate: float
+    avg_duration_ms: float
+    p95_duration_ms: float
+    chat_tokens: int
+    workflow_tokens: int
+    prompt_tokens: int
+    completion_tokens: int
+    cost: float
+    failure_codes: dict[str, int] = Field(default_factory=dict)
+    slow_nodes: list[AgentSlowNodeOut] = Field(default_factory=list)
+    suggestions: list[AgentAnalyticsSuggestionOut] = Field(default_factory=list)
+
+
 class AgentMarketOut(BaseModel):
     id: UUID
     slug: str
@@ -1528,6 +1564,20 @@ class MemoryOut(BaseModel):
     last_used_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class MemoryFeedbackIn(BaseModel):
+    rating: Literal["helpful", "unhelpful"]
+    comment: str = Field(default="", max_length=500)
+    context_type: str = Field(default="manual", max_length=20)
+    context_id: str | None = Field(default=None, max_length=100)
+
+
+class MemoryFeedbackOut(BaseModel):
+    rating: Literal["helpful", "unhelpful"] | None = None
+    comment: str = ""
+    helpful_count: int = 0
+    unhelpful_count: int = 0
 
 
 class MemoryVersionOut(BaseModel):
@@ -2730,6 +2780,23 @@ class DocumentOut(BaseModel):
     source_url: str | None = None
     memory_extract_enabled: bool = False
     created_at: datetime
+
+
+class DocumentParsePageOut(BaseModel):
+    page_no: int | None = None
+    text: str
+    chars: int
+    truncated: bool = False
+
+
+class DocumentParsePreviewOut(BaseModel):
+    document_id: UUID
+    filename: str
+    mime: str
+    page_count: int
+    char_count: int
+    truncated: bool = False
+    pages: list[DocumentParsePageOut] = Field(default_factory=list)
 
 
 def clean_document_tags(value: object) -> object:

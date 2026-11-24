@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  Activity,
   ArrowLeft,
   MessageSquare,
   Play,
@@ -17,6 +18,7 @@ import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
 import { streamChat, streamRunEvents } from '../../lib/sse'
 import type {
+  AgentAnalytics,
   AgentRun,
   Conversation,
   CustomAgent,
@@ -66,6 +68,11 @@ export function AgentExperiencePage() {
   const runsQuery = useQuery({
     queryKey: ['agent-runs', id],
     queryFn: () => apiRequest<AgentRun[]>(`/agents/${id}/runs?limit=10`),
+    enabled: id !== '',
+  })
+  const analyticsQuery = useQuery({
+    queryKey: ['agent-analytics', id],
+    queryFn: () => apiRequest<AgentAnalytics>(`/agents/${id}/analytics?days=30`),
     enabled: id !== '',
   })
   const agent = agentQuery.data
@@ -304,6 +311,105 @@ export function AgentExperiencePage() {
           </div>
         </div>
       </header>
+
+      {analyticsQuery.data !== undefined && (
+        <section className="mx-6 mt-5 rounded-card border border-border bg-surface p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <Activity className="h-4 w-4 text-accent" />
+            <h2 className="text-sm font-medium text-ink">
+              {t('agents.analytics.title', {
+                days: analyticsQuery.data.window_days,
+              })}
+            </h2>
+            <Badge tone="neutral">
+              {t('agents.analytics.runs', {
+                count: analyticsQuery.data.total_runs,
+              })}
+            </Badge>
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
+            {(
+              [
+                [
+                  'success',
+                  `${(analyticsQuery.data.success_rate * 100).toFixed(1)}%`,
+                ],
+                ['failed', String(analyticsQuery.data.failed)],
+                [
+                  'p95',
+                  `${analyticsQuery.data.p95_duration_ms.toFixed(0)} ms`,
+                ],
+                [
+                  'tokens',
+                  String(
+                    analyticsQuery.data.chat_tokens +
+                      analyticsQuery.data.workflow_tokens,
+                  ),
+                ],
+                ['cost', `$${analyticsQuery.data.cost.toFixed(4)}`],
+                ['slow', String(analyticsQuery.data.slow_nodes.length)],
+              ] as const
+            ).map(([key, value]) => (
+              <div key={key} className="rounded-lg bg-surface-muted px-3 py-2">
+                <p className="text-[10px] uppercase tracking-wide text-ink-muted">
+                  {t(`agents.analytics.${key}`)}
+                </p>
+                <p className="mt-0.5 text-base font-semibold text-ink">{value}</p>
+              </div>
+            ))}
+          </div>
+          {analyticsQuery.data.suggestions.length > 0 && (
+            <ul className="mt-3 space-y-1">
+              {analyticsQuery.data.suggestions.map((suggestion) => (
+                <li
+                  key={suggestion.kind}
+                  className="rounded-lg border border-border px-3 py-2 text-xs"
+                >
+                  <span className="font-medium text-ink">{suggestion.title}</span>
+                  <span className="ml-2 text-ink-muted">{suggestion.detail}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {analyticsQuery.data.slow_nodes.length > 0 && (
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-left text-[11px]">
+                <thead className="text-ink-muted">
+                  <tr>
+                    <th className="py-1 pr-3 font-medium">
+                      {t('agents.analytics.node')}
+                    </th>
+                    <th className="py-1 pr-3 font-medium">
+                      {t('agents.analytics.nodeType')}
+                    </th>
+                    <th className="py-1 pr-3 font-medium">
+                      {t('agents.analytics.avgMs')}
+                    </th>
+                    <th className="py-1 font-medium">
+                      {t('agents.analytics.failures')}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {analyticsQuery.data.slow_nodes.map((node) => (
+                    <tr
+                      key={`${node.node_id}-${node.node_type}`}
+                      className="border-t border-border"
+                    >
+                      <td className="py-1 pr-3 text-ink">{node.node_id}</td>
+                      <td className="py-1 pr-3 text-ink-muted">{node.node_type}</td>
+                      <td className="py-1 pr-3 text-ink-muted">
+                        {node.avg_duration_ms.toFixed(0)}
+                      </td>
+                      <td className="py-1 text-ink-muted">{node.failures}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
 
       <div className="grid gap-4 px-6 py-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <section className="rounded-card border border-border bg-surface p-4">

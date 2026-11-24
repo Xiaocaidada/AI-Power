@@ -718,6 +718,40 @@ class MemoryUsageEvent(Base):
     )
 
 
+class MemoryFeedback(Base):
+    __tablename__ = "memory_feedback"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    memory_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agent_memories.id", ondelete="CASCADE"), index=True
+    )
+    rating: Mapped[str] = mapped_column(String(20), default="helpful")
+    comment: Mapped[str] = mapped_column(String(500), default="")
+    context_type: Mapped[str] = mapped_column(String(20), default="manual")
+    context_id: Mapped[str] = mapped_column(String(100), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "memory_id",
+            "user_id",
+            "context_type",
+            "context_id",
+            name="uq_memory_feedback_context",
+        ),
+        Index("ix_memory_feedback_user_created", "user_id", "created_at"),
+    )
+
+
 class MemorySettings(Base):
     __tablename__ = "memory_settings"
 

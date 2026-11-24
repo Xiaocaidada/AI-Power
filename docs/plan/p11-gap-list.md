@@ -28,6 +28,7 @@
 - 2026-11-24：P11-S8b 完成，M-P0-5 补齐工作流运行与上传者授权文档来源，默认双重关闭并保持幂等。见 [p11-s8b-memory-sources.md](../tdd/p11-s8b-memory-sources.md)。
 - 2026-11-24：P11-S9 完成 P2 评估，并按需实现 P2-4 LLM 语义矛盾检测（显式触发、只生成建议）。其余 P2 项保持后续/不做。见 [p11-s9-p2-assessment.md](../plan/p11-s9-p2-assessment.md) 与 [p11-s9-semantic-conflicts.md](../tdd/p11-s9-semantic-conflicts.md)。
 - 2026-11-24：P11-S10 完成剩余 P0：A-P0-2 模板链路验证、A-P0-4 项目 Agent/文件关联与工具、K-P0-5 处理版本对比、M-P0-6 记忆过滤维度。见 [p11-s10-p0-closure.md](../tdd/p11-s10-p0-closure.md)。
+- 2026-11-24：P11-S11 完成三项 P1：A-P1-5 Agent 运行分析、K-P1-3 解析原文预览、M-P1-5 记忆反馈闭环。见 [p11-s11-p1.md](../tdd/p11-s11-p1.md)。
 
 ## 2. P0：下一阶段必须补齐
 
@@ -80,7 +81,7 @@
 | A-P1-2 ✅ | Agent 模板创建（从模板起步） | P11-S4 已提供三个模板与原子创建流程 | `app/services/custom_agents.py`、`web/src/pages/studio` | 模板定义、创建流程 | A-P0-2 |
 | A-P1-3 | AI Builder 流式状态与多轮上下文增强 | 无生成阶段流、澄清、取消已列 P0 | `app/routers/agent_builder.py`、`StudioBuilderPanel.tsx` | SSE/阶段事件、上下文摘要 | X-P0-4 |
 | A-P1-4 | Agent 附件能力声明与限制 | 附件复用聊天，未按 Agent 能力声明 | `app/services/custom_agents.py`、`app/routers/conversations.py`、`StudioConfigPanel.tsx` | 能力字段、上传/解析开关 | 无 |
-| A-P1-5 | Agent 级运行分析与工作流优化建议 | 有运行记录，无成功率/成本/节点瓶颈分析 | `app/services/custom_agents.py::list_agent_runs`、`app/metrics.py`、`AgentExperiencePage.tsx` | 聚合指标、失败原因、建议 | X-P0-3 |
+| A-P1-5 ✅ | Agent 级运行分析与工作流优化建议 | P11-S11 已新增成功率/耗时/成本/失败码/慢节点与规则建议 | `app/services/custom_agents.py::list_agent_runs`、`app/metrics.py`、`AgentExperiencePage.tsx` | 聚合指标、失败原因、建议 | X-P0-3 |
 
 ### 3.2 知识库
 
@@ -88,7 +89,7 @@
 |---|---|---|---|---|---|
 | K-P1-1 ◐ | 完整处理节点库 | P11-S5 已补文本过滤/增强节点；OCR 节点、格式专用解析、独立全文/混合索引模式仍缺 | `app/services/knowledge/catalog.py`、`pipeline.py` | OCR 节点、格式专用解析、文本处理、全文/混合索引 | K-P0-1/2 |
 | K-P1-2 ◐ | 完整检索节点库 | P11-S6 已补多查询与空结果回退；意图识别/分类路由/同义词扩展仍缺 | `app/services/knowledge/retrieval_catalog.py`、`retrieval_pipeline.py` | 新节点、条件分支或回退语义 | K-P0-3 |
-| K-P1-3 | 文档处理结果与解析原文预览 | 有 chunk/preview，无专门解析结果页 | `web/src/pages/knowledge/KnowledgeChunksTab.tsx`、`app/services/parsing.py` | 解析文本/结构预览、失败定位 | 无 |
+| K-P1-3 ✅ | 文档处理结果与解析原文预览 | P11-S11 已新增按页解析原文预览与截断/错误提示 | `web/src/pages/knowledge/KnowledgeChunksTab.tsx`、`app/services/parsing.py` | 解析文本/结构预览、失败定位 | 无 |
 | K-P1-4 | 评估指标补齐：引用准确性、答案忠实度 | 有 Recall/Precision/NDCG、LLM judge | `app/services/knowledge/metrics.py`、`app/services/evaluation_runner.py` | 引用校验、答案指标 | 评测平台 |
 
 ### 3.3 记忆
@@ -99,7 +100,7 @@
 | M-P1-2 | 记忆关系编辑增强 | 只能创建/删除，不能改类型/依据 | `app/routers/memories.py`、`MemoryDetailDialog.tsx` | PATCH 关系、依据编辑 | 无 |
 | M-P1-3 ✅ | 记忆完整度/变化分析 | P11-S8 已新增最近变化与偏好/项目/技术维度统计 | `app/services/memory_quality.py`、`MemoryPage.tsx` | 版本对比、变化摘要 | M-P0-3 |
 | M-P1-4 | 记忆评测与回答效果联动 | 只有检索 Recall/Precision/MRR | `app/services/memory_eval.py`、`app/services/rag.py` | A/B 注入对比、回答质量指标 | 评测平台 |
-| M-P1-5 | 记忆反馈闭环 | 使用记录有，但无“有用/无用”反馈 | `app/models.py`、`app/services/memories.py`、`MemoryPage.tsx` | 反馈表、排序权重、质量建议 | 无 |
+| M-P1-5 ✅ | 记忆反馈闭环 | P11-S11 已新增反馈表/API、排序加成与质量建议 | `app/models.py`、`app/services/memories.py`、`MemoryPage.tsx` | 反馈表、排序权重、质量建议 | 无 |
 
 ## 4. P2：高级与依赖外部
 
@@ -126,6 +127,7 @@
 | P11-S8 ✅ | 记忆提取来源与质量广度 | M-P0-4、M-P0-5（部分）、M-P1-1/P1-3 | S7 |
 | P11-S9 ✅ | 高级能力评估 | P2-4 LLM 语义矛盾检测；其余 P2 评估后按需/不做 | S5/S6/S8 |
 | P11-S10 ✅ | 剩余 P0 收尾 | A-P0-2/A-P0-4、K-P0-5、M-P0-6 | S9 |
+| P11-S11 ✅ | P1 体验闭环 | A-P1-5、K-P1-3、M-P1-5 | S10 |
 
 ## 6. 验收基线
 

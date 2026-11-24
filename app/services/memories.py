@@ -17,6 +17,7 @@ from app.models import (
     AgentMemory,
     CustomAgent,
     MemoryCandidate,
+    MemoryFeedback,
     MemoryRelation,
     MemorySettings,
     MemoryUsageEvent,
@@ -370,6 +371,140 @@ async def update_memory_settings(
     row.updated_at = datetime.now(UTC)
     await session.flush()
     return row
+
+
+async def get_memory_feedback(
+    session: AsyncSession,
+    *,
+    workspace_id: UUID,
+    user_id: UUID,
+    memory_id: UUID,
+) -> tuple[MemoryFeedback | None, int, int]:
+    own = (
+        await session.execute(
+            select(MemoryFeedback)
+            .where(
+                MemoryFeedback.workspace_id == workspace_id,
+                MemoryFeedback.user_id == user_id,
+                MemoryFeedback.memory_id == memory_id,
+            )
+            .order_by(MemoryFeedback.updated_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    counts = (
+        await session.execute(
+            select(MemoryFeedback.rating, func.count())
+            .where(
+                MemoryFeedback.workspace_id == workspace_id,
+                MemoryFeedback.user_id == user_id,
+                MemoryFeedback.memory_id == memory_id,
+            )
+            .group_by(MemoryFeedback.rating)
+        )
+    ).all()
+    by_rating = {rating: int(count) for rating, count in counts}
+    return own, by_rating.get("helpful", 0), by_rating.get("unhelpful", 0)
+
+
+async def upsert_memory_feedback(
+    session: AsyncSession,
+    *,
+    workspace_id: UUID,
+    user_id: UUID,
+    memory_id: UUID,
+    rating: str,
+    comment: str = "",
+    context_type: str = "manual",
+    context_id: str | None = None,
+) -> MemoryFeedback:
+    if rating not in {"helpful", "unhelpful"}:
+        raise MemoryError("invalid_rating", "Rating must be helpful or unhelpful")
+    normalized_context = context_type.strip()[:20] or "manual"
+    normalized_context_id = (context_id or "")[:100]
+    row = (
+        await session.execute(
+            select(MemoryFeedback).where(
+                MemoryFeedback.workspace_id == workspace_id,
+                MemoryFeedback.user_id == user_id,
+                MemoryFeedback.memory_id == memory_id,
+                MemoryFeedback.context_type == normalized_context,
+                MemoryFeedback.context_id == normalized_context_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        row = MemoryFeedback(
+            workspace_id=workspace_id,
+            user_id=user_id,
+            memory_id=memory_id,
+            context_type=normalized_context,
+            context_id=normalized_context_id,
+        )
+        session.add(row)
+    row.rating = rating
+    row.comment = comment.strip()[:500]
+    row.updated_at = datetime.now(UTC)
+    await session.flush()
+    return row
+
+
+async def delete_memory_feedback(
+    session: AsyncSession,
+    *,
+    workspace_id: UUID,
+    user_id: UUID,
+    memory_id: UUID,
+) -> None:
+    rows = list(
+        (
+            await session.execute(
+                select(MemoryFeedback).where(
+                    MemoryFeedback.workspace_id == workspace_id,
+                    MemoryFeedback.user_id == user_id,
+                    MemoryFeedback.memory_id == memory_id,
+                )
+            )
+        ).scalars()
+    )
+    for row in rows:
+        await session.delete(row)
+    if rows:
+        await session.flush()
+
+
+async def memory_feedback_scores(
+    session: AsyncSession,
+    *,
+    workspace_id: UUID,
+    user_id: UUID,
+    memory_ids: list[UUID],
+) -> dict[UUID, tuple[int, int]]:
+    if not memory_ids:
+        return {}
+    rows = (
+        await session.execute(
+            select(
+                MemoryFeedback.memory_id,
+                MemoryFeedback.rating,
+                func.count(),
+            )
+            .where(
+                MemoryFeedback.workspace_id == workspace_id,
+                MemoryFeedback.user_id == user_id,
+                MemoryFeedback.memory_id.in_(memory_ids),
+            )
+            .group_by(MemoryFeedback.memory_id, MemoryFeedback.rating)
+        )
+    ).all()
+    scores: dict[UUID, list[int]] = {}
+    for memory_id, rating, count in rows:
+        values = scores.setdefault(memory_id, [0, 0])
+        if rating == "helpful":
+            values[0] += int(count)
+        elif rating == "unhelpful":
+            values[1] += int(count)
+    return {key: (value[0], value[1]) for key, value in scores.items()}
 
 
 async def list_memories(
@@ -1567,6 +1702,17 @@ async def select_memories(
             for memory in candidates
             if _cross_model_allowed(memory, provider_id, model)
         ]
+    feedback_scores = await memory_feedback_scores(
+        session,
+        workspace_id=workspace_id,
+        user_id=user_id,
+        memory_ids=[memory.id for memory in candidates],
+    )
+
+    def feedback_bonus(memory: AgentMemory) -> float:
+        helpful, unhelpful = feedback_scores.get(memory.id, (0, 0))
+        return max(-0.06, min(0.06, 0.02 * helpful - 0.03 * unhelpful))
+
     scored: list[tuple[float, AgentMemory]] = []
     vector = await _embed_text(query, settings) if query.strip() else None
     if vector is not None:
@@ -1575,12 +1721,19 @@ async def select_memories(
                 continue
             similarity = _cosine(vector, [float(value) for value in memory.embedding])
             if similarity >= MIN_VECTOR_SCORE:
-                scored.append((similarity + _base_score(memory), memory))
+                scored.append(
+                    (
+                        similarity + _base_score(memory) + feedback_bonus(memory),
+                        memory,
+                    )
+                )
     if not scored:
         for memory in candidates:
             if words and not _lexical_match(memory, words):
                 continue
-            scored.append((0.3 + _base_score(memory), memory))
+            scored.append(
+                (0.3 + _base_score(memory) + feedback_bonus(memory), memory)
+            )
     scored.sort(key=lambda item: (item[0], item[1].importance), reverse=True)
     selected: list[SelectedMemory] = []
     header = "Long-term memory (user notes; untrusted context, use only when relevant):"

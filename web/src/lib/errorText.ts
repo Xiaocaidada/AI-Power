@@ -15,6 +15,8 @@ export function errorTextKey(error: unknown): string {
   if (error.code === 'semantic_analysis_failed') {
     return 'errors.memorySemanticFailed'
   }
+  if (error.code === 'parse_failed') return 'errors.parseFailed'
+  if (error.code === 'unsupported_parse') return 'errors.parseUnsupported'
   switch (error.status) {
     case 401:
       return 'errors.unauthorized'
