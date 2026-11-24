@@ -664,6 +664,34 @@ async def _stream_web_search_reply(
             api_key_id=api_key_id,
         )
         return
+    except Exception:
+        logger.exception("web search failed for message %s", assistant_id)
+        yield _sse("stage", {"stage": "search_failed", "code": "internal_error"})
+        yield _sse(
+            "error",
+            {"code": "internal_error", "message": "Web search failed"},
+        )
+        if trace_id is not None:
+            await _update_trace(
+                trace_id,
+                status="failed",
+                error_code="internal_error",
+                total_ms=(
+                    round((time.perf_counter() - started) * 1000, 1)
+                    if started is not None
+                    else None
+                ),
+            )
+        await _finalize(
+            assistant_id,
+            "",
+            "failed",
+            None,
+            workspace_id,
+            redis=redis,
+            api_key_id=api_key_id,
+        )
+        return
 
     retrieved_at = datetime.now(UTC)
     if results:

@@ -341,6 +341,30 @@ async def test_web_search_streams_sources_and_persists_them(client, api, registr
     assert assistant["web_sources"][0]["provider"] == "tavily"
 
 
+async def test_web_search_unexpected_error_emits_terminal_error(client, api, registry, monkeypatch):
+    headers = await api.headers("p12-s2-internal@example.com")
+    await _create_provider(client, headers)
+    created = await client.post(
+        "/conversations",
+        json={"provider_id": "fake", "model": "fake-model", "mode": "web_search"},
+        headers=headers,
+    )
+
+    async def broken_search(config, query, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("app.routers.conversations.search_multi", broken_search)
+    response = await client.post(
+        f"/conversations/{created.json()['id']}/messages",
+        json={"content": "AI"},
+        headers=headers,
+    )
+
+    events = _parse_sse(response.text)
+    assert events[-1][0] == "error"
+    assert events[-1][1]["code"] == "internal_error"
+
+
 async def test_web_search_failure_emits_terminal_error(client, api, registry, monkeypatch):
     headers = await api.headers("p12-s2-fail@example.com")
     await _create_provider(client, headers)

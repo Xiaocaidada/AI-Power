@@ -303,6 +303,16 @@ async def test_config(config: SearchProviderConfig) -> dict[str, Any]:
             "message": exc.message,
             "result_count": 0,
         }
+    except Exception:
+        logger.exception("search provider test failed")
+        config.status = "error"
+        config.last_error = "search_internal_error"
+        return {
+            "status": "error",
+            "error_code": "search_internal_error",
+            "message": "Search provider test failed",
+            "result_count": 0,
+        }
     config.status = "ok"
     config.last_error = None
     return {
