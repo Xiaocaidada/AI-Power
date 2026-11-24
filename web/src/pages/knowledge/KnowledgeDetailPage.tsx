@@ -82,6 +82,7 @@ export function KnowledgeDetailPage() {
   const [metadataFolder, setMetadataFolder] = useState('')
   const [metadataTags, setMetadataTags] = useState('')
   const [metadataJson, setMetadataJson] = useState('{}')
+  const [metadataMemory, setMetadataMemory] = useState(false)
   const [folderRenameOpen, setFolderRenameOpen] = useState(false)
   const [folderRenameValue, setFolderRenameValue] = useState('')
 
@@ -275,6 +276,7 @@ export function KnowledgeDetailPage() {
     setMetadataFolder(document.folder ?? '')
     setMetadataTags((document.tags ?? []).join(', '))
     setMetadataJson(JSON.stringify(document.doc_metadata ?? {}, null, 2))
+    setMetadataMemory(document.memory_extract_enabled === true)
   }
 
   const saveMetadata = async () => {
@@ -305,6 +307,7 @@ export function KnowledgeDetailPage() {
             .map((item) => item.trim())
             .filter((item) => item !== ''),
           doc_metadata: parsed,
+          memory_extract_enabled: metadataMemory,
         },
       })
       await refreshKnowledgeBase()
@@ -872,6 +875,20 @@ export function KnowledgeDetailPage() {
           placeholder='{"owner": "team"}'
           className="mt-2 min-h-28 w-full rounded-lg border border-border bg-surface px-3 py-2 font-mono text-xs text-ink focus:border-accent focus:outline-none"
         />
+        <label className="mt-3 flex items-start gap-2 text-xs text-ink">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={metadataMemory}
+            onChange={(event) => setMetadataMemory(event.target.checked)}
+          />
+          <span>
+            <span className="font-medium">{t('documents.memoryExtract')}</span>
+            <span className="block text-ink-muted">
+              {t('documents.memoryExtractHint')}
+            </span>
+          </span>
+        </label>
       </Dialog>
 
       <Dialog

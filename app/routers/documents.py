@@ -39,6 +39,7 @@ from app.schemas import (
     UrlImportIn,
 )
 from app.services.access import get_owned_document, get_owned_knowledge_base
+from app.services.memory_extraction import schedule_document_memory_extraction
 from app.services.parsing import UnsupportedDocumentType, detect_mime, parser_for_mime
 from app.services.queue import JobQueue, get_queue
 from app.services.quotas import enforce_kb_document_quota, enforce_quota
@@ -623,6 +624,17 @@ async def update_document(
     session: SessionDep,
 ) -> Document:
     document = await get_owned_document(document_id, context.workspace.id, session)
+    enable_memory = False
+    if payload.memory_extract_enabled is not None:
+        if document.user_id != context.user.id:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "Only the uploader can authorize memory extraction",
+            )
+        enable_memory = (
+            payload.memory_extract_enabled and not document.memory_extract_enabled
+        )
+        document.memory_extract_enabled = payload.memory_extract_enabled
     if payload.tags is not None:
         document.tags = payload.tags
     if payload.folder is not None:
@@ -631,6 +643,8 @@ async def update_document(
         document.doc_metadata = payload.doc_metadata
     await session.commit()
     await session.refresh(document)
+    if enable_memory and document.status == "ready":
+        await schedule_document_memory_extraction(document.id)
     return document
 
 

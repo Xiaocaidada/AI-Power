@@ -26,6 +26,10 @@ class JobQueue(Protocol):
 
     async def enqueue_memory_extraction(self, message_id: UUID) -> None: ...
 
+    async def enqueue_workflow_memory_extraction(self, run_id: UUID) -> None: ...
+
+    async def enqueue_document_memory_extraction(self, document_id: UUID) -> None: ...
+
 
 class ArqJobQueue:
     def __init__(self, pool: Any) -> None:
@@ -81,6 +85,20 @@ class ArqJobQueue:
             "run_memory_extraction_job",
             str(message_id),
             _job_id=f"memextract:{message_id}",
+        )
+
+    async def enqueue_workflow_memory_extraction(self, run_id: UUID) -> None:
+        await self._pool.enqueue_job(
+            "run_workflow_memory_extraction_job",
+            str(run_id),
+            _job_id=f"memextract:workflow:{run_id}",
+        )
+
+    async def enqueue_document_memory_extraction(self, document_id: UUID) -> None:
+        await self._pool.enqueue_job(
+            "run_document_memory_extraction_job",
+            str(document_id),
+            _job_id=f"memextract:document:{document_id}",
         )
 
 

@@ -160,6 +160,18 @@ export function MemorySettingsPanel() {
             onChange={(value) => update('allow_agent_extract', value)}
           />
           <Toggle
+            label={t('memory.settings.allowWorkflow')}
+            hint={t('memory.settings.allowWorkflowHint')}
+            checked={form.allow_workflow_extract}
+            onChange={(value) => update('allow_workflow_extract', value)}
+          />
+          <Toggle
+            label={t('memory.settings.allowDocument')}
+            hint={t('memory.settings.allowDocumentHint')}
+            checked={form.allow_document_extract}
+            onChange={(value) => update('allow_document_extract', value)}
+          />
+          <Toggle
             label={t('memory.settings.allowCrossModel')}
             hint={t('memory.settings.allowCrossModelHint')}
             checked={form.allow_cross_model}

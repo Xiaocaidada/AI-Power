@@ -44,6 +44,7 @@ from app.schemas import (
     WorkflowOut,
     WorkflowRunCreate,
     WorkflowRunOut,
+    WorkflowUpdate,
     WorkflowVersionCreate,
     WorkflowVersionOut,
 )
@@ -176,6 +177,7 @@ def _workflow_out(workflow: Workflow, versions: list[WorkflowVersion]) -> Workfl
         name=workflow.name,
         description=workflow.description,
         kind=workflow.kind,
+        memory_extract_enabled=workflow.memory_extract_enabled,
         created_at=workflow.created_at,
         versions=[WorkflowVersionOut.model_validate(version) for version in versions],
         draft_definition=workflow.draft_definition,
@@ -218,6 +220,7 @@ async def create_workflow(
         name=payload.name,
         description=payload.description,
         kind=payload.kind,
+        memory_extract_enabled=payload.memory_extract_enabled,
     )
     session.add(workflow)
     await session.flush()
@@ -240,6 +243,37 @@ async def create_workflow(
     await session.refresh(workflow)
     await session.refresh(version)
     return _workflow_out(workflow, [version])
+
+
+@router.patch("/{workflow_id}", response_model=WorkflowOut)
+async def update_workflow(
+    workflow_id: UUID,
+    payload: WorkflowUpdate,
+    context: Annotated[AuthContext, Depends(get_jwt_context)],
+    session: SessionDep,
+) -> WorkflowOut:
+    workflow = (
+        await session.execute(
+            select(Workflow).where(
+                Workflow.id == workflow_id,
+                Workflow.workspace_id == context.workspace.id,
+                Workflow.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if workflow is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Workflow not found")
+    if workflow.created_by != context.user.id and context.role != "owner":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Workflow update not permitted")
+    if payload.name is not None:
+        workflow.name = payload.name
+    if payload.description is not None:
+        workflow.description = payload.description
+    if payload.memory_extract_enabled is not None:
+        workflow.memory_extract_enabled = payload.memory_extract_enabled
+    await session.commit()
+    await session.refresh(workflow)
+    return _workflow_out(workflow, await _versions(session, workflow.id))
 
 
 @router.get("/runs/{run_id}", response_model=WorkflowRunOut)

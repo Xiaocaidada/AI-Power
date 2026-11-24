@@ -94,6 +94,7 @@ export function WorkflowsPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [memoryExtract, setMemoryExtract] = useState(false)
   const [definitionText, setDefinitionText] = useState(SAMPLE_DEFINITION)
   const [runInput, setRunInput] = useState('用三句话介绍这个平台')
   const [kbId, setKbId] = useState('')
@@ -207,7 +208,12 @@ export function WorkflowsPage() {
     try {
       const created = await apiRequest<Workflow>('/workflows', {
         method: 'POST',
-        body: { name: name.trim(), description: description.trim(), definition },
+        body: {
+          name: name.trim(),
+          description: description.trim(),
+          definition,
+          memory_extract_enabled: memoryExtract,
+        },
       })
       await queryClient.invalidateQueries({ queryKey: ['workflows'] })
       setSelectedId(created.id)
@@ -215,6 +221,21 @@ export function WorkflowsPage() {
       setCreateOpen(false)
       setName('')
       setDescription('')
+      setMemoryExtract(false)
+    } catch (caught) {
+      setError(t(errorTextKey(caught)))
+    }
+  }
+
+  const toggleMemoryExtract = async (enabled: boolean) => {
+    if (selected === null) return
+    setError(null)
+    try {
+      await apiRequest(`/workflows/${selected.id}`, {
+        method: 'PATCH',
+        body: { memory_extract_enabled: enabled },
+      })
+      await queryClient.invalidateQueries({ queryKey: ['workflows'] })
     } catch (caught) {
       setError(t(errorTextKey(caught)))
     }
@@ -296,6 +317,24 @@ export function WorkflowsPage() {
             <header>
               <h2 className="text-lg font-semibold">{selected.name}</h2>
               <p className="mt-1 text-sm text-ink-muted">{selected.description}</p>
+              <label className="mt-2 flex items-start gap-2 text-xs text-ink">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={selected.memory_extract_enabled}
+                  onChange={(event) =>
+                    void toggleMemoryExtract(event.target.checked)
+                  }
+                />
+                <span>
+                  <span className="font-medium">
+                    {t('workflows.memoryExtract')}
+                  </span>
+                  <span className="block text-ink-muted">
+                    {t('workflows.memoryExtractHint')}
+                  </span>
+                </span>
+              </label>
             </header>
 
             <section className="rounded-card border border-border bg-surface p-4">
@@ -471,6 +510,20 @@ export function WorkflowsPage() {
             onChange={(event) => setDescription(event.target.value)}
             placeholder={t('workflows.description')}
           />
+          <label className="flex items-start gap-2 text-xs text-ink">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={memoryExtract}
+              onChange={(event) => setMemoryExtract(event.target.checked)}
+            />
+            <span>
+              <span className="font-medium">{t('workflows.memoryExtract')}</span>
+              <span className="block text-ink-muted">
+                {t('workflows.memoryExtractHint')}
+              </span>
+            </span>
+          </label>
           <Textarea
             className="min-h-64 w-full rounded-lg border border-border bg-surface px-3 py-2 font-mono text-xs"
             value={definitionText}

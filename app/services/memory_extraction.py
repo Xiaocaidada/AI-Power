@@ -16,10 +16,16 @@ from app.db import SessionLocal
 from app.metrics import metrics
 from app.models import (
     AgentMemory,
+    Chunk,
     Conversation,
+    Document,
     MemoryCandidate,
     MemoryExtractionRun,
     Message,
+    ModelCatalog,
+    Workflow,
+    WorkflowRun,
+    WorkflowVersion,
 )
 from app.providers.base import ChatMessage
 from app.providers.registry import ProviderRegistry
@@ -59,6 +65,31 @@ EXTRACTION_SYSTEM_PROMPT = (
     "Return ONLY a JSON array. Each item has keys: "
     "category (preference|profile|project|technical|experience|decision|relation|fact), "
     "title (short), content (self-contained sentence), scope_type (global|project|agent), "
+    "confidence (0-1), tags (string array), reason (short). "
+    "Return [] when nothing is worth remembering."
+)
+WORKFLOW_SYSTEM_PROMPT = (
+    "You extract durable memories from one completed workflow run. "
+    "Keep project facts, technical decisions and their reasons, successful experience, "
+    "and failure lessons that stay useful beyond this run. "
+    "Never store passwords, API keys, tokens, or other secrets. "
+    "Do not store transient outputs, greetings, or one-off values. "
+    "Return ONLY a JSON array. Each item has keys: "
+    "category (preference|profile|project|technical|experience|decision|relation|fact), "
+    "title (short), content (self-contained sentence), scope_type (global), "
+    "confidence (0-1), tags (string array), reason (short). "
+    "Return [] when nothing is worth remembering."
+)
+DOCUMENT_SYSTEM_PROMPT = (
+    "You extract durable memories from one user-authorized document. "
+    "Keep project background, goals, technical stack, important decisions and constraints "
+    "that will stay useful across future conversations. "
+    "Never store passwords, API keys, tokens, or other secrets. "
+    "Do not copy the document verbatim and do not store administrative noise. "
+    "Each item must be a concise self-contained sentence grounded in the document. "
+    "Return ONLY a JSON array. Each item has keys: "
+    "category (preference|profile|project|technical|experience|decision|relation|fact), "
+    "title (short), content (self-contained sentence), scope_type (global), "
     "confidence (0-1), tags (string array), reason (short). "
     "Return [] when nothing is worth remembering."
 )
@@ -106,13 +137,14 @@ async def _create_run(
     *,
     workspace_id: UUID,
     user_id: UUID,
-    message_id: UUID,
+    source_type: str,
+    source_id: str,
 ) -> MemoryExtractionRun | None:
     run = MemoryExtractionRun(
         workspace_id=workspace_id,
         user_id=user_id,
-        source_type="message",
-        source_id=str(message_id),
+        source_type=source_type,
+        source_id=source_id,
         status="running",
     )
     session.add(run)
@@ -275,6 +307,186 @@ async def _apply_candidate(
     return memory
 
 
+async def _persist_candidates(
+    session: AsyncSession,
+    *,
+    workspace_id: UUID,
+    user_id: UUID,
+    source_type: str,
+    source_id: str,
+    source_ref: dict[str, object],
+    extracted_by: str | None,
+    parsed: list[ExtractedMemory],
+    allowed: list[str],
+    blocked: list[str],
+    settings,
+    existing: list[AgentMemory],
+    max_candidates: int,
+    min_confidence: float,
+    project_id: UUID | None = None,
+    agent_id: UUID | None = None,
+    allow_scopes: bool = True,
+    explicit: bool = False,
+) -> tuple[int, int]:
+    """Create candidates and apply the configured save policy.
+
+    Chat extraction may map project/agent scopes from the conversation.
+    Workflow and document sources always produce global candidates because
+    they have no reliable project/Agent binding.
+    """
+    saved = 0
+    pending = 0
+    for extracted in parsed[:max_candidates]:
+        if extracted.confidence < min_confidence:
+            continue
+        if extracted.category not in CATEGORIES:
+            continue
+        if _contains_secret(extracted.content):
+            continue
+        haystack = f"{extracted.title} {extracted.content}".casefold()
+        if any(topic in haystack for topic in blocked):
+            continue
+        requested_scope = extracted.scope_type
+        if allow_scopes and requested_scope in SCOPE_TYPES:
+            scope_type = requested_scope
+        else:
+            scope_type = "global"
+        scope_unavailable = False
+        target_project_id = project_id if scope_type == "project" else None
+        target_agent_id = agent_id if scope_type == "agent" else None
+        if scope_type == "project" and target_project_id is None:
+            scope_type = "global"
+            scope_unavailable = True
+        if scope_type == "agent" and target_agent_id is None:
+            scope_type = "global"
+            scope_unavailable = True
+        action, target, reason = await _classify(
+            session,
+            workspace_id=workspace_id,
+            user_id=user_id,
+            candidate=extracted,
+            existing=existing,
+        )
+        if scope_unavailable:
+            reason = (
+                f"scope_unavailable ({requested_scope}); "
+                f"review before saving. {reason}"
+            )[:2000]
+        candidate = MemoryCandidate(
+            workspace_id=workspace_id,
+            user_id=user_id,
+            project_id=target_project_id,
+            agent_id=target_agent_id,
+            target_memory_id=target.id if target is not None else None,
+            source_type=source_type,
+            source_id=source_id,
+            source_ref=source_ref,
+            extracted_by=extracted_by,
+            suggested_action=action,
+            category=extracted.category,
+            scope_type=scope_type,
+            title=extracted.title[:120],
+            content=extracted.content,
+            tags=extracted.tags,
+            confidence=extracted.confidence,
+            sensitivity="sensitive" if scope_unavailable else "normal",
+            reason=reason[:2000],
+            status="duplicate" if action == "duplicate" else "pending",
+        )
+        session.add(candidate)
+        await session.flush()
+        auto_save = (
+            not scope_unavailable
+            and extracted.category in allowed
+            and settings.auto_save
+            and not settings.require_confirmation
+        )
+        if action == "duplicate":
+            pending += 1
+        elif (explicit and not scope_unavailable) or auto_save:
+            await _apply_candidate(
+                session,
+                workspace_id=workspace_id,
+                user_id=user_id,
+                candidate=candidate,
+            )
+            saved += 1
+        else:
+            pending += 1
+    return saved, pending
+
+
+async def _resolve_extraction_model(
+    session: AsyncSession,
+    current: Settings,
+    definition: dict[str, object] | None,
+) -> tuple[str | None, str | None]:
+    provider_id = current.memory_extraction_provider_id.strip()
+    model = current.memory_extraction_model.strip()
+    if provider_id and model:
+        return provider_id, model
+    if isinstance(definition, dict):
+        for node in definition.get("nodes") or []:
+            if not isinstance(node, dict) or node.get("type") not in {"llm", "agent"}:
+                continue
+            config = node.get("config") or {}
+            if not isinstance(config, dict):
+                continue
+            node_provider = config.get("provider_id")
+            node_model = config.get("model")
+            if isinstance(node_provider, str) and isinstance(node_model, str):
+                if node_provider and node_model:
+                    return node_provider, node_model
+    row = (
+        await session.execute(
+            select(ModelCatalog)
+            .where(ModelCatalog.enabled.is_(True))
+            .order_by(ModelCatalog.priority, ModelCatalog.created_at)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        return None, None
+    return row.provider_id, row.model_id
+
+
+async def _complete_extraction(
+    session: AsyncSession,
+    *,
+    workspace_id: UUID,
+    user_id: UUID,
+    provider_id: str,
+    model: str,
+    registry: ProviderRegistry | None,
+    system_prompt: str,
+    user_prompt: str,
+    max_chars: int,
+) -> tuple[str | None, str | None]:
+    active_registry = registry
+    if active_registry is None:
+        active_registry = await build_user_registry(session, workspace_id, user_id)
+    try:
+        provider = active_registry.get(provider_id)
+    except Exception:
+        return None, "provider_unavailable"
+    completion = ModelCompletion(
+        provider=provider,
+        model=model,
+        messages=[
+            ChatMessage(role="system", content=system_prompt),
+            ChatMessage(role="user", content=user_prompt[:max_chars]),
+        ],
+        opts={"temperature": 0, "max_tokens": 1800},
+        workspace_id=workspace_id,
+        user_id=user_id,
+        source=SOURCE_MEMORY_EXTRACTION,
+    )
+    result = await completion.run()
+    if result.status != "completed":
+        return None, result.error_code or "extraction_failed"
+    return result.content, None
+
+
 async def run_memory_extraction_for_message(
     message_id: UUID,
     *,
@@ -310,7 +522,8 @@ async def run_memory_extraction_for_message(
             session,
             workspace_id=conversation.workspace_id,
             user_id=message.user_id,
-            message_id=message.id,
+            source_type="message",
+            source_id=str(message.id),
         )
         if run is None:
             return {"status": "skipped", "reason": "already_processed"}
@@ -326,19 +539,6 @@ async def run_memory_extraction_for_message(
                 or message.model
                 or conversation.model
             )
-            active_registry = registry
-            if active_registry is None:
-                active_registry = await build_user_registry(
-                    session, conversation.workspace_id, message.user_id
-                )
-            try:
-                provider = active_registry.get(provider_id)
-            except Exception:
-                await _finish_run(
-                    session, run, status="failed", error_code="provider_unavailable"
-                )
-                return {"status": "failed", "reason": "provider_unavailable"}
-
             allowed = memory_settings.allowed_categories or DEFAULT_ALLOWED_CATEGORIES
             blocked = [item.casefold() for item in memory_settings.blocked_topics or []]
             recent = await _existing_memories(
@@ -355,114 +555,50 @@ async def run_memory_extraction_for_message(
                 f"Explicit remember request: {explicit}\n\n"
                 f"Chat turn:\n{turn}"
             )
-            completion = ModelCompletion(
-                provider=provider,
-                model=model,
-                messages=[
-                    ChatMessage(role="system", content=EXTRACTION_SYSTEM_PROMPT),
-                    ChatMessage(role="user", content=prompt),
-                ],
-                opts={"temperature": 0, "max_tokens": 1800},
+            content, error_code = await _complete_extraction(
+                session,
                 workspace_id=conversation.workspace_id,
                 user_id=message.user_id,
-                source=SOURCE_MEMORY_EXTRACTION,
+                provider_id=provider_id,
+                model=model,
+                registry=registry,
+                system_prompt=EXTRACTION_SYSTEM_PROMPT,
+                user_prompt=prompt,
+                max_chars=current.memory_extraction_max_chars + 1000,
             )
-            result = await completion.run()
-            if result.status != "completed":
+            if content is None:
                 await _finish_run(
                     session,
                     run,
                     status="failed",
-                    error_code=result.error_code or "extraction_failed",
+                    error_code=error_code or "extraction_failed",
                 )
-                return {"status": "failed", "reason": result.error_code}
+                return {"status": "failed", "reason": error_code}
 
-            parsed = parse_candidates(result.content)
-            saved = 0
-            pending = 0
-            for extracted in parsed[: current.memory_extraction_max_candidates]:
-                if extracted.confidence < current.memory_extraction_min_confidence:
-                    continue
-                if extracted.category not in CATEGORIES:
-                    continue
-                if _contains_secret(extracted.content):
-                    continue
-                haystack = f"{extracted.title} {extracted.content}".casefold()
-                if any(topic in haystack for topic in blocked):
-                    continue
-                scope_type = extracted.scope_type
-                if scope_type not in SCOPE_TYPES:
-                    scope_type = "global"
-                requested_scope = scope_type
-                project_id = (
-                    conversation.project_id if scope_type == "project" else None
-                )
-                agent_id = (
-                    conversation.custom_agent_id if scope_type == "agent" else None
-                )
-                scope_unavailable = False
-                if scope_type == "project" and project_id is None:
-                    scope_type = "global"
-                    scope_unavailable = True
-                if scope_type == "agent" and agent_id is None:
-                    scope_type = "global"
-                    scope_unavailable = True
-                action, target, reason = await _classify(
-                    session,
-                    workspace_id=conversation.workspace_id,
-                    user_id=message.user_id,
-                    candidate=extracted,
-                    existing=recent,
-                )
-                if scope_unavailable:
-                    reason = (
-                        f"scope_unavailable ({requested_scope}); "
-                        f"review before saving. {reason}"
-                    )[:2000]
-                candidate = MemoryCandidate(
-                    workspace_id=conversation.workspace_id,
-                    user_id=message.user_id,
-                    project_id=project_id,
-                    agent_id=agent_id,
-                    target_memory_id=target.id if target is not None else None,
-                    source_type="chat",
-                    source_id=str(message.id),
-                    source_ref={
-                        "conversation_id": str(conversation.id),
-                        "message_id": str(message.id),
-                    },
-                    extracted_by=f"{provider_id}/{model}",
-                    suggested_action=action,
-                    category=extracted.category,
-                    scope_type=scope_type,
-                    title=extracted.title[:120],
-                    content=extracted.content,
-                    tags=extracted.tags,
-                    confidence=extracted.confidence,
-                    sensitivity="sensitive" if scope_unavailable else "normal",
-                    reason=reason[:2000],
-                    status="duplicate" if action == "duplicate" else "pending",
-                )
-                session.add(candidate)
-                await session.flush()
-                auto_save = (
-                    not scope_unavailable
-                    and extracted.category in allowed
-                    and memory_settings.auto_save
-                    and not memory_settings.require_confirmation
-                )
-                if action == "duplicate":
-                    pending += 1
-                elif (explicit and not scope_unavailable) or auto_save:
-                    await _apply_candidate(
-                        session,
-                        workspace_id=conversation.workspace_id,
-                        user_id=message.user_id,
-                        candidate=candidate,
-                    )
-                    saved += 1
-                else:
-                    pending += 1
+            parsed = parse_candidates(content)
+            saved, pending = await _persist_candidates(
+                session,
+                workspace_id=conversation.workspace_id,
+                user_id=message.user_id,
+                source_type="chat",
+                source_id=str(message.id),
+                source_ref={
+                    "conversation_id": str(conversation.id),
+                    "message_id": str(message.id),
+                },
+                extracted_by=f"{provider_id}/{model}",
+                parsed=parsed,
+                allowed=allowed,
+                blocked=blocked,
+                settings=memory_settings,
+                existing=recent,
+                max_candidates=current.memory_extraction_max_candidates,
+                min_confidence=current.memory_extraction_min_confidence,
+                project_id=conversation.project_id,
+                agent_id=conversation.custom_agent_id,
+                allow_scopes=True,
+                explicit=explicit,
+            )
             await _finish_run(
                 session, run, status="completed", count=saved + pending
             )
@@ -487,6 +623,307 @@ async def run_memory_extraction_for_message(
                 )
             metrics.inc_counter(
                 "ai_power_memory_extractions_total", status="failed"
+            )
+            return {"status": "failed", "reason": type(exc).__name__}
+
+
+async def run_workflow_memory_extraction(
+    run_id: UUID,
+    *,
+    registry: ProviderRegistry | None = None,
+    settings: Settings | None = None,
+) -> dict[str, object]:
+    """Extract memories from a completed, explicitly authorized workflow run."""
+    current = settings or get_settings()
+    async with SessionLocal() as session:
+        run = await session.get(WorkflowRun, run_id)
+        if run is None or run.status != "completed":
+            return {"status": "skipped", "reason": "run_not_completed"}
+        workflow = await session.get(Workflow, run.workflow_id)
+        if workflow is None or workflow.deleted_at is not None:
+            return {"status": "skipped", "reason": "workflow_missing"}
+        if not workflow.memory_extract_enabled:
+            return {"status": "skipped", "reason": "source_not_authorized"}
+        memory_settings = await get_memory_settings(
+            session, run.workspace_id, run.user_id
+        )
+        await session.commit()
+        if not memory_settings.enabled:
+            return {"status": "skipped", "reason": "memory_disabled"}
+        if not memory_settings.auto_extract:
+            return {"status": "skipped", "reason": "extraction_disabled"}
+        if not memory_settings.allow_workflow_extract:
+            return {"status": "skipped", "reason": "workflow_extraction_disabled"}
+
+        version = await session.get(WorkflowVersion, run.version_id)
+        provider_id, model = await _resolve_extraction_model(
+            session, current, version.definition if version is not None else None
+        )
+        if not provider_id or not model:
+            return {"status": "skipped", "reason": "provider_not_configured"}
+        extraction_run = await _create_run(
+            session,
+            workspace_id=run.workspace_id,
+            user_id=run.user_id,
+            source_type="workflow_run",
+            source_id=str(run.id),
+        )
+        if extraction_run is None:
+            return {"status": "skipped", "reason": "already_processed"}
+
+        try:
+            allowed = (
+                memory_settings.allowed_categories or DEFAULT_ALLOWED_CATEGORIES
+            )
+            blocked = [
+                item.casefold() for item in memory_settings.blocked_topics or []
+            ]
+            existing = await _existing_memories(
+                session, run.workspace_id, run.user_id
+            )
+            recent_titles = [memory.title for memory in existing[:10]]
+            output = json.dumps(run.output_payload or {}, ensure_ascii=False)
+            prompt = (
+                f"Allowed categories: {', '.join(allowed)}\n"
+                f"Blocked topics: {', '.join(blocked) or '(none)'}\n"
+                f"Existing memory titles: {json.dumps(recent_titles, ensure_ascii=False)}\n"
+                f"Workflow: {workflow.name}\n"
+                f"Workflow description: {workflow.description or '(none)'}\n"
+                f"Run status: {run.status}\n\n"
+                f"Input:\n{run.input_text or ''}\n\n"
+                f"Output:\n{output}"
+            )
+            content, error_code = await _complete_extraction(
+                session,
+                workspace_id=run.workspace_id,
+                user_id=run.user_id,
+                provider_id=provider_id,
+                model=model,
+                registry=registry,
+                system_prompt=WORKFLOW_SYSTEM_PROMPT,
+                user_prompt=prompt,
+                max_chars=current.memory_extraction_max_chars,
+            )
+            if content is None:
+                await _finish_run(
+                    session,
+                    extraction_run,
+                    status="failed",
+                    error_code=error_code or "extraction_failed",
+                )
+                metrics.inc_counter(
+                    "ai_power_memory_extractions_total",
+                    status="failed",
+                    source="workflow",
+                )
+                return {"status": "failed", "reason": error_code}
+
+            saved, pending = await _persist_candidates(
+                session,
+                workspace_id=run.workspace_id,
+                user_id=run.user_id,
+                source_type="workflow_run",
+                source_id=str(run.id),
+                source_ref={
+                    "workflow_id": str(workflow.id),
+                    "run_id": str(run.id),
+                },
+                extracted_by=f"{provider_id}/{model}",
+                parsed=parse_candidates(content),
+                allowed=allowed,
+                blocked=blocked,
+                settings=memory_settings,
+                existing=existing,
+                max_candidates=current.memory_extraction_max_candidates,
+                min_confidence=current.memory_extraction_min_confidence,
+                allow_scopes=False,
+            )
+            await _finish_run(
+                session,
+                extraction_run,
+                status="completed",
+                count=saved + pending,
+            )
+            metrics.inc_counter(
+                "ai_power_memory_extractions_total",
+                status="completed",
+                source="workflow",
+            )
+            return {"status": "completed", "saved": saved, "pending": pending}
+        except Exception as exc:
+            logger.exception("workflow memory extraction failed for run %s", run_id)
+            await session.rollback()
+            extraction_run = await session.get(
+                MemoryExtractionRun, extraction_run.id
+            )
+            if extraction_run is not None:
+                await _finish_run(
+                    session,
+                    extraction_run,
+                    status="failed",
+                    error_code=type(exc).__name__,
+                )
+            metrics.inc_counter(
+                "ai_power_memory_extractions_total",
+                status="failed",
+                source="workflow",
+            )
+            return {"status": "failed", "reason": type(exc).__name__}
+
+
+async def run_document_memory_extraction(
+    document_id: UUID,
+    *,
+    registry: ProviderRegistry | None = None,
+    settings: Settings | None = None,
+) -> dict[str, object]:
+    """Extract memories from a ready document the owner explicitly authorized."""
+    current = settings or get_settings()
+    async with SessionLocal() as session:
+        document = await session.get(Document, document_id)
+        if document is None or document.deleted_at is not None:
+            return {"status": "skipped", "reason": "document_missing"}
+        if document.status != "ready":
+            return {"status": "skipped", "reason": "document_not_ready"}
+        if not document.memory_extract_enabled:
+            return {"status": "skipped", "reason": "source_not_authorized"}
+        memory_settings = await get_memory_settings(
+            session, document.workspace_id, document.user_id
+        )
+        await session.commit()
+        if not memory_settings.enabled:
+            return {"status": "skipped", "reason": "memory_disabled"}
+        if not memory_settings.auto_extract:
+            return {"status": "skipped", "reason": "extraction_disabled"}
+        if not memory_settings.allow_document_extract:
+            return {"status": "skipped", "reason": "document_extraction_disabled"}
+
+        texts = list(
+            (
+                await session.execute(
+                    select(Chunk.text)
+                    .where(Chunk.document_id == document.id)
+                    .order_by(Chunk.chunk_index)
+                    .limit(40)
+                )
+            ).scalars()
+        )
+        body = "\n\n".join(texts)[: current.memory_extraction_max_chars]
+        if len(body.strip()) < 20:
+            return {"status": "skipped", "reason": "no_text"}
+
+        provider_id, model = await _resolve_extraction_model(
+            session, current, None
+        )
+        if not provider_id or not model:
+            return {"status": "skipped", "reason": "provider_not_configured"}
+        extraction_run = await _create_run(
+            session,
+            workspace_id=document.workspace_id,
+            user_id=document.user_id,
+            source_type="document",
+            source_id=str(document.id),
+        )
+        if extraction_run is None:
+            return {"status": "skipped", "reason": "already_processed"}
+
+        try:
+            allowed = (
+                memory_settings.allowed_categories or DEFAULT_ALLOWED_CATEGORIES
+            )
+            blocked = [
+                item.casefold() for item in memory_settings.blocked_topics or []
+            ]
+            existing = await _existing_memories(
+                session, document.workspace_id, document.user_id
+            )
+            recent_titles = [memory.title for memory in existing[:10]]
+            prompt = (
+                f"Allowed categories: {', '.join(allowed)}\n"
+                f"Blocked topics: {', '.join(blocked) or '(none)'}\n"
+                f"Existing memory titles: {json.dumps(recent_titles, ensure_ascii=False)}\n"
+                f"Document filename: {document.filename}\n"
+                f"Document tags: {json.dumps(document.tags or [], ensure_ascii=False)}\n"
+                f"Document metadata: "
+                f"{json.dumps(document.doc_metadata or {}, ensure_ascii=False)}\n\n"
+                f"Document text:\n{body}"
+            )
+            content, error_code = await _complete_extraction(
+                session,
+                workspace_id=document.workspace_id,
+                user_id=document.user_id,
+                provider_id=provider_id,
+                model=model,
+                registry=registry,
+                system_prompt=DOCUMENT_SYSTEM_PROMPT,
+                user_prompt=prompt,
+                max_chars=current.memory_extraction_max_chars + 1500,
+            )
+            if content is None:
+                await _finish_run(
+                    session,
+                    extraction_run,
+                    status="failed",
+                    error_code=error_code or "extraction_failed",
+                )
+                metrics.inc_counter(
+                    "ai_power_memory_extractions_total",
+                    status="failed",
+                    source="document",
+                )
+                return {"status": "failed", "reason": error_code}
+
+            saved, pending = await _persist_candidates(
+                session,
+                workspace_id=document.workspace_id,
+                user_id=document.user_id,
+                source_type="document",
+                source_id=str(document.id),
+                source_ref={
+                    "document_id": str(document.id),
+                    "kb_id": str(document.kb_id),
+                },
+                extracted_by=f"{provider_id}/{model}",
+                parsed=parse_candidates(content),
+                allowed=allowed,
+                blocked=blocked,
+                settings=memory_settings,
+                existing=existing,
+                max_candidates=current.memory_extraction_max_candidates,
+                min_confidence=current.memory_extraction_min_confidence,
+                allow_scopes=False,
+            )
+            await _finish_run(
+                session,
+                extraction_run,
+                status="completed",
+                count=saved + pending,
+            )
+            metrics.inc_counter(
+                "ai_power_memory_extractions_total",
+                status="completed",
+                source="document",
+            )
+            return {"status": "completed", "saved": saved, "pending": pending}
+        except Exception as exc:
+            logger.exception(
+                "document memory extraction failed for document %s", document_id
+            )
+            await session.rollback()
+            extraction_run = await session.get(
+                MemoryExtractionRun, extraction_run.id
+            )
+            if extraction_run is not None:
+                await _finish_run(
+                    session,
+                    extraction_run,
+                    status="failed",
+                    error_code=type(exc).__name__,
+                )
+            metrics.inc_counter(
+                "ai_power_memory_extractions_total",
+                status="failed",
+                source="document",
             )
             return {"status": "failed", "reason": type(exc).__name__}
 
@@ -653,3 +1090,71 @@ async def schedule_memory_extraction(message_id: UUID) -> None:
             await enqueue(message_id)
     except Exception:
         logger.warning("failed to enqueue memory extraction", exc_info=True)
+
+
+async def schedule_workflow_memory_extraction(run_id: UUID) -> None:
+    try:
+        async with SessionLocal() as session:
+            run = await session.get(WorkflowRun, run_id)
+            if run is None or run.status != "completed":
+                return
+            workflow = await session.get(Workflow, run.workflow_id)
+            if (
+                workflow is None
+                or workflow.deleted_at is not None
+                or not workflow.memory_extract_enabled
+            ):
+                return
+            settings = await get_memory_settings(
+                session, run.workspace_id, run.user_id
+            )
+            allowed = (
+                settings.enabled
+                and settings.auto_extract
+                and settings.allow_workflow_extract
+            )
+        if not allowed:
+            return
+        from app.services.queue import get_queue
+
+        queue = await get_queue()
+        enqueue = getattr(queue, "enqueue_workflow_memory_extraction", None)
+        if enqueue is not None:
+            await enqueue(run_id)
+    except Exception:
+        logger.warning(
+            "failed to enqueue workflow memory extraction", exc_info=True
+        )
+
+
+async def schedule_document_memory_extraction(document_id: UUID) -> None:
+    try:
+        async with SessionLocal() as session:
+            document = await session.get(Document, document_id)
+            if (
+                document is None
+                or document.deleted_at is not None
+                or document.status != "ready"
+                or not document.memory_extract_enabled
+            ):
+                return
+            settings = await get_memory_settings(
+                session, document.workspace_id, document.user_id
+            )
+            allowed = (
+                settings.enabled
+                and settings.auto_extract
+                and settings.allow_document_extract
+            )
+        if not allowed:
+            return
+        from app.services.queue import get_queue
+
+        queue = await get_queue()
+        enqueue = getattr(queue, "enqueue_document_memory_extraction", None)
+        if enqueue is not None:
+            await enqueue(document_id)
+    except Exception:
+        logger.warning(
+            "failed to enqueue document memory extraction", exc_info=True
+        )

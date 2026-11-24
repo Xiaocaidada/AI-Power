@@ -151,6 +151,7 @@ class Workflow(Base):
     name: Mapped[str] = mapped_column(String(120))
     description: Mapped[str] = mapped_column(String(500), default="")
     kind: Mapped[str] = mapped_column(String(30), default="agent", index=True)
+    memory_extract_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     draft_definition: Mapped[dict[str, object] | None] = mapped_column(
         JSON, default=None
     )
@@ -734,6 +735,8 @@ class MemorySettings(Base):
     allowed_categories: Mapped[list[str]] = mapped_column(JSON, default=list)
     allow_project_extract: Mapped[bool] = mapped_column(Boolean, default=True)
     allow_agent_extract: Mapped[bool] = mapped_column(Boolean, default=False)
+    allow_workflow_extract: Mapped[bool] = mapped_column(Boolean, default=False)
+    allow_document_extract: Mapped[bool] = mapped_column(Boolean, default=False)
     allow_cross_model: Mapped[bool] = mapped_column(Boolean, default=True)
     allowed_provider_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     allowed_models: Mapped[list[str]] = mapped_column(JSON, default=list)
@@ -1316,6 +1319,7 @@ class Document(Base):
     folder: Mapped[str] = mapped_column(String(255), default="", index=True)
     doc_metadata: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
     source_url: Mapped[str | None] = mapped_column(String(1000), default=None)
+    memory_extract_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     process_version_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("workflow_versions.id", ondelete="SET NULL"), default=None
     )
