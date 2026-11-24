@@ -45,8 +45,13 @@ class ToolSpec:
     description: str
     args_model: type[BaseModel]
     handler: ToolHandler
+    # MCP tools expose their remote JSON schema while still validating arguments
+    # through a permissive model.
+    parameters_schema_override: dict[str, Any] | None = None
 
     def parameters_schema(self) -> dict[str, Any]:
+        if self.parameters_schema_override is not None:
+            return self.parameters_schema_override
         return self.args_model.model_json_schema()
 
     def prompt_descriptor(self) -> dict[str, Any]:

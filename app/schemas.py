@@ -955,6 +955,19 @@ class ProjectOut(BaseModel):
     updated_at: datetime
 
 
+def _validate_cover_url(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if text and not (
+        text.startswith("/")
+        or text.startswith("http://")
+        or text.startswith("https://")
+    ):
+        raise ValueError("cover_url must be site-relative or http(s)")
+    return text
+
+
 class CustomAgentCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=500)
@@ -962,6 +975,7 @@ class CustomAgentCreate(BaseModel):
     category: str = Field(default="general", max_length=40)
     mode: Literal["autonomous", "workflow", "hybrid"] = "autonomous"
     icon: str = Field(default="🤖", max_length=32)
+    cover_url: str = Field(default="", max_length=500)
     welcome_message: str = Field(default="", max_length=1000)
     examples: list[str] = Field(default_factory=list, max_length=10)
     usage_instructions: str = Field(default="", max_length=5000)
@@ -992,6 +1006,11 @@ class CustomAgentCreate(BaseModel):
     def strip_custom_agent_text(cls, value: object) -> object:
         return value.strip() if isinstance(value, str) else value
 
+    @field_validator("cover_url")
+    @classmethod
+    def validate_custom_agent_cover(cls, value: object) -> object:
+        return _validate_cover_url(value)
+
 
 class CustomAgentUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
@@ -1000,6 +1019,7 @@ class CustomAgentUpdate(BaseModel):
     category: str | None = Field(default=None, max_length=40)
     mode: Literal["autonomous", "workflow", "hybrid"] | None = None
     icon: str | None = Field(default=None, max_length=32)
+    cover_url: str | None = Field(default=None, max_length=500)
     welcome_message: str | None = Field(default=None, max_length=1000)
     examples: list[str] | None = Field(default=None, max_length=10)
     usage_instructions: str | None = Field(default=None, max_length=5000)
@@ -1031,6 +1051,11 @@ class CustomAgentUpdate(BaseModel):
     def strip_custom_agent_optional(cls, value: object) -> object:
         return value.strip() if isinstance(value, str) else value
 
+    @field_validator("cover_url")
+    @classmethod
+    def validate_custom_agent_optional_cover(cls, value: object) -> object:
+        return _validate_cover_url(value)
+
 
 class CustomAgentOut(BaseModel):
     id: str
@@ -1040,6 +1065,7 @@ class CustomAgentOut(BaseModel):
     category: str
     mode: str = "autonomous"
     icon: str = "🤖"
+    cover_url: str = ""
     welcome_message: str = ""
     examples: list[str] = Field(default_factory=list)
     usage_instructions: str = ""
@@ -1117,9 +1143,12 @@ class AgentMarketOut(BaseModel):
     name: str
     description: str
     icon: str
+    cover_url: str = ""
     category: str
     mode: str
     featured: bool = False
+    official: bool = False
+    publisher: str = ""
     usage_count: int = 0
     favorite_count: int = 0
     copy_count: int = 0
@@ -1127,6 +1156,70 @@ class AgentMarketOut(BaseModel):
     rating_count: int = 0
     allow_copy: bool = True
     published_at: datetime | None = None
+
+
+class AgentFacetCount(BaseModel):
+    value: str
+    count: int
+
+
+class AgentMarketFacetsOut(BaseModel):
+    total: int = 0
+    official: int = 0
+    featured: int = 0
+    categories: list[AgentFacetCount] = Field(default_factory=list)
+    publishers: list[AgentFacetCount] = Field(default_factory=list)
+
+
+class AgentFromTemplateIn(BaseModel):
+    template: str = Field(min_length=1, max_length=60)
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=500)
+    category: str = Field(default="general", max_length=40)
+    provider_id: str | None = Field(default=None, max_length=50)
+    model: str | None = Field(default=None, max_length=200)
+
+    @field_validator("template", "name", "description", "category", mode="before")
+    @classmethod
+    def strip_template_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class AgentToolTestIn(BaseModel):
+    tool: str = Field(min_length=1, max_length=180)
+    arguments: dict = Field(default_factory=dict)
+
+
+class AgentToolTestOut(BaseModel):
+    ok: bool
+    output: str = ""
+    error_code: str | None = None
+    error: str | None = None
+    duration_ms: float = 0.0
+
+
+class AgentBuiltinToolOut(BaseModel):
+    name: str
+    description: str
+    parameters: dict = Field(default_factory=dict)
+
+
+class AgentMcpServerOut(BaseModel):
+    id: UUID
+    name: str
+    description: str = ""
+
+
+class AgentMcpToolOut(BaseModel):
+    name: str
+    description: str = ""
+    input_schema: dict = Field(default_factory=dict)
+    ref: str = ""
+
+
+class AgentToolCatalogOut(BaseModel):
+    builtin: list[AgentBuiltinToolOut] = Field(default_factory=list)
+    mcp_servers: list[AgentMcpServerOut] = Field(default_factory=list)
 
 
 class AgentReviewIn(BaseModel):

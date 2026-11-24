@@ -48,6 +48,7 @@ from app.schemas import (
     WorkflowVersionOut,
 )
 from app.services.access import get_owned_knowledge_base
+from app.services.agent_templates import list_agent_templates
 from app.services.knowledge.catalog import (
     build_knowledge_process_catalog,
     build_template,
@@ -283,7 +284,9 @@ async def get_workflow_catalog(
         return catalog
     if kind == "knowledge_retrieval":
         return build_knowledge_retrieval_catalog()
-    return build_node_catalog()
+    catalog = build_node_catalog()
+    catalog["templates"] = list_agent_templates()
+    return catalog
 
 
 @router.get("/{workflow_id}", response_model=WorkflowOut)

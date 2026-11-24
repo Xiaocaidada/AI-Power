@@ -1,3 +1,4 @@
+import { generationDraft, type GenerationDraft } from '../../lib/agentSettings'
 import type {
   AgentMode,
   CustomAgent,
@@ -22,13 +23,14 @@ export interface ModelChoice {
   label: string
 }
 
-export interface StudioAgentDraft {
+export interface StudioAgentDraft extends GenerationDraft {
   name: string
   description: string
   instructions: string
   category: string
   mode: AgentMode
   icon: string
+  coverUrl: string
   welcomeMessage: string
   examples: string
   usageInstructions: string
@@ -60,12 +62,14 @@ export interface StudioResources {
 
 export function draftFromAgent(agent: CustomAgent): StudioAgentDraft {
   return {
+    ...generationDraft(agent.generation_settings ?? {}),
     name: agent.name,
     description: agent.description,
     instructions: agent.instructions,
     category: agent.category,
     mode: agent.mode,
     icon: agent.icon || '🤖',
+    coverUrl: agent.cover_url ?? '',
     welcomeMessage: agent.welcome_message,
     examples: agent.examples.join('\n'),
     usageInstructions: agent.usage_instructions,

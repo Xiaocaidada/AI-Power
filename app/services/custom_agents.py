@@ -17,11 +17,15 @@ from app.models import (
     Message,
     ModelCatalog,
     PluginDefinition,
+    User,
     Workflow,
     WorkflowRun,
     WorkflowRunEvent,
     WorkflowVersion,
 )
+from app.services.agent_reviews import mask_email
+from app.services.agent_tools import AgentToolError, validate_agent_tools
+from app.services.generation import normalize_generation_settings
 from app.services.memory_permissions import normalize_agent_permissions
 
 AGENT_TOOL_NAMES = frozenset(
@@ -197,11 +201,13 @@ async def agent_conversation_count(session: AsyncSession, agent_id: UUID) -> int
     )
 
 
-def validate_tools(tools: list[str]) -> list[str]:
-    unknown = sorted(set(tools) - AGENT_TOOL_NAMES)
-    if unknown:
-        raise CustomAgentError("invalid_tools", f"Unknown tools: {', '.join(unknown)}")
-    return list(dict.fromkeys(tools))
+async def validate_tools(
+    session: AsyncSession, tools: list[str]
+) -> list[str]:
+    try:
+        return await validate_agent_tools(session, tools)
+    except AgentToolError as exc:
+        raise CustomAgentError(exc.code, exc.message) from None
 
 
 def _dedupe_ids(values: list[object] | None) -> list[str]:
@@ -275,7 +281,14 @@ async def validate_agent_values(
 ) -> dict[str, Any]:
     result = dict(values)
     if "tools" in result and result["tools"] is not None:
-        result["tools"] = validate_tools(list(result["tools"]))
+        result["tools"] = await validate_tools(session, list(result["tools"]))
+    if (
+        "generation_settings" in result
+        and result["generation_settings"] is not None
+    ):
+        result["generation_settings"] = normalize_generation_settings(
+            dict(result["generation_settings"])
+        )
     if "kb_ids" in result:
         result["kb_ids"] = await _validate_kb_ids(session, workspace_id, result["kb_ids"])
     if "workflow_id" in result:
@@ -463,6 +476,7 @@ async def build_published_snapshot(
         "category": agent.category,
         "mode": agent.mode,
         "icon": agent.icon,
+        "cover_url": agent.cover_url,
         "welcome_message": agent.welcome_message,
         "examples": list(agent.examples),
         "usage_instructions": agent.usage_instructions,
@@ -521,16 +535,24 @@ async def unpublish_custom_agent(session: AsyncSession, agent: CustomAgent) -> N
     await session.flush()
 
 
-def public_agent_summary(agent: CustomAgent) -> dict[str, Any]:
+def public_agent_summary(
+    agent: CustomAgent,
+    *,
+    owner_email: str = "",
+    owner_role: str = "user",
+) -> dict[str, Any]:
     return {
         "id": agent.id,
         "slug": agent.public_slug or "",
         "name": agent.name,
         "description": agent.description,
         "icon": agent.icon,
+        "cover_url": agent.cover_url,
         "category": agent.category,
         "mode": agent.mode,
         "featured": agent.featured,
+        "official": owner_role == "admin",
+        "publisher": mask_email(owner_email) if owner_email else "",
         "usage_count": agent.usage_count,
         "favorite_count": agent.favorite_count,
         "copy_count": agent.copy_count,
@@ -541,9 +563,16 @@ def public_agent_summary(agent: CustomAgent) -> dict[str, Any]:
     }
 
 
-def public_agent_detail(agent: CustomAgent) -> dict[str, Any]:
+def public_agent_detail(
+    agent: CustomAgent,
+    *,
+    owner_email: str = "",
+    owner_role: str = "user",
+) -> dict[str, Any]:
     snapshot = agent.published_snapshot or {}
-    result = public_agent_summary(agent)
+    result = public_agent_summary(
+        agent, owner_email=owner_email, owner_role=owner_role
+    )
     result.update(
         {
             "welcome_message": snapshot.get("welcome_message", ""),
@@ -568,7 +597,9 @@ async def list_published_agents(
     category: str | None = None,
     sort: str = "newest",
     featured_only: bool = False,
-) -> list[CustomAgent]:
+    official_only: bool = False,
+    publisher: str | None = None,
+) -> list[tuple[CustomAgent, str, str]]:
     conditions = [
         CustomAgent.published.is_(True),
         CustomAgent.archived_at.is_(None),
@@ -578,6 +609,8 @@ async def list_published_agents(
         conditions.append(CustomAgent.category == category)
     if featured_only:
         conditions.append(CustomAgent.featured.is_(True))
+    if official_only:
+        conditions.append(User.role == "admin")
     if search and search.strip():
         term = f"%{search.strip()}%"
         conditions.append(
@@ -593,10 +626,66 @@ async def list_published_agents(
         )
     else:
         order = (CustomAgent.published_at.desc(), CustomAgent.id.desc())
-    result = await session.execute(
-        select(CustomAgent).where(*conditions).order_by(*order).limit(100)
+    statement = (
+        select(CustomAgent, User.email, User.role)
+        .join(User, User.id == CustomAgent.owner_user_id)
+        .where(*conditions)
+        .order_by(*order)
     )
-    return list(result.scalars())
+    if not publisher:
+        statement = statement.limit(100)
+    rows = (await session.execute(statement)).all()
+    result = [(row[0], row[1], row[2]) for row in rows]
+    if publisher:
+        result = [row for row in result if mask_email(row[1]) == publisher]
+    return result[:100]
+
+
+async def published_agent_facets(session: AsyncSession) -> dict[str, Any]:
+    rows = (
+        await session.execute(
+            select(
+                CustomAgent.category,
+                CustomAgent.featured,
+                User.email,
+                User.role,
+            )
+            .join(User, User.id == CustomAgent.owner_user_id)
+            .where(
+                CustomAgent.published.is_(True),
+                CustomAgent.archived_at.is_(None),
+                CustomAgent.enabled.is_(True),
+            )
+        )
+    ).all()
+    categories: dict[str, int] = {}
+    publishers: dict[str, int] = {}
+    official = 0
+    featured = 0
+    for category, is_featured, email, role in rows:
+        categories[category] = categories.get(category, 0) + 1
+        publisher = mask_email(email)
+        publishers[publisher] = publishers.get(publisher, 0) + 1
+        if role == "admin":
+            official += 1
+        if is_featured:
+            featured += 1
+
+    def _ranked(values: dict[str, int]) -> list[dict[str, Any]]:
+        return [
+            {"value": value, "count": count}
+            for value, count in sorted(
+                values.items(), key=lambda item: (-item[1], item[0])
+            )
+        ]
+
+    return {
+        "total": len(rows),
+        "official": official,
+        "featured": featured,
+        "categories": _ranked(categories),
+        "publishers": _ranked(publishers),
+    }
 
 
 async def get_published_agent(session: AsyncSession, slug: str) -> CustomAgent:
@@ -733,6 +822,7 @@ async def copy_published_agent(
         category=str(values.get("category", source.category)),
         mode=str(values.get("mode", source.mode)),
         icon=str(values.get("icon", source.icon)),
+        cover_url=str(values.get("cover_url", source.cover_url)),
         welcome_message=str(values.get("welcome_message", source.welcome_message)),
         examples=list(values.get("examples", source.examples) or []),
         usage_instructions=str(

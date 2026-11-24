@@ -6,9 +6,11 @@ import { MultiPopoverSelect } from '../../components/ui/multi-popover-select'
 import { PopoverSelect } from '../../components/ui/popover-select'
 import { useI18n } from '../../lib/i18n'
 import type { KnowledgeBase, Plugin } from '../../lib/types'
+import { StudioToolsSection } from './StudioToolsSection'
 import type { ModelChoice, StudioAgentDraft } from './types'
 
 interface StudioConfigPanelProps {
+  agentId: string
   draft: StudioAgentDraft
   models: ModelChoice[]
   knowledgeBases: KnowledgeBase[]
@@ -20,9 +22,8 @@ interface StudioConfigPanelProps {
   onSave: () => void
 }
 
-const TOOLS = ['kb_search', 'current_time', 'calculator']
-
 export function StudioConfigPanel({
+  agentId,
   draft,
   models,
   knowledgeBases,
@@ -68,6 +69,18 @@ export function StudioConfigPanel({
               value={draft.description}
               onChange={(event) => onChange({ description: event.target.value })}
             />
+          </label>
+          <label className="mt-3 block text-xs text-ink-muted">
+            {t('studio.coverUrl')}
+            <Input
+              className="mt-1"
+              value={draft.coverUrl}
+              placeholder="https://…"
+              onChange={(event) => onChange({ coverUrl: event.target.value })}
+            />
+            <span className="mt-1 block text-[10px] text-ink-muted">
+              {t('studio.coverUrlHint')}
+            </span>
           </label>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <label className="text-xs text-ink-muted">
@@ -165,6 +178,44 @@ export function StudioConfigPanel({
           {modeNeedsWorkflow && (
             <p className="mt-2 text-[11px] text-warning">{t('studio.modeNeedsWorkflow')}</p>
           )}
+          <div className="mt-3 rounded-lg border border-border bg-surface-muted/40 p-3">
+            <p className="text-xs font-medium text-ink">{t('studio.generationSettings')}</p>
+            <p className="mt-0.5 text-[10px] text-ink-muted">
+              {t('studio.generationSettingsHint')}
+            </p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              <label className="text-xs text-ink-muted">
+                {t('studio.temperature')}
+                <Input
+                  className="mt-1"
+                  inputMode="decimal"
+                  value={draft.temperature}
+                  placeholder="0.7"
+                  onChange={(event) => onChange({ temperature: event.target.value })}
+                />
+              </label>
+              <label className="text-xs text-ink-muted">
+                {t('studio.maxTokens')}
+                <Input
+                  className="mt-1"
+                  inputMode="numeric"
+                  value={draft.maxTokens}
+                  placeholder="2048"
+                  onChange={(event) => onChange({ maxTokens: event.target.value })}
+                />
+              </label>
+              <label className="text-xs text-ink-muted">
+                {t('studio.topP')}
+                <Input
+                  className="mt-1"
+                  inputMode="decimal"
+                  value={draft.topP}
+                  placeholder="1"
+                  onChange={(event) => onChange({ topP: event.target.value })}
+                />
+              </label>
+            </div>
+          </div>
           <div className="mt-3">
             <MultiPopoverSelect
               label={t('studio.knowledgeBases')}
@@ -177,27 +228,11 @@ export function StudioConfigPanel({
               placeholder={t('studio.noKnowledgeBases')}
             />
           </div>
-          <div className="mt-3">
-            <p className="text-xs text-ink-muted">{t('studio.tools')}</p>
-            <div className="mt-1 flex flex-wrap gap-3">
-              {TOOLS.map((tool) => (
-                <label key={tool} className="flex items-center gap-1.5 text-xs text-ink">
-                  <input
-                    type="checkbox"
-                    checked={draft.tools.includes(tool)}
-                    onChange={(event) =>
-                      onChange({
-                        tools: event.target.checked
-                          ? [...draft.tools, tool]
-                          : draft.tools.filter((item) => item !== tool),
-                      })
-                    }
-                  />
-                  {tool}
-                </label>
-              ))}
-            </div>
-          </div>
+          <StudioToolsSection
+            agentId={agentId}
+            tools={draft.tools}
+            onChange={(tools) => onChange({ tools })}
+          />
           <label className="mt-3 flex items-center gap-2 text-xs text-ink">
             <input
               type="checkbox"

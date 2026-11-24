@@ -11,12 +11,19 @@ from app.models import AuditLog, CustomAgent, PluginConfig, PluginDefinition
 from app.providers.base import ProviderError
 from app.providers.registry import ProviderRegistry
 from app.schemas import (
+    AgentBuiltinToolOut,
     AgentFavoriteOut,
+    AgentFromTemplateIn,
+    AgentMcpServerOut,
+    AgentMcpToolOut,
     AgentPublishIn,
     AgentReportIn,
     AgentReviewIn,
     AgentReviewOut,
     AgentRunOut,
+    AgentToolCatalogOut,
+    AgentToolTestIn,
+    AgentToolTestOut,
     AgentUseOut,
     CustomAgentCreate,
     CustomAgentOut,
@@ -31,6 +38,16 @@ from app.services.agent_reviews import (
     mask_email,
     require_published_agent,
     upsert_review,
+)
+from app.services.agent_templates import (
+    AgentTemplateError,
+    create_agent_from_template,
+)
+from app.services.agent_tools import (
+    AgentToolError,
+    agent_tool_catalog,
+    execute_agent_tool,
+    list_server_mcp_tools,
 )
 from app.services.custom_agents import (
     BUILTIN_AGENT_IDS,
@@ -55,6 +72,7 @@ from app.services.memory_permissions import normalize_agent_permissions
 from app.services.provider_configs import ProviderConfigError, ensure_model_capability
 
 router = APIRouter(prefix="/agents", tags=["agents"])
+tool_router = APIRouter(prefix="/agent-tools", tags=["agents"])
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 JwtContext = Annotated[AuthContext, Depends(get_jwt_context)]
@@ -75,6 +93,7 @@ def _custom_out(
         category=agent.category,
         mode=agent.mode,
         icon=agent.icon,
+        cover_url=agent.cover_url,
         welcome_message=agent.welcome_message,
         examples=list(agent.examples),
         usage_instructions=agent.usage_instructions,
@@ -262,6 +281,49 @@ async def list_agents(
             )
         )
     return result
+
+
+@router.post(
+    "/from-template",
+    response_model=CustomAgentOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_from_template(
+    payload: AgentFromTemplateIn,
+    context: JwtContext,
+    session: SessionDep,
+    registry: RegistryDep,
+) -> CustomAgentOut:
+    provider_id = payload.provider_id
+    model = payload.model
+    if provider_id == "auto":
+        provider_id, model = None, None
+    await _validate_defaults(
+        session,
+        registry,
+        context,
+        provider_id=provider_id,
+        model=model,
+        kb_id=None,
+        plugin_ids=[],
+    )
+    try:
+        agent = await create_agent_from_template(
+            session,
+            workspace_id=context.workspace.id,
+            user_id=context.user.id,
+            template_id=payload.template,
+            name=payload.name,
+            description=payload.description,
+            category=payload.category,
+            provider_id=provider_id,
+            model=model,
+        )
+    except AgentTemplateError as exc:
+        raise HTTPException(422, {"code": exc.code, "message": exc.message}) from None
+    await session.commit()
+    await session.refresh(agent)
+    return _custom_out(agent, 0, context)
 
 
 @router.get("/{agent_id}", response_model=CustomAgentOut)
@@ -571,6 +633,44 @@ async def list_runs(
     return [AgentRunOut(**row) for row in rows]
 
 
+@router.post("/{agent_id}/tools/test", response_model=AgentToolTestOut)
+async def test_agent_tool(
+    agent_id: str,
+    payload: AgentToolTestIn,
+    context: JwtContext,
+    session: SessionDep,
+) -> AgentToolTestOut:
+    try:
+        parsed = UUID(agent_id)
+    except ValueError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found") from None
+    try:
+        agent = await get_custom_agent(
+            session, context.workspace.id, parsed, context.user.id
+        )
+    except CustomAgentError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, exc.message) from None
+    if not can_manage(agent, context.user.id, context.role):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the agent owner can test tools")
+    try:
+        result = await execute_agent_tool(
+            session,
+            agent,
+            payload.tool,
+            payload.arguments,
+            workspace_id=context.workspace.id,
+            user_id=context.user.id,
+        )
+    except AgentToolError as exc:
+        code = (
+            status.HTTP_404_NOT_FOUND
+            if exc.code == "not_found"
+            else status.HTTP_422_UNPROCESSABLE_CONTENT
+        )
+        raise HTTPException(code, {"code": exc.code, "message": exc.message}) from None
+    return AgentToolTestOut(**result)
+
+
 @router.post("/{agent_id}/copy", response_model=CustomAgentOut, status_code=status.HTTP_201_CREATED)
 async def copy_agent(
     agent_id: str, context: JwtContext, session: SessionDep
@@ -721,6 +821,35 @@ async def get_my_agent_review(
         created_at=review.created_at,
         updated_at=review.updated_at,
     )
+
+
+@tool_router.get("/catalog", response_model=AgentToolCatalogOut)
+async def get_agent_tool_catalog(
+    context: JwtContext, session: SessionDep
+) -> AgentToolCatalogOut:
+    catalog = await agent_tool_catalog(session)
+    return AgentToolCatalogOut(
+        builtin=[AgentBuiltinToolOut(**item) for item in catalog["builtin"]],
+        mcp_servers=[AgentMcpServerOut(**item) for item in catalog["mcp_servers"]],
+    )
+
+
+@tool_router.get("/mcp", response_model=list[AgentMcpToolOut])
+async def get_agent_mcp_tools(
+    context: JwtContext,
+    session: SessionDep,
+    server_id: UUID,
+) -> list[AgentMcpToolOut]:
+    try:
+        tools = await list_server_mcp_tools(session, server_id)
+    except AgentToolError as exc:
+        code = (
+            status.HTTP_404_NOT_FOUND
+            if exc.code == "not_found"
+            else status.HTTP_502_BAD_GATEWAY
+        )
+        raise HTTPException(code, {"code": exc.code, "message": exc.message}) from None
+    return [AgentMcpToolOut(**item) for item in tools]
 
 
 @router.post("/{agent_id}/report", status_code=status.HTTP_201_CREATED)
