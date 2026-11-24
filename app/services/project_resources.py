@@ -109,6 +109,10 @@ async def remove_project_agent(
         )
     ).scalar_one_or_none()
     if row is None:
+        if project.default_custom_agent_id == agent_id:
+            project.default_custom_agent_id = None
+            await session.flush()
+            return
         raise ProjectResourceError("agent_not_found", "Agent not linked to project")
     await session.delete(row)
     if project.default_custom_agent_id == agent_id:
