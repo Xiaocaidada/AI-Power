@@ -1753,6 +1753,9 @@ export const en: Dictionary = {
       expired: 'Expired',
       unused: 'Unused',
       incomplete: 'Incomplete',
+      orphans: 'Orphans',
+      relationAnomalies: 'Relation issues',
+      projectGaps: 'Project gaps',
       suggestions: 'Optimization suggestions',
       suggestionsHint:
         'A snapshot is saved before applying; important changes can be rolled back.',
@@ -1764,6 +1767,10 @@ export const en: Dictionary = {
         expire_memory: 'Mark expired',
         archive_memory: 'Archive low value',
         recategorize: 'Recategorize',
+        link_orphans: 'Link orphans',
+        review_relations: 'Review relations',
+        supplement_project: 'Bind project',
+        adjust_rules: 'Adjust rules',
       },
       status: {
         pending: 'Pending',
@@ -1816,6 +1823,9 @@ export const en: Dictionary = {
       lifecycleTitle: 'Lifecycle',
       lifecycleLead: 'Retention is {days} days; {count} memories are due to expire.',
       lifecycleItem: 'Retention {days} days',
+      changesTitle: 'Recent changes',
+      changesSummary:
+        '{total} memories changed; preferences {preferences}, projects {projects}, technical {technical}.',
     },
     candidate: { accept: 'Accept', reject: 'Reject' },
     relations: {
@@ -1879,6 +1889,12 @@ export const en: Dictionary = {
       retention: 'Retention days (optional)',
       blockedTopics: 'Blocked topics',
       blockedPlaceholder: 'e.g. passwords, bank cards',
+      allowedProviders: 'Provider allowlist',
+      allowedProvidersPlaceholder: 'Blank = no limit; comma-separated provider IDs',
+      allowedModels: 'Model allowlist',
+      allowedModelsPlaceholder: 'Blank = no limit; comma-separated model names',
+      allowedAgents: 'Agent allowlist',
+      allowedAgentsPlaceholder: 'Blank = no limit; comma-separated Agent IDs',
     },
   },
   announcements: {

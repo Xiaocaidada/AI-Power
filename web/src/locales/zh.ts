@@ -1741,6 +1741,9 @@ export const zh = {
       expired: '已过期',
       unused: '长期未用',
       incomplete: '内容不完整',
+      orphans: '孤立记忆',
+      relationAnomalies: '关系异常',
+      projectGaps: '项目缺口',
       suggestions: '优化建议',
       suggestionsHint: '应用前会保存快照，重要变更支持回滚。',
       noSuggestions: '暂无优化建议',
@@ -1751,6 +1754,10 @@ export const zh = {
         expire_memory: '标记过期',
         archive_memory: '归档低价值',
         recategorize: '调整分类',
+        link_orphans: '补全关系',
+        review_relations: '检查关系',
+        supplement_project: '补充项目绑定',
+        adjust_rules: '调整规则',
       },
       status: {
         pending: '待处理',
@@ -1802,6 +1809,9 @@ export const zh = {
       lifecycleTitle: '生命周期',
       lifecycleLead: '保留策略 {days} 天，当前有 {count} 条记忆即将过期。',
       lifecycleItem: '保留 {days} 天',
+      changesTitle: '最近变化',
+      changesSummary:
+        '{total} 条记忆有变化；偏好 {preferences} 条，项目 {projects} 条，技术 {technical} 条。',
     },
     candidate: { accept: '接受', reject: '拒绝' },
     relations: {
@@ -1865,6 +1875,12 @@ export const zh = {
       retention: '保留天数（可选）',
       blockedTopics: '禁止记忆的主题',
       blockedPlaceholder: '例如：密码, 银行卡',
+      allowedProviders: '模型提供商白名单',
+      allowedProvidersPlaceholder: '留空不限制；逗号分隔 provider_id',
+      allowedModels: '模型白名单',
+      allowedModelsPlaceholder: '留空不限制；逗号分隔模型名',
+      allowedAgents: 'Agent 白名单',
+      allowedAgentsPlaceholder: '留空不限制；逗号分隔 Agent ID',
     },
   },
   announcements: {

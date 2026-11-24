@@ -24,6 +24,7 @@
 - 2026-11-24：P11-S5 完成，K-P0-1（自定义/父子/语义切片与元数据保留）、K-P0-2（过滤/元数据/关键词/摘要/去重节点）已落地；K-P1-1 完成文本过滤与新节点库，OCR/格式专用解析/独立索引模式仍为边界。见 [p11-s5-knowledge-nodes.md](../tdd/p11-s5-knowledge-nodes.md)。另修复知识处理/检索画布空白页（hooks 顺序）并新增回归 E2E。
 - 2026-11-24：P11-S6 完成，K-P0-3（元数据过滤、结果过滤/去重、多 KB 检索）、K-P0-4（处理运行分析）已落地；K-P1-2 完成多查询与空结果回退，意图/分类/同义词扩展仍为边界。见 [p11-s6-retrieval-analytics.md](../tdd/p11-s6-retrieval-analytics.md)。同时修复自定义检索工作流的父块展开边界。
 - 2026-11-24：P11-S7 完成，M-P0-1（完整度/使用聚合）、M-P0-2（保留策略执行/blocked topic 统一拦截）、M-P0-3（版本 diff/风险提示）已落地。见 [p11-s7-memory-lifecycle.md](../tdd/p11-s7-memory-lifecycle.md)。
+- 2026-11-24：P11-S8 完成，M-P0-4（孤儿/关系异常/项目缺口/规则提示）、M-P1-1（模型/Agent 读取白名单）、M-P1-3（最近变化分析）已落地；M-P0-5 完成项目活动来源，工作流/文档自动提取仍为边界。见 [p11-s8-memory-sources-quality.md](../tdd/p11-s8-memory-sources-quality.md)。
 
 ## 2. P0：下一阶段必须补齐
 
@@ -62,8 +63,8 @@
 | M-P0-1 ✅ | 记忆完整度与使用聚合 | P11-S7 已新增完整度评分与按模型/Agent/项目/会话聚合 | `app/services/memories.py::memory_stats`、`app/routers/memories.py`、`MemoryPage.tsx` | 聚合查询、完整度维度、前端图表 | 无 | M |
 | M-P0-2 ✅ | 生命周期策略执行 | P11-S7 已新增单条保留覆盖、每日过期任务与 blocked topic 统一拦截 | `app/services/memories.py`、`memory_extraction.py`、`app/worker.py` | 创建/更新统一拦截、过期清理任务、策略字段 | 无 | M |
 | M-P0-3 ✅ | 记忆版本 diff/变化分析 | P11-S7 已新增字段/内容 diff 与风险标记 | `app/services/memories.py`、`app/routers/memories.py`、`MemoryDetailDialog.tsx` | 快照 diff、变化摘要、风险提示 | 无 | S |
-| M-P0-4 | 质量建议广度 | 只覆盖重复/冲突/过期/未用/分类 | `app/services/memory_quality.py`、`MemoryQualityPanel.tsx` | 图谱优化、项目补充、规则调整、关系异常 | M-P0-1 | M |
-| M-P0-5 | 更多提取来源 | 主要来自聊天消息 | `app/services/memory_extraction.py`、`app/worker.py`、工作流/项目完成钩子 | 项目活动、工作流执行、文档授权提取 | 用户授权与去重 | L |
+| M-P0-4 ✅ | 质量建议广度 | P11-S8 已新增孤儿/关系异常/项目缺口/规则提示 | `app/services/memory_quality.py`、`MemoryQualityPanel.tsx` | 图谱优化、项目补充、规则调整、关系异常 | M-P0-1 | M |
+| M-P0-5 ◐ | 更多提取来源 | P11-S8 已新增项目活动来源；工作流/文档授权提取仍缺 | `app/services/memory_extraction.py`、`app/worker.py`、工作流/项目完成钩子 | 项目活动、工作流执行、文档授权提取 | 用户授权与去重 | L |
 | M-P0-6 | 检索过滤维度 | 无时间范围、关系关联检索、按使用场景筛选 | `app/services/memories.py::select_memories/list_memories`、`app/routers/memories.py` | 时间/关系/场景过滤、查询参数与 UI | 图谱关系 | M |
 
 ## 3. P1：体验与生态
@@ -91,9 +92,9 @@
 
 | ID | 缺口 | 现状 | 代码入口 | 改动范围 | 依赖 |
 |---|---|---|---|---|---|
-| M-P1-1 | 按模型/Agent 的细粒度读取白名单 | 只有 `allow_cross_model` | `app/services/memory_permissions.py`、`MemorySettingsPanel.tsx` | 模型/Agent 白名单、选择器 | 无 |
+| M-P1-1 ✅ | 按模型/Agent 的细粒度读取白名单 | P11-S8 已新增 provider/model/agent 白名单 | `app/services/memory_permissions.py`、`MemorySettingsPanel.tsx` | 模型/Agent 白名单、选择器 | 无 |
 | M-P1-2 | 记忆关系编辑增强 | 只能创建/删除，不能改类型/依据 | `app/routers/memories.py`、`MemoryDetailDialog.tsx` | PATCH 关系、依据编辑 | 无 |
-| M-P1-3 | 记忆完整度/变化分析 | 无偏好变化、项目技术栈变化追踪 | `app/services/memory_quality.py`、`MemoryPage.tsx` | 版本对比、变化摘要 | M-P0-3 |
+| M-P1-3 ✅ | 记忆完整度/变化分析 | P11-S8 已新增最近变化与偏好/项目/技术维度统计 | `app/services/memory_quality.py`、`MemoryPage.tsx` | 版本对比、变化摘要 | M-P0-3 |
 | M-P1-4 | 记忆评测与回答效果联动 | 只有检索 Recall/Precision/MRR | `app/services/memory_eval.py`、`app/services/rag.py` | A/B 注入对比、回答质量指标 | 评测平台 |
 | M-P1-5 | 记忆反馈闭环 | 使用记录有，但无“有用/无用”反馈 | `app/models.py`、`app/services/memories.py`、`MemoryPage.tsx` | 反馈表、排序权重、质量建议 | 无 |
 
@@ -119,7 +120,7 @@
 | P11-S5 ✅ | 知识处理节点扩展 | K-P0-1、K-P0-2、K-P1-1（部分） | S1 |
 | P11-S6 ✅ | 知识检索/多 KB/运行分析 | K-P0-3、K-P0-4、K-P1-2（部分） | S5 |
 | P11-S7 ✅ | 记忆仪表盘/生命周期/diff | M-P0-1、M-P0-2、M-P0-3 | 无 |
-| P11-S8 | 记忆提取来源与质量广度 | M-P0-4、M-P0-5、M-P1-1/P1-3 | S7 |
+| P11-S8 ✅ | 记忆提取来源与质量广度 | M-P0-4、M-P0-5（部分）、M-P1-1/P1-3 | S7 |
 | P11-S9 | 高级能力评估 | P2 项按需 | S5/S6/S8 |
 
 ## 6. 验收基线

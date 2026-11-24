@@ -27,6 +27,9 @@ export function MemorySettingsPanel() {
   const queryClient = useQueryClient()
   const [form, setForm] = useState<MemorySettings | null>(null)
   const [blockedText, setBlockedText] = useState('')
+  const [providersText, setProvidersText] = useState('')
+  const [modelsText, setModelsText] = useState('')
+  const [agentsText, setAgentsText] = useState('')
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -40,6 +43,9 @@ export function MemorySettingsPanel() {
     if (settings.data === undefined) return
     setForm(settings.data)
     setBlockedText((settings.data.blocked_topics ?? []).join(', '))
+    setProvidersText((settings.data.allowed_provider_ids ?? []).join(', '))
+    setModelsText((settings.data.allowed_models ?? []).join(', '))
+    setAgentsText((settings.data.allowed_agent_ids ?? []).join(', '))
   }, [settings.data])
 
   if (settings.isLoading || form === null) {
@@ -76,10 +82,25 @@ export function MemorySettingsPanel() {
             .split(',')
             .map((item) => item.trim())
             .filter((item) => item !== ''),
+          allowed_provider_ids: providersText
+            .split(',')
+            .map((item) => item.trim())
+            .filter((item) => item !== ''),
+          allowed_models: modelsText
+            .split(',')
+            .map((item) => item.trim())
+            .filter((item) => item !== ''),
+          allowed_agent_ids: agentsText
+            .split(',')
+            .map((item) => item.trim())
+            .filter((item) => item !== ''),
         },
       })
       setForm(saved)
       setBlockedText((saved.blocked_topics ?? []).join(', '))
+      setProvidersText((saved.allowed_provider_ids ?? []).join(', '))
+      setModelsText((saved.allowed_models ?? []).join(', '))
+      setAgentsText((saved.allowed_agent_ids ?? []).join(', '))
       setMessage(t('memory.settings.saved'))
       await queryClient.invalidateQueries({ queryKey: ['memory-settings'] })
     } catch (caught) {
@@ -221,6 +242,30 @@ export function MemorySettingsPanel() {
               value={blockedText}
               onChange={(event) => setBlockedText(event.target.value)}
               placeholder={t('memory.settings.blockedPlaceholder')}
+            />
+          </label>
+          <label className="text-xs text-ink-muted sm:col-span-2">
+            <span className="mb-1 block">{t('memory.settings.allowedProviders')}</span>
+            <Input
+              value={providersText}
+              onChange={(event) => setProvidersText(event.target.value)}
+              placeholder={t('memory.settings.allowedProvidersPlaceholder')}
+            />
+          </label>
+          <label className="text-xs text-ink-muted sm:col-span-2">
+            <span className="mb-1 block">{t('memory.settings.allowedModels')}</span>
+            <Input
+              value={modelsText}
+              onChange={(event) => setModelsText(event.target.value)}
+              placeholder={t('memory.settings.allowedModelsPlaceholder')}
+            />
+          </label>
+          <label className="text-xs text-ink-muted sm:col-span-2">
+            <span className="mb-1 block">{t('memory.settings.allowedAgents')}</span>
+            <Input
+              value={agentsText}
+              onChange={(event) => setAgentsText(event.target.value)}
+              placeholder={t('memory.settings.allowedAgentsPlaceholder')}
             />
           </label>
         </div>

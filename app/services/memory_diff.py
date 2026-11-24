@@ -1,7 +1,9 @@
 """Diff snapshots for memory versions."""
 
 import difflib
+from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -151,4 +153,72 @@ async def diff_memory_versions(
         "changes": changes,
         "content_diff": content_diff,
         "risk_flags": _risk_flags(before, after, changes),
+    }
+
+
+async def recent_memory_changes(
+    session: AsyncSession,
+    workspace_id: UUID,
+    user_id: UUID,
+    *,
+    days: int = 30,
+    limit: int = 20,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    current = now or datetime.now(UTC)
+    since = current - timedelta(days=days)
+    memories = list(
+        (
+            await session.execute(
+                select(AgentMemory)
+                .where(
+                    AgentMemory.workspace_id == workspace_id,
+                    AgentMemory.user_id == user_id,
+                    AgentMemory.updated_at >= since,
+                )
+                .order_by(AgentMemory.updated_at.desc())
+                .limit(max(1, min(limit, 50)))
+            )
+        ).scalars()
+    )
+    items: list[dict[str, Any]] = []
+    preference_changes = 0
+    project_changes = 0
+    technical_changes = 0
+    for memory in memories:
+        try:
+            result = await diff_memory_versions(session, memory)
+        except MemoryDiffError:
+            continue
+        fields = {change["field"] for change in result["changes"]}
+        if "category" in fields or any(
+            hint in result["content_diff"].casefold()
+            for hint in ("prefer", "偏好", "喜欢", "style")
+        ):
+            preference_changes += 1
+        if fields & {"project_id", "agent_id", "scope_type"}:
+            project_changes += 1
+        if memory.category == "technical" or any(
+            hint in result["content_diff"].casefold()
+            for hint in ("api", "database", "framework", "version", "技术", "架构")
+        ):
+            technical_changes += 1
+        items.append(
+            {
+                "memory_id": memory.id,
+                "title": memory.title,
+                "from_version": result["from_version"],
+                "to_version": result["to_version"],
+                "changed_fields": sorted(fields),
+                "risk_flags": result["risk_flags"],
+                "updated_at": memory.updated_at,
+            }
+        )
+    return {
+        "days": days,
+        "total": len(items),
+        "preference_changes": preference_changes,
+        "project_changes": project_changes,
+        "technical_changes": technical_changes,
+        "items": items,
     }

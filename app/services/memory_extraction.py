@@ -568,6 +568,81 @@ async def reject_candidate(
     metrics.inc_counter("ai_power_memory_candidates_total", action="rejected")
 
 
+async def create_project_memory_candidate(
+    session: AsyncSession, project, user_id: UUID
+) -> MemoryCandidate | None:
+    """Create a candidate from project instructions/description activity."""
+    settings = await get_memory_settings(
+        session, project.workspace_id, user_id
+    )
+    if (
+        not settings.enabled
+        or not settings.auto_extract
+        or not settings.allow_project_extract
+    ):
+        return None
+    content = (project.instructions or project.description or "").strip()
+    if len(content) < 12:
+        return None
+    title = (project.name or "Project")[:120]
+    content_hash = memory_hash(title, content)
+    existing = (
+        await session.execute(
+            select(AgentMemory.id).where(
+                AgentMemory.workspace_id == project.workspace_id,
+                AgentMemory.user_id == user_id,
+                AgentMemory.content_hash == content_hash,
+                AgentMemory.status == "active",
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return None
+    duplicate = (
+        await session.execute(
+            select(MemoryCandidate.id).where(
+                MemoryCandidate.workspace_id == project.workspace_id,
+                MemoryCandidate.user_id == user_id,
+                MemoryCandidate.source_type == "project",
+                MemoryCandidate.source_id == str(project.id),
+                MemoryCandidate.content == content,
+                MemoryCandidate.status.in_(("pending", "duplicate")),
+            )
+        )
+    ).scalar_one_or_none()
+    if duplicate is not None:
+        return None
+    candidate = MemoryCandidate(
+        workspace_id=project.workspace_id,
+        user_id=user_id,
+        project_id=project.id,
+        source_type="project",
+        source_id=str(project.id),
+        source_ref={"project_id": str(project.id)},
+        extracted_by=None,
+        suggested_action="create",
+        category="project",
+        scope_type="project",
+        title=title,
+        content=content[:5000],
+        tags=[],
+        confidence=0.8,
+        sensitivity="normal",
+        reason="project activity",
+        status="pending",
+    )
+    session.add(candidate)
+    await session.flush()
+    if settings.auto_save and not settings.require_confirmation:
+        await _apply_candidate(
+            session,
+            workspace_id=project.workspace_id,
+            user_id=user_id,
+            candidate=candidate,
+        )
+    return candidate
+
+
 async def schedule_memory_extraction(message_id: UUID) -> None:
     try:
         from app.services.queue import get_queue

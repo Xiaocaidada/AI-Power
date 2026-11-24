@@ -1494,6 +1494,25 @@ class MemoryVersionDiffOut(BaseModel):
     risk_flags: list[str] = Field(default_factory=list)
 
 
+class MemoryChangeItemOut(BaseModel):
+    memory_id: UUID
+    title: str
+    from_version: int
+    to_version: int
+    changed_fields: list[str] = Field(default_factory=list)
+    risk_flags: list[str] = Field(default_factory=list)
+    updated_at: datetime
+
+
+class MemoryChangesOut(BaseModel):
+    days: int
+    total: int = 0
+    preference_changes: int = 0
+    project_changes: int = 0
+    technical_changes: int = 0
+    items: list[MemoryChangeItemOut] = Field(default_factory=list)
+
+
 class MemoryLifecycleItemOut(BaseModel):
     id: UUID
     title: str
@@ -1753,6 +1772,9 @@ class MemorySettingsIn(BaseModel):
     allow_project_extract: bool | None = None
     allow_agent_extract: bool | None = None
     allow_cross_model: bool | None = None
+    allowed_provider_ids: list[str] | None = Field(default=None, max_length=20)
+    allowed_models: list[str] | None = Field(default=None, max_length=30)
+    allowed_agent_ids: list[str] | None = Field(default=None, max_length=30)
     max_inject_items: int | None = Field(default=None, ge=1, le=50)
     max_inject_chars: int | None = Field(default=None, ge=200, le=20000)
     blocked_topics: list[str] | None = Field(default=None, max_length=20)
@@ -1784,6 +1806,9 @@ class MemorySettingsOut(BaseModel):
     allow_project_extract: bool
     allow_agent_extract: bool
     allow_cross_model: bool
+    allowed_provider_ids: list[str]
+    allowed_models: list[str]
+    allowed_agent_ids: list[str]
     max_inject_items: int
     max_inject_chars: int
     blocked_topics: list[str]
