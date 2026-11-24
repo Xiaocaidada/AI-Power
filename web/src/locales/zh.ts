@@ -433,6 +433,10 @@ export const zh = {
       pageNo: '第 {page} 页',
       chars: '{count} 字符',
       tokens: '{count} tokens',
+      metaTitle: '标题',
+      metaKeywords: '关键词',
+      metaSummary: '摘要',
+      metaParent: '父块',
     },
     retrieval: {
       query: '查询',

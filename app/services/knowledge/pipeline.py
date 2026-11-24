@@ -1,4 +1,5 @@
 import logging
+import math
 import re
 import time
 from collections.abc import AsyncIterator
@@ -21,18 +22,33 @@ from app.models import (
 )
 from app.services.kb_models import build_kb_embedder
 from app.services.knowledge.chunkers import (
+    chunk_custom,
     chunk_fixed,
     chunk_markdown,
+    chunk_parent_child,
     chunk_recursive,
+    parse_separators,
+    split_sentences,
+)
+from app.services.knowledge.enhance import (
+    dedupe_chunks,
+    extract_keywords,
+    filter_pages,
+    summarize_text,
 )
 from app.services.knowledge.schema import (
     ChunkTextConfig,
     CleanTextConfig,
+    DedupeChunksConfig,
     EmbedChunksConfig,
+    EnrichMetadataConfig,
+    ExtractKeywordsConfig,
+    FilterTextConfig,
     IndexKnowledgeConfig,
     KnowledgeNode,
     KnowledgeProcessDefinition,
     ParseDocumentConfig,
+    SummarizeChunksConfig,
 )
 from app.services.knowledge_settings import KnowledgeBaseSettings, resolve_kb_settings
 from app.services.parsing import OcrParseError, ParsedPage, parser_for_mime
@@ -255,17 +271,107 @@ class KnowledgeProcessRunner:
                 "cleaned",
                 _preview_pages(state.pages, state.text),
             )
+        if node.type == "filter_text":
+            if not state.pages:
+                raise KnowledgePipelineError("missing_pages", "Parse the document first")
+            config = FilterTextConfig.model_validate(node.config)
+            try:
+                state.pages = filter_pages(state.pages, config)
+            except ValueError as exc:
+                raise KnowledgePipelineError("invalid_filter_pattern", str(exc)) from None
+            state.text = "\n\n".join(page.text for page in state.pages)
+            if not state.text.strip():
+                raise KnowledgePipelineError("empty_document", "Filter removed all text")
+            return (
+                f"{len(state.text)} chars",
+                "filtered",
+                _preview_pages(state.pages, state.text),
+            )
         if node.type == "chunk_text":
             if not state.pages:
                 raise KnowledgePipelineError("missing_pages", "Parse the document first")
             config = ChunkTextConfig.model_validate(node.config)
-            state.chunks = self._chunk(state.pages, config)
+            state.chunks = await self._chunk(state.pages, config)
             if not state.chunks:
                 raise KnowledgePipelineError("empty_document", "No chunks produced")
             return (
                 f"{len(state.chunks)} chunks",
                 "chunks",
                 _preview_chunks(state.chunks),
+            )
+        if node.type == "enrich_metadata":
+            if not state.chunks:
+                raise KnowledgePipelineError("missing_chunks", "Chunk the document first")
+            config = EnrichMetadataConfig.model_validate(node.config)
+            title = str(
+                (self._document.doc_metadata or {}).get("title")
+                or Path(self._document.filename).stem
+            )
+            for chunk in state.chunks:
+                meta = dict(chunk.get("meta") or {})
+                if config.include_filename:
+                    meta["filename"] = self._document.filename
+                if config.include_folder:
+                    meta["folder"] = self._document.folder
+                if config.include_tags:
+                    meta["tags"] = list(self._document.tags)
+                if config.include_source and self._document.source_url:
+                    meta["source_url"] = self._document.source_url
+                meta["document_title"] = title
+                chunk["meta"] = meta
+                if config.prepend_title and title:
+                    text = str(chunk["text"])
+                    if not text.startswith(title):
+                        chunk["text"] = f"{title}\n{text}"
+            return (
+                f"{len(state.chunks)} chunks enriched",
+                "chunks",
+                _preview_chunks(state.chunks),
+            )
+        if node.type == "extract_keywords":
+            if not state.chunks:
+                raise KnowledgePipelineError("missing_chunks", "Chunk the document first")
+            config = ExtractKeywordsConfig.model_validate(node.config)
+            for chunk in state.chunks:
+                keywords = extract_keywords(str(chunk["text"]), config.count)
+                meta = dict(chunk.get("meta") or {})
+                meta["keywords"] = keywords
+                chunk["meta"] = meta
+                if config.prepend and keywords:
+                    chunk["text"] = f"关键词: {', '.join(keywords)}\n{chunk['text']}"
+            return (
+                f"{len(state.chunks)} chunks with keywords",
+                "chunks",
+                _preview_chunks(state.chunks),
+            )
+        if node.type == "summarize_chunks":
+            if not state.chunks:
+                raise KnowledgePipelineError("missing_chunks", "Chunk the document first")
+            config = SummarizeChunksConfig.model_validate(node.config)
+            for chunk in state.chunks:
+                summary = summarize_text(str(chunk["text"]), config)
+                meta = dict(chunk.get("meta") or {})
+                meta["summary"] = summary
+                chunk["meta"] = meta
+                if config.prepend and summary:
+                    chunk["text"] = f"摘要: {summary}\n{chunk['text']}"
+            return (
+                f"{len(state.chunks)} chunks summarized",
+                "chunks",
+                _preview_chunks(state.chunks),
+            )
+        if node.type == "dedupe_chunks":
+            if not state.chunks:
+                raise KnowledgePipelineError("missing_chunks", "Chunk the document first")
+            config = DedupeChunksConfig.model_validate(node.config)
+            kept, removed = dedupe_chunks(state.chunks, config)
+            state.chunks = kept
+            if not kept:
+                raise KnowledgePipelineError("empty_document", "Dedupe removed all chunks")
+            return (
+                f"{len(kept)} chunks ({removed} removed)",
+                "chunks",
+                _preview_chunks(kept, removed),
             )
         if node.type == "embed_chunks":
             config = EmbedChunksConfig.model_validate(node.config)
@@ -343,7 +449,7 @@ class KnowledgeProcessRunner:
             ) from None
         return list(parsed.pages)
 
-    def _chunk(
+    async def _chunk(
         self, pages: list[ParsedPage], config: ChunkTextConfig
     ) -> list[dict[str, object]]:
         if config.strategy == "markdown":
@@ -361,12 +467,105 @@ class KnowledgeProcessRunner:
                 chunk_overlap=config.chunk_overlap,
                 min_chars=config.min_chars,
             )
+        if config.strategy == "custom":
+            return chunk_custom(
+                pages,
+                chunk_size=config.chunk_size,
+                min_chars=config.min_chars,
+                separators=parse_separators(config.separators),
+            )
+        if config.strategy == "parent_child":
+            return chunk_parent_child(
+                pages,
+                parent_size=config.parent_size,
+                child_size=config.child_size,
+                min_chars=config.min_chars,
+            )
+        if config.strategy == "semantic":
+            return await self._semantic_chunk(pages, config)
         return chunk_fixed(
             pages,
             chunk_size=config.chunk_size,
             chunk_overlap=config.chunk_overlap,
             min_chars=config.min_chars,
         )
+
+    async def _semantic_chunk(
+        self, pages: list[ParsedPage], config: ChunkTextConfig
+    ) -> list[dict[str, object]]:
+        sentences = split_sentences(pages)
+        if not sentences:
+            return []
+        async with SessionLocal() as session:
+            try:
+                embedder = await build_kb_embedder(
+                    session, self._kb, self._kb_settings
+                )
+            except Exception as exc:
+                raise KnowledgePipelineError(
+                    "embedding_unavailable",
+                    f"Embedding model is unavailable: {type(exc).__name__}",
+                ) from None
+            vectors: list[list[float]] = []
+            batch_size = self._settings.embedding_batch_size
+            for start in range(0, len(sentences), batch_size):
+                batch = sentences[start : start + batch_size]
+                try:
+                    batch_vectors = await embedder.embed([text for _page, text in batch])
+                except Exception as exc:
+                    raise KnowledgePipelineError(
+                        "chunk_embedding_failed",
+                        f"Semantic chunking embedding failed: {type(exc).__name__}",
+                    ) from None
+                if len(batch_vectors) != len(batch):
+                    raise KnowledgePipelineError(
+                        "chunk_embedding_count_mismatch",
+                        "Semantic embedding count does not match sentences",
+                    )
+                vectors.extend(batch_vectors)
+        chunks: list[dict[str, object]] = []
+        current: list[str] = []
+        current_page: int | None = None
+        previous: list[float] | None = None
+        current_length = 0
+        for (page_no, text), vector in zip(sentences, vectors, strict=True):
+            boundary = (
+                bool(current)
+                and (
+                    current_length + len(text) > config.chunk_size
+                    or (
+                        previous is not None
+                        and _cosine(previous, vector) < config.semantic_threshold
+                    )
+                )
+            )
+            if boundary:
+                chunks.append(
+                    {
+                        "chunk_index": len(chunks),
+                        "page_no": current_page,
+                        "text": " ".join(current).strip(),
+                        "meta": {"semantic": True, "sentence_count": len(current)},
+                    }
+                )
+                current = []
+                current_length = 0
+                current_page = page_no
+            if not current:
+                current_page = page_no
+            current.append(text)
+            current_length += len(text)
+            previous = vector
+        if current:
+            chunks.append(
+                {
+                    "chunk_index": len(chunks),
+                    "page_no": current_page,
+                    "text": " ".join(current).strip(),
+                    "meta": {"semantic": True, "sentence_count": len(current)},
+                }
+            )
+        return [chunk for chunk in chunks if str(chunk["text"]).strip()]
 
     async def _embed(
         self, chunks: list[dict[str, object]], config: EmbedChunksConfig
@@ -552,7 +751,9 @@ def _preview_pages(pages: list[ParsedPage], text: str) -> dict[str, object]:
     }
 
 
-def _preview_chunks(chunks: list[dict[str, object]]) -> dict[str, object]:
+def _preview_chunks(
+    chunks: list[dict[str, object]], removed: int | None = None
+) -> dict[str, object]:
     items = [
         {
             "chunk_index": chunk["chunk_index"],
@@ -562,7 +763,10 @@ def _preview_chunks(chunks: list[dict[str, object]]) -> dict[str, object]:
         }
         for chunk in chunks[:PREVIEW_CHUNKS]
     ]
-    return {"chunk_count": len(chunks), "chunks": items}
+    payload: dict[str, object] = {"chunk_count": len(chunks), "chunks": items}
+    if removed is not None:
+        payload["removed_count"] = removed
+    return payload
 
 
 def _node_end(
@@ -577,6 +781,17 @@ def _node_end(
     if error_code is not None:
         data["error_code"] = error_code
     return PipelineEvent("node_end", data)
+
+
+def _cosine(left: list[float], right: list[float]) -> float:
+    if len(left) != len(right):
+        return 0.0
+    dot = sum(a * b for a, b in zip(left, right, strict=True))
+    left_norm = math.sqrt(sum(value * value for value in left))
+    right_norm = math.sqrt(sum(value * value for value in right))
+    if left_norm == 0 or right_norm == 0:
+        return 0.0
+    return dot / (left_norm * right_norm)
 
 
 def _truncate(text: str, limit: int) -> str:

@@ -198,6 +198,7 @@ export interface ChunkItem {
   chunk_index: number
   page_no: number | null
   text: string
+  chunk_meta?: Record<string, unknown>
   token_count: number | null
   char_count: number
   created_at: string

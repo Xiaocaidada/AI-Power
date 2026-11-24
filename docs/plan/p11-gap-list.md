@@ -21,6 +21,7 @@
 - 2026-11-24：P11-S2 完成，X-P0-3（单节点调试、从节点运行、节点输入输出）已落地，见 [p11-s2-node-debug.md](../tdd/p11-s2-node-debug.md)。
 - 2026-11-24：P11-S3 完成，X-P0-4（AI Builder 取消、部分采纳、澄清提问）与多轮上下文已落地，见 [p11-s3-builder-control.md](../tdd/p11-s3-builder-control.md)。
 - 2026-11-24：P11-S4 完成，A-P0-1（模型参数）、A-P0-3（工具/MCP 浏览、测试与绑定）、A-P1-1（封面/发布者/官方筛选）与 A-P1-2（Agent 模板）已落地，见 [p11-s4-agent-tools.md](../tdd/p11-s4-agent-tools.md)。
+- 2026-11-24：P11-S5 完成，K-P0-1（自定义/父子/语义切片与元数据保留）、K-P0-2（过滤/元数据/关键词/摘要/去重节点）已落地；K-P1-1 完成文本过滤与新节点库，OCR/格式专用解析/独立索引模式仍为边界。见 [p11-s5-knowledge-nodes.md](../tdd/p11-s5-knowledge-nodes.md)。另修复知识处理/检索画布空白页（hooks 顺序）并新增回归 E2E。
 
 ## 2. P0：下一阶段必须补齐
 
@@ -46,8 +47,8 @@
 
 | ID | 缺口 | 现状 | 代码入口 | 改动范围 | 依赖 | 规模 |
 |---|---|---|---|---|---|---|
-| K-P0-1 | 处理节点补齐：语义/父子/自定义切片、元数据保留 | 固定/Markdown/递归切片 | `app/services/knowledge/chunkers.py`、`catalog.py`、`pipeline.py` | 新切片器、节点配置、预览、暂存写入 | 无 | L |
-| K-P0-2 | 文档增强节点：标题/结构/元数据/关键词/摘要/去重 | 只有 parse/clean/chunk/embed/index | `app/services/knowledge/catalog.py`、`pipeline.py`、`app/services/parsing.py` | 节点实现、LLM/规则增强、错误处理、预览 | 模型调用 | L |
+| K-P0-1 ✅ | 处理节点补齐：语义/父子/自定义切片、元数据保留 | P11-S5 已实现三种切片与 `chunk_meta` 入库/检索父块展开 | `app/services/knowledge/chunkers.py`、`catalog.py`、`pipeline.py` | 新切片器、节点配置、预览、暂存写入 | 无 | L |
+| K-P0-2 ✅ | 文档增强节点：标题/结构/元数据/关键词/摘要/去重 | P11-S5 已新增过滤/元数据/关键词/摘要/去重节点 | `app/services/knowledge/catalog.py`、`pipeline.py`、`app/services/parsing.py` | 节点实现、LLM/规则增强、错误处理、预览 | 模型调用 | L |
 | K-P0-3 | 检索节点补齐：元数据过滤、相似度阈值/去重、多 KB 联合检索 | 单 KB 线性检索，节点较少 | `app/services/knowledge/retrieval_catalog.py`、`retrieval_pipeline.py`、`app/services/retrieval.py` | 新节点、跨 KB 合并、KB 选择配置 | 检索画布 | L |
 | K-P0-4 | 知识库运行分析面板 | 有节点耗时/评测分析，无处理成功率/无结果/平均耗时面板 | `app/services/knowledge/metrics.py`、`app/metrics.py`、`app/routers/knowledge_bases.py`、`web/src/pages/knowledge/KnowledgeDetailPage.tsx` | 运行统计 API、失败原因聚合、前端面板 | 无 | M |
 | K-P0-5 | 处理配置对比评测 | 评测只绑定检索工作流 | `app/services/evaluation_runner.py`、`app/routers/evaluations.py`、`KnowledgeEvaluationPage.tsx` | 处理版本/配置维度、对比报告 | K-P0-1/K-P0-2 | M |
@@ -79,7 +80,7 @@
 
 | ID | 缺口 | 现状 | 代码入口 | 改动范围 | 依赖 |
 |---|---|---|---|---|---|
-| K-P1-1 | 完整处理节点库 | 只有 parse/clean/chunk/embed/index | `app/services/knowledge/catalog.py`、`pipeline.py` | OCR 节点、格式专用解析、文本处理、全文/混合索引 | K-P0-1/2 |
+| K-P1-1 ◐ | 完整处理节点库 | P11-S5 已补文本过滤/增强节点；OCR 节点、格式专用解析、独立全文/混合索引模式仍缺 | `app/services/knowledge/catalog.py`、`pipeline.py` | OCR 节点、格式专用解析、文本处理、全文/混合索引 | K-P0-1/2 |
 | K-P1-2 | 完整检索节点库 | 无查询扩展/多查询/意图/分类/回退 | `app/services/knowledge/retrieval_catalog.py`、`retrieval_pipeline.py` | 新节点、条件分支或回退语义 | K-P0-3 |
 | K-P1-3 | 文档处理结果与解析原文预览 | 有 chunk/preview，无专门解析结果页 | `web/src/pages/knowledge/KnowledgeChunksTab.tsx`、`app/services/parsing.py` | 解析文本/结构预览、失败定位 | 无 |
 | K-P1-4 | 评估指标补齐：引用准确性、答案忠实度 | 有 Recall/Precision/NDCG、LLM judge | `app/services/knowledge/metrics.py`、`app/services/evaluation_runner.py` | 引用校验、答案指标 | 评测平台 |
@@ -113,7 +114,7 @@
 | P11-S2 | 单节点调试/从节点运行 | X-P0-3 | S1 |
 | P11-S3 | AI Builder 控制 | X-P0-4、A-P1-3 | S1 |
 | P11-S4 ✅ | Agent 配置与工具生态 | A-P0-1、A-P0-3、A-P1-1/P1-2 | S1 |
-| P11-S5 | 知识处理节点扩展 | K-P0-1、K-P0-2、K-P1-1 | S1 |
+| P11-S5 ✅ | 知识处理节点扩展 | K-P0-1、K-P0-2、K-P1-1（部分） | S1 |
 | P11-S6 | 知识检索/多 KB/运行分析 | K-P0-3、K-P0-4、K-P1-2 | S5 |
 | P11-S7 | 记忆仪表盘/生命周期/diff | M-P0-1、M-P0-2、M-P0-3 | 无 |
 | P11-S8 | 记忆提取来源与质量广度 | M-P0-4、M-P0-5、M-P1-1/P1-3 | S7 |

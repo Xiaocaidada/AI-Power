@@ -279,7 +279,14 @@ async def get_workflow_catalog(
     if kind == "knowledge_process":
         catalog = build_knowledge_process_catalog()
         catalog["templates"] = [
-            build_template(name) for name in ("general", "technical", "markdown")
+            build_template(name)
+            for name in (
+                "general",
+                "technical",
+                "markdown",
+                "enhanced",
+                "parent_child",
+            )
         ]
         return catalog
     if kind == "knowledge_retrieval":

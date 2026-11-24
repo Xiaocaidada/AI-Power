@@ -146,6 +146,7 @@ class ChunkOut(BaseModel):
     chunk_index: int
     page_no: int | None
     text: str
+    chunk_meta: dict = Field(default_factory=dict)
     token_count: int | None
     char_count: int
     created_at: datetime

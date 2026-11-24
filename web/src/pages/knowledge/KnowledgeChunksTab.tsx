@@ -131,6 +131,38 @@ export function KnowledgeChunksTab({ kbId, documents }: KnowledgeChunksTabProps)
                 <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-ink">
                   {chunk.text}
                 </p>
+                {(chunk.chunk_meta?.keywords !== undefined ||
+                  chunk.chunk_meta?.summary !== undefined ||
+                  chunk.chunk_meta?.parent_id !== undefined) && (
+                  <div className="mt-2 space-y-0.5 rounded-lg bg-surface-muted px-2 py-1.5 text-[10px] text-ink-muted">
+                    {typeof chunk.chunk_meta?.document_title === 'string' && (
+                      <p>
+                        {t('knowledge.chunks.metaTitle')}:{' '}
+                        {chunk.chunk_meta.document_title}
+                      </p>
+                    )}
+                    {Array.isArray(chunk.chunk_meta?.keywords) &&
+                      chunk.chunk_meta.keywords.length > 0 && (
+                        <p>
+                          {t('knowledge.chunks.metaKeywords')}:{' '}
+                          {chunk.chunk_meta.keywords.join(', ')}
+                        </p>
+                      )}
+                    {typeof chunk.chunk_meta?.summary === 'string' &&
+                      chunk.chunk_meta.summary !== '' && (
+                        <p>
+                          {t('knowledge.chunks.metaSummary')}:{' '}
+                          {chunk.chunk_meta.summary}
+                        </p>
+                      )}
+                    {typeof chunk.chunk_meta?.parent_id === 'string' && (
+                      <p>
+                        {t('knowledge.chunks.metaParent')}:{' '}
+                        {chunk.chunk_meta.parent_id}
+                      </p>
+                    )}
+                  </div>
+                )}
               </article>
             ))}
           </div>

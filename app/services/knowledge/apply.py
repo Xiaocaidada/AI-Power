@@ -64,6 +64,7 @@ async def apply_knowledge_run(
                 page_no=draft.page_no,
                 chunk_index=draft.chunk_index,
                 text=draft.text,
+                chunk_meta=dict(draft.chunk_meta or {}),
                 token_count=draft.token_count,
             )
         )

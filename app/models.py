@@ -1346,6 +1346,7 @@ class Chunk(Base):
     page_no: Mapped[int | None] = mapped_column(Integer, default=None)
     chunk_index: Mapped[int] = mapped_column(Integer)
     text: Mapped[str] = mapped_column(Text)
+    chunk_meta: Mapped[dict] = mapped_column(JSON, default=dict)
     token_count: Mapped[int | None] = mapped_column(Integer, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 

@@ -147,6 +147,110 @@ def _markdown_sections(text: str) -> list[tuple[str, str]]:
     return [(heading, body) for heading, body in sections if body]
 
 
+def parse_separators(raw: str) -> list[str]:
+    """Parse a ``|`` separated separator list, unescaping ``\\n``/``\\t``."""
+    values: list[str] = []
+    for part in raw.split("|"):
+        text = (
+            part.replace("\\n", "\n")
+            .replace("\\r", "\r")
+            .replace("\\t", "\t")
+        )
+        if text and text not in values:
+            values.append(text)
+    return values
+
+
+def _pack_pieces(
+    pieces: list[str], chunk_size: int, page_no: int | None
+) -> list[dict[str, object]]:
+    chunks: list[dict[str, object]] = []
+    buffer = ""
+    for piece in pieces:
+        candidate = f"{buffer}{piece}" if buffer else piece
+        if len(candidate) <= chunk_size:
+            buffer = candidate
+            continue
+        if buffer.strip():
+            chunks.append(_chunk(buffer.strip(), page_no, len(chunks)))
+        buffer = piece
+    if buffer.strip():
+        chunks.append(_chunk(buffer.strip(), page_no, len(chunks)))
+    return chunks
+
+
+def chunk_custom(
+    pages: list[ParsedPage],
+    *,
+    chunk_size: int,
+    min_chars: int,
+    separators: list[str],
+    keep_blank_pages: bool = False,
+) -> list[dict[str, object]]:
+    result: list[dict[str, object]] = []
+    active = separators or ["\n\n", "\n", "。", ". ", " "]
+    for page in _merge_pages(pages, keep_blank_pages):
+        pieces = _split_recursive(page.text.strip(), chunk_size, active)
+        for chunk in _pack_pieces(pieces, chunk_size, page.page_no):
+            result.append(
+                _chunk(str(chunk["text"]), page.page_no, len(result))
+            )
+    return _merge_small(result, chunk_size, min_chars)
+
+
+def chunk_parent_child(
+    pages: list[ParsedPage],
+    *,
+    parent_size: int,
+    child_size: int,
+    min_chars: int,
+    keep_blank_pages: bool = False,
+) -> list[dict[str, object]]:
+    """Index small child chunks while carrying their parent block in metadata."""
+    result: list[dict[str, object]] = []
+    for page in _merge_pages(pages, keep_blank_pages):
+        parent_pieces = _split_recursive(
+            page.text.strip(), parent_size, RECURSIVE_SEPARATORS
+        )
+        parent_chunks = _pack_pieces(parent_pieces, parent_size, page.page_no)
+        for parent_index, parent in enumerate(parent_chunks):
+            parent_text = str(parent["text"])
+            if len(parent_text) < min_chars:
+                continue
+            children = _pack_pieces(
+                _split_recursive(
+                    parent_text,
+                    min(child_size, max(50, len(parent_text))),
+                    RECURSIVE_SEPARATORS,
+                ),
+                child_size,
+                page.page_no,
+            )
+            for child in children:
+                meta = {
+                    "parent_id": f"p{page.page_no or 0}-{parent_index}",
+                    "parent_index": parent_index,
+                    "parent_text": parent_text,
+                }
+                result.append(
+                    _chunk(str(child["text"]), page.page_no, len(result), meta)
+                )
+    return result
+
+
+SENTENCE_BOUNDARY = re.compile(r"(?<=[。！？!?])\s*|\n+")
+
+
+def split_sentences(pages: list[ParsedPage]) -> list[tuple[int | None, str]]:
+    sentences: list[tuple[int | None, str]] = []
+    for page in _merge_pages(pages, False):
+        for part in SENTENCE_BOUNDARY.split(page.text):
+            text = part.strip()
+            if text:
+                sentences.append((page.page_no, text))
+    return sentences
+
+
 def chunk_markdown(
     pages: list[ParsedPage],
     *,
