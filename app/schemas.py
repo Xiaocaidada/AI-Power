@@ -604,11 +604,31 @@ class WorkflowRunCreate(BaseModel):
     input: str = Field(default="", max_length=20000)
     kb_id: UUID | None = None
     document_id: UUID | None = None
+    start_node_id: str | None = Field(default=None, max_length=120)
+    node_outputs: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("input", mode="before")
     @classmethod
     def strip_input(cls, value: object) -> object:
         return value.strip() if isinstance(value, str) else value
+
+
+class WorkflowNodeDebugIn(BaseModel):
+    version: int | None = None
+    input: str = Field(default="", max_length=20000)
+    node_outputs: dict[str, str] = Field(default_factory=dict)
+
+
+class WorkflowNodeDebugOut(BaseModel):
+    run_id: UUID
+    node_id: str
+    node_type: str
+    status: str
+    output: str = ""
+    input_summary: str = ""
+    error_code: str | None = None
+    duration_ms: float = 0.0
+    node_run_id: UUID | None = None
 
 
 class WorkflowNodeRunOut(BaseModel):

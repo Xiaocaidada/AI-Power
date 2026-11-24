@@ -179,6 +179,9 @@ interface StudioCanvasProps {
   saving: boolean
   error: string | null
   versions?: WorkflowVersion[]
+  workflowId?: string | null
+  version?: number
+  debuggable?: boolean
   onSave: (definition: WorkflowDefinition) => void
   onRestoreVersion?: (version: number) => void | Promise<void>
   onAutosave?: (definition: WorkflowDefinition) => void | Promise<void>
@@ -192,6 +195,9 @@ export function StudioCanvas({
   saving,
   error,
   versions = [],
+  workflowId = null,
+  version,
+  debuggable = false,
   onSave,
   onRestoreVersion,
   onAutosave,
@@ -642,6 +648,9 @@ export function StudioCanvas({
             meta={selectedMeta}
             edges={edges.filter((edge) => edge.source === selectedNode.id)}
             resources={resources}
+            workflowId={workflowId}
+            version={version}
+            debuggable={debuggable}
             onChange={updateConfig}
             onEdgeWhen={updateEdgeWhen}
             onRemove={removeNode}

@@ -468,6 +468,9 @@ export function AgentStudioPage() {
                   databaseConnections: databaseConnectionsQuery.data ?? [],
                 }}
                 versions={workflowQuery.data?.versions ?? []}
+                workflowId={agent.workflow_id}
+                version={workflowQuery.data?.versions[0]?.version}
+                debuggable
                 saving={savingCanvas}
                 error={canvasError}
                 onSave={(next) => void saveCanvas(next)}
@@ -493,6 +496,7 @@ export function AgentStudioPage() {
           <StudioRunPanel
             agent={agent}
             workflowId={agent.workflow_id}
+            definition={definition}
             onRunId={setLastRunId}
           />
         )}

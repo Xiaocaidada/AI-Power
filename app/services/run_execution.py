@@ -213,6 +213,13 @@ async def execute_workflow_run(
         workflow_id = workflow.id
         kb_id = run.kb_id
         checkpoint = dict(run.checkpoint or {})
+        start_node_id = str(run.input_payload.get("start_node_id") or "") or None
+        raw_outputs = run.input_payload.get("node_outputs")
+        seed_outputs = (
+            {str(key): str(value) for key, value in raw_outputs.items()}
+            if isinstance(raw_outputs, dict)
+            else None
+        )
 
     if workflow_kind == "knowledge_process":
         await execute_knowledge_process_run(run_id)
@@ -237,6 +244,8 @@ async def execute_workflow_run(
         quota_guard=(lambda: enforce_quota(redis, context)) if redis is not None else None,
         api_key_id=context.api_key_id,
         resume_state=checkpoint or None,
+        start_node_id=start_node_id,
+        seed_outputs=seed_outputs,
     )
     terminal = False
     try:

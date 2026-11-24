@@ -165,6 +165,21 @@ async function mockBase(page: import('@playwright/test').Page) {
       json: { definition, saved_at: '2026-11-24T00:00:00Z' },
     })
   })
+  await page.route('**/api/workflows/wf-1/nodes/*/debug', (route) =>
+    route.fulfill({
+      json: {
+        run_id: 'run-debug',
+        node_id: 'start',
+        node_type: 'start',
+        status: 'completed',
+        output: 'debug ok',
+        input_summary: 'hello',
+        error_code: null,
+        duration_ms: 2,
+        node_run_id: 'node-run-1',
+      },
+    }),
+  )
 }
 
 test('Agent Studio config, canvas, builder, and run tabs render', async ({ page }) => {
@@ -187,6 +202,17 @@ test('Agent Studio config, canvas, builder, and run tabs render', async ({ page 
   await expect(page.getByText(/草稿已保存/)).toBeVisible({ timeout: 5000 })
   await page.getByRole('button', { name: '撤销' }).click()
   await expect(page.getByRole('button', { name: '撤销' })).toBeDisabled()
+
+  await page.locator('.react-flow__node').filter({ hasText: 'start' }).first().click()
+  await expect(page.getByText('单节点调试')).toBeVisible()
+  await page.getByPlaceholder('测试输入 [[input]]').fill('hello')
+  await page.getByRole('button', { name: '测试节点' }).click()
+  await expect(page.getByText('debug ok')).toBeVisible()
+
+  await page.getByRole('button', { name: '运行' }).click()
+  await expect(page.getByLabel('从指定节点开始')).toBeVisible()
+  await page.getByLabel('从指定节点开始').selectOption('out')
+  await expect(page.getByText('上游节点输出（JSON）')).toBeVisible()
 
   await page.getByRole('button', { name: 'AI 构建' }).click()
   await expect(page.getByText('AI 构建工作流')).toBeVisible()
