@@ -1,7 +1,10 @@
+import re
 from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+
+METADATA_KEY = re.compile(r"^[A-Za-z0-9_.-]{1,80}$")
 
 RetrievalNodeType = Literal[
     "start",
@@ -45,8 +48,10 @@ class SearchNodeConfig(BaseModel):
     @model_validator(mode="after")
     def _metadata_filter(self) -> "SearchNodeConfig":
         for key, value in self.metadata_filter.items():
-            if not key or len(key) > 80 or len(value) > 200:
-                raise ValueError("metadata_filter keys/values are too long")
+            if not METADATA_KEY.match(key):
+                raise ValueError("metadata_filter key contains invalid characters")
+            if len(value) > 200:
+                raise ValueError("metadata_filter value is too long")
         return self
 
 
@@ -68,7 +73,7 @@ class HybridSearchConfig(SearchNodeConfig):
         return self
 
 
-class MultiQueryConfig(BaseModel):
+class MultiQueryConfig(SearchNodeConfig):
     provider_id: str = Field(min_length=1, max_length=50)
     model: str = Field(min_length=1, max_length=200)
     variants: int = Field(default=3, ge=2, le=5)
@@ -81,10 +86,7 @@ class MultiQueryConfig(BaseModel):
         max_length=20000,
     )
     system_prompt: str | None = Field(default=None, max_length=20000)
-    top_k: int = Field(default=12, ge=1, le=50)
     candidate_k: int = Field(default=20, ge=1, le=100)
-    metadata_filter: dict[str, str] = Field(default_factory=dict, max_length=10)
-    kb_ids: list[UUID] = Field(default_factory=list, max_length=10)
 
 
 class FilterResultsConfig(BaseModel):

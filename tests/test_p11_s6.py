@@ -258,3 +258,25 @@ async def test_retrieval_catalog_lists_new_nodes(client, api):
     } <= types
     names = {template["name"] for template in body["templates"]}
     assert "多查询 + 过滤" in names
+
+    invalid = await client.post(
+        "/workflows",
+        json={
+            "name": "Invalid metadata key",
+            "kind": "knowledge_retrieval",
+            "definition": _pipeline(
+                [
+                    ("start", "start", {}),
+                    (
+                        "vector",
+                        "vector_search",
+                        {"metadata_filter": {"$bad": "x"}},
+                    ),
+                    ("out", "output", {}),
+                ],
+                "knowledge_retrieval",
+            ),
+        },
+        headers=headers,
+    )
+    assert invalid.status_code == 422
