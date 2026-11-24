@@ -114,6 +114,7 @@ export interface StreamRunOptions {
   after?: number
   signal?: AbortSignal
   onEvent: SseHandler
+  terminalEvents?: string[]
 }
 
 function wait(ms: number): Promise<void> {
@@ -125,16 +126,23 @@ export async function streamRunEvents({
   after = 0,
   signal,
   onEvent,
+  terminalEvents,
 }: StreamRunOptions): Promise<void> {
+  const terminalSet =
+    terminalEvents === undefined ? RUN_TERMINAL_EVENTS : new Set(terminalEvents)
   let cursor = after
   let attempts = 0
   while (!signal?.aborted) {
     const token = getAccessToken()
+    const workspaceId = getActiveWorkspaceId()
     let terminal = false
     try {
       const response = await fetch(`${API_BASE}${path}?after=${cursor}`, {
         method: 'GET',
-        headers: token !== null ? { Authorization: `Bearer ${token}` } : {},
+        headers: {
+          ...(token !== null ? { Authorization: `Bearer ${token}` } : {}),
+          ...(workspaceId !== null ? { 'X-Workspace-Id': workspaceId } : {}),
+        },
         signal,
       })
       await readSse(response, (event) => {
@@ -142,7 +150,7 @@ export async function streamRunEvents({
           const parsed = Number(event.id)
           if (Number.isFinite(parsed)) cursor = parsed
         }
-        if (RUN_TERMINAL_EVENTS.has(event.event)) terminal = true
+        if (terminalSet.has(event.event)) terminal = true
         onEvent(event)
       })
     } catch (error) {
@@ -159,6 +167,36 @@ export async function streamRunEvents({
   }
 }
 
+
+const CHAT_TASK_TERMINAL_EVENTS = [
+  'task_completed',
+  'task_failed',
+  'task_cancelled',
+  'task_paused',
+  'approval_required',
+  'research_plan_created',
+  'agent_plan_created',
+]
+
+export async function streamTaskEvents({
+  taskId,
+  after = 0,
+  signal,
+  onEvent,
+}: {
+  taskId: string
+  after?: number
+  signal?: AbortSignal
+  onEvent: SseHandler
+}): Promise<void> {
+  await streamRunEvents({
+    path: `/chat-tasks/${taskId}/events`,
+    after,
+    signal,
+    onEvent,
+    terminalEvents: CHAT_TASK_TERMINAL_EVENTS,
+  })
+}
 
 export async function streamChat({
   conversationId,

@@ -30,7 +30,7 @@ async def test_chat_modes_require_auth(client):
     assert response.status_code == 401
 
 
-async def test_chat_modes_expose_unimplemented_modes(client, api):
+async def test_chat_modes_expose_all_implemented_modes(client, api):
     headers = await api.headers("p12-modes@example.com")
 
     response = await client.get("/chat/modes", headers=headers)
@@ -43,7 +43,7 @@ async def test_chat_modes_expose_unimplemented_modes(client, api):
     assert modes["chat"]["implemented"] is True
     assert modes["agent"]["implemented"] is True
     assert modes["web_search"]["implemented"] is True
-    assert modes["deep_research"]["implemented"] is False
+    assert modes["deep_research"]["implemented"] is True
     assert modes["study"]["implemented"] is True
 
 
@@ -69,8 +69,8 @@ async def test_create_conversation_persists_planned_mode(client, api, registry):
     assert detail.json()["default_mode"] == "deep_research"
 
 
-async def test_planned_mode_send_returns_typed_error(client, api, registry):
-    headers = await api.headers("p12-planned-send@example.com")
+async def test_research_mode_without_search_provider_returns_typed_error(client, api, registry):
+    headers = await api.headers("p12-research-send@example.com")
     created = await _create(client, headers, mode="deep_research")
 
     response = await client.post(
@@ -80,7 +80,7 @@ async def test_planned_mode_send_returns_typed_error(client, api, registry):
     )
 
     assert response.status_code == 422
-    assert response.json()["detail"]["code"] == "mode_not_available"
+    assert response.json()["detail"]["code"] == "search_not_configured"
     detail = await client.get(f"/conversations/{created.json()['id']}", headers=headers)
     assert detail.json()["messages"] == []
 

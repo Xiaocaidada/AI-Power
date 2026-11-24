@@ -82,13 +82,16 @@ from app.services.attachments import (
 from app.services.budget import check_workspace_budget
 from app.services.chat_modes import (
     CHAT_MODE_AGENT,
+    CHAT_MODE_DEEP_RESEARCH,
     CHAT_MODE_STUDY,
     CHAT_MODE_WEB_SEARCH,
     ChatModeError,
     normalize_mode,
     resolve_model_capabilities,
+    thinking_provider_opts,
     validate_turn_mode,
 )
+from app.services.chat_tasks import ChatTaskError
 from app.services.custom_agents import (
     CustomAgentError,
     build_agent_spec,
@@ -121,6 +124,7 @@ from app.services.prompts import resolve_conversation_prompt
 from app.services.provider_configs import ProviderConfigError, ensure_model_capability
 from app.services.quotas import add_token_usage, enforce_quota
 from app.services.rag import build_rag_messages, fit_context
+from app.services.research import create_research_task
 from app.services.retrieval import Citation, build_citations, retrieve_chunks
 from app.services.routing import record_failure, reset_failures, route_candidates
 from app.services.search_providers import SearchProviderError, resolve_search_config
@@ -607,6 +611,171 @@ async def _stream_reply(
             redis=redis,
             api_key_id=api_key_id,
         )
+
+
+def _looks_chinese(text: str) -> bool:
+    return any("一" <= char <= "鿿" for char in text)
+
+
+async def _start_research_turn(
+    *,
+    conversation: Conversation,
+    content: str,
+    context: AuthContext,
+    session: AsyncSession,
+    provider: LLMProvider | None,
+    registry: ProviderRegistry,
+    redis: RedisLike,
+    mode_meta: dict[str, object],
+    reply_to_message_id: UUID | None = None,
+    persist_user_message: bool = True,
+) -> StreamingResponse:
+    research_provider = provider
+    research_model = conversation.model
+    if research_provider is None:
+        for provider_id, candidate_model in await route_candidates(session, registry, redis):
+            try:
+                research_provider = registry.get(provider_id)
+            except ProviderError:
+                continue
+            research_model = candidate_model
+            break
+        if research_provider is None:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                {
+                    "code": "no_provider_available",
+                    "message": "No provider is currently available",
+                },
+            )
+    kb_ids = await _conversation_kb_ids(session, conversation)
+    scope = "hybrid" if kb_ids else "web"
+    search_provider_id: UUID | None = None
+    raw_search_id = mode_meta.get("search_provider_id")
+    try:
+        search_config = await resolve_search_config(
+            session,
+            workspace_id=context.workspace.id,
+            user_id=context.user.id,
+            config_id=str(raw_search_id) if raw_search_id else None,
+        )
+        search_provider_id = search_config.id
+    except SearchProviderError as exc:
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if exc.code == "not_found"
+            else status.HTTP_409_CONFLICT
+            if exc.code == "provider_disabled"
+            else status.HTTP_422_UNPROCESSABLE_CONTENT
+        )
+        raise HTTPException(status_code, {"code": exc.code, "message": exc.message}) from None
+    language = "zh" if _looks_chinese(content) else "en"
+    questions = [line.strip() for line in content.splitlines()[1:] if line.strip()][:8]
+    try:
+        task = await create_research_task(
+            session,
+            workspace_id=context.workspace.id,
+            user_id=context.user.id,
+            conversation_id=conversation.id,
+            provider_id=research_provider.id,
+            model=research_model,
+            topic=content.splitlines()[0][:500] if content.strip() else content[:500],
+            questions=questions,
+            scope=scope,
+            kb_ids=kb_ids,
+            search_provider_id=search_provider_id,
+            language=language,
+            max_steps=5,
+            thinking_level=str(mode_meta.get("thinking_level") or "standard"),
+            provider=research_provider,
+        )
+    except ChatTaskError as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {"code": exc.code, "message": exc.message},
+        ) from None
+    task_meta = {
+        **mode_meta,
+        "research_task_id": str(task.id),
+        "search_provider_id": str(search_provider_id) if search_provider_id else None,
+    }
+    steps = list((task.plan or {}).get("steps") or [])
+    lines = [
+        f"已生成研究计划「{task.title}」，共 {len(steps)} 个步骤。",
+        "确认计划后才会开始检索和生成报告。",
+        "",
+        *[f"{index + 1}. {step['title']}" for index, step in enumerate(steps)],
+    ]
+    summary = "\n".join(lines)
+    if persist_user_message and not conversation.title:
+        conversation.title = content[:TITLE_MAX_LENGTH]
+    user_message = None
+    if persist_user_message:
+        user_message = Message(
+            conversation_id=conversation.id,
+            user_id=context.user.id,
+            role="user",
+            content=content,
+            status="completed",
+            provider_id=research_provider.id,
+            model=research_model,
+            request_id=request_id_var.get(),
+            mode=CHAT_MODE_DEEP_RESEARCH,
+            mode_meta=mode_meta,
+        )
+        session.add(user_message)
+    assistant_message = Message(
+        conversation_id=conversation.id,
+        user_id=context.user.id,
+        role="assistant",
+        content=summary,
+        status="completed",
+        provider_id=research_provider.id,
+        model=research_model,
+        request_id=request_id_var.get(),
+        mode=CHAT_MODE_DEEP_RESEARCH,
+        mode_meta=task_meta,
+        reply_to_message_id=reply_to_message_id,
+    )
+    session.add(assistant_message)
+    await session.flush()
+    await session.commit()
+    await session.refresh(assistant_message)
+    message_id = assistant_message.id
+    await session.close()
+
+    async def stream():
+        yield _sse(
+            "meta",
+            {
+                "message_id": str(message_id),
+                "provider": research_provider.id,
+                "model": research_model,
+                "conversation_id": str(conversation.id),
+                "mode": CHAT_MODE_DEEP_RESEARCH,
+                "mode_meta": task_meta,
+            },
+        )
+        yield _sse(
+            "stage",
+            {"stage": "research_planning", "task_id": str(task.id), "steps": len(steps)},
+        )
+        yield _sse(
+            "research_plan",
+            {
+                "task_id": str(task.id),
+                "status": task.status,
+                "plan": task.plan or {},
+            },
+        )
+        yield _sse("delta", {"text": summary})
+        yield _sse("done", {"message_id": str(message_id), "status": "completed"})
+
+    return StreamingResponse(
+        track_sse_stream(stream()),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 async def _stream_web_search_reply(
@@ -1970,6 +2139,23 @@ async def _start_chat_turn(
         )
     except ChatModeError as exc:
         _raise_chat_mode_error(exc)
+    thinking_opts = thinking_provider_opts(turn_meta["thinking_level"])
+    if thinking_opts:
+        opts = {**opts, **thinking_opts}
+
+    if turn_mode == CHAT_MODE_DEEP_RESEARCH:
+        return await _start_research_turn(
+            conversation=conversation,
+            content=content,
+            context=context,
+            session=session,
+            provider=provider,
+            registry=registry,
+            redis=redis,
+            mode_meta=turn_meta,
+            reply_to_message_id=reply_to_message_id,
+            persist_user_message=persist_user_message,
+        )
 
     search_config = None
     if turn_mode == CHAT_MODE_WEB_SEARCH:

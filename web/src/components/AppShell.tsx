@@ -10,6 +10,7 @@ import {
   FlaskConical,
   FolderOpen,
   LayoutDashboard,
+  ListChecks,
   Megaphone,
   Menu,
   MessageSquare,
@@ -22,6 +23,7 @@ import {
   Shield,
   Sun,
   Swords,
+  Telescope,
   Users,
   Workflow,
   X,
@@ -51,6 +53,8 @@ const workNav = [
 ]
 
 const buildNav = [
+  { to: '/research', labelKey: 'nav.research', icon: Telescope },
+  { to: '/tasks', labelKey: 'nav.agentTasks', icon: ListChecks },
   { to: '/workflows', labelKey: 'nav.workflows', icon: Workflow },
   { to: '/collaborations', labelKey: 'nav.collaborations', icon: Users },
   { to: '/evaluation', labelKey: 'nav.evaluation', icon: FlaskConical },

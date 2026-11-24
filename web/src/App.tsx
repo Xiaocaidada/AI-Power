@@ -62,6 +62,8 @@ import { SearchProvidersPage } from './pages/settings/SearchProvidersPage'
 import { WebhooksPage } from './pages/settings/WebhooksPage'
 import { SharePage } from './pages/chat/SharePage'
 import { SnippetsPage } from './pages/snippets/SnippetsPage'
+import { ResearchPage } from './pages/research/ResearchPage'
+import { AgentTasksPage } from './pages/tasks/AgentTasksPage'
 import { WorkspaceSettingsPage } from './pages/settings/WorkspaceSettingsPage'
 import { useAuthStore } from './store/auth'
 
@@ -137,6 +139,8 @@ export function App() {
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="files" element={<FilesPage />} />
           <Route path="snippets" element={<SnippetsPage />} />
+          <Route path="research" element={<ResearchPage />} />
+          <Route path="tasks" element={<AgentTasksPage />} />
           <Route path="search" element={<SearchPage />} />
           <Route path="workflows" element={<WorkflowsPage />} />
           <Route path="collaborations" element={<CollaborationsPage />} />

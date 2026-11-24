@@ -13,6 +13,7 @@ from app.routers import (
     admin,
     agent_builder,
     agent_market,
+    agent_tasks,
     agents,
     api_keys,
     arena,
@@ -43,6 +44,7 @@ from app.routers import (
     prompts,
     provider_configs,
     providers,
+    research,
     reuse,
     search,
     search_providers,
@@ -148,6 +150,8 @@ app.include_router(chat_modes.router)
 app.include_router(search_providers.router)
 app.include_router(study.router)
 app.include_router(chat_tasks.router)
+app.include_router(research.router)
+app.include_router(agent_tasks.router)
 app.include_router(reuse.router)
 app.include_router(code_snippets.router)
 app.include_router(project_tasks.router)

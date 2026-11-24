@@ -91,6 +91,14 @@ class Settings(BaseSettings):
     agent_max_steps: int = 8
     agent_tool_timeout_seconds: float = 10.0
     agent_tool_output_max_chars: int = 4000
+    research_max_steps: int = 6
+    research_step_source_limit: int = 5
+    research_max_sources: int = 30
+    research_max_llm_calls: int = 10
+    research_max_total_tokens: int = 150_000
+    agent_task_max_steps: int = 10
+    agent_task_max_tool_calls: int = 15
+    agent_task_max_total_tokens: int = 150_000
     audit_log_retention_days: int = 90
     workflow_node_timeout_seconds: float = 120.0
     workflow_node_attempts: int = 2

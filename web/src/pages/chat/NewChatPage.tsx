@@ -94,6 +94,7 @@ export function NewChatPage() {
   const [pluginIds, setPluginIds] = useState<string[]>([])
   const [mode, setMode] = useState<ChatMode>('chat')
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('standard')
+  const [thinkingAdjusted, setThinkingAdjusted] = useState(false)
   const [searchProviderId, setSearchProviderId] = useState('')
   const [studyLevel, setStudyLevel] = useState<StudyLevel>('intermediate')
   const [studyMode, setStudyMode] = useState<StudyMode>('guided')
@@ -213,7 +214,10 @@ export function NewChatPage() {
 
   useEffect(() => {
     const next = normalizeThinkingLevel(thinkingLevel, supportedThinking)
-    if (next !== thinkingLevel) setThinkingLevel(next)
+    if (next !== thinkingLevel) {
+      setThinkingLevel(next)
+      setThinkingAdjusted(true)
+    }
   }, [supportedThinking, thinkingLevel])
 
   useEffect(() => {
@@ -776,9 +780,10 @@ export function NewChatPage() {
             <select
               className={selectClass}
               value={thinkingLevel}
-              onChange={(event) =>
+              onChange={(event) => {
                 setThinkingLevel(event.target.value as ThinkingLevel)
-              }
+                setThinkingAdjusted(false)
+              }}
             >
               {THINKING_LEVELS.map((level) => (
                 <option
@@ -794,7 +799,7 @@ export function NewChatPage() {
               ))}
             </select>
             <p className="mt-1 text-[11px] text-ink-muted">
-              {t('chat.thinkingHint')}
+              {thinkingAdjusted ? t('chat.thinkingAdjusted') : t('chat.thinkingHint')}
             </p>
           </Field>
 

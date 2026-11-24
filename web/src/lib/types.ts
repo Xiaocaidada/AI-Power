@@ -2266,6 +2266,97 @@ export interface ApiKeyCreated extends ApiKeyRecord {
   key: string
 }
 
+export interface ChatTaskPlanStep {
+  index: number
+  title: string
+  detail?: string
+  query?: string
+  status: string
+  summary?: string
+  error_code?: string
+  source_indexes?: number[]
+}
+
+export interface ChatTaskApproval {
+  id: string
+  tool: string
+  arguments: Record<string, unknown>
+  risk: string
+  status: 'pending' | 'approved' | 'rejected'
+  created_at: string
+  resolved_at?: string
+  note?: string
+}
+
+export interface ChatTaskPlan {
+  version?: number
+  confirmed?: boolean
+  status?: string
+  steps?: ChatTaskPlanStep[]
+  approvals?: ChatTaskApproval[]
+  tools?: string[]
+}
+
+export interface ResearchSource {
+  index: number
+  kind: 'web' | 'knowledge'
+  title: string
+  url: string
+  site: string
+  snippet: string
+  published_at: string | null
+  provider: string
+  document_id?: string
+}
+
+export interface TaskArtifact {
+  type: string
+  title: string
+  language: string
+  content: string
+}
+
+export interface ChatTaskResult {
+  title?: string
+  report?: string
+  text?: string
+  sections?: Record<string, string>
+  agreements?: string[]
+  conflicts?: { topic: string; positions: string; sources: number[] }[]
+  sources?: ResearchSource[]
+  step_summaries?: { title: string; summary: string }[]
+  followups?: { question: string; answer: string }[]
+  artifacts?: TaskArtifact[]
+  tool_records?: Record<string, unknown>[]
+  message_id?: string | null
+  token_usage?: number
+}
+
+export interface ChatTask {
+  id: string
+  conversation_id: string | null
+  kind: 'llm_steps' | 'research' | 'agent'
+  title: string
+  status: string
+  plan: ChatTaskPlan
+  checkpoint: Record<string, unknown>
+  result: ChatTaskResult
+  error_code: string | null
+  attempts: number
+  pause_requested: boolean
+  cancel_requested: boolean
+  created_at: string
+  started_at: string | null
+  finished_at: string | null
+}
+
+export interface TaskEvent {
+  seq: number
+  event: string
+  payload: Record<string, unknown>
+  created_at: string
+}
+
 export interface SseMeta {
   message_id: string
   provider: string

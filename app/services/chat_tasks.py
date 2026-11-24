@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import ChatTask, ChatTaskEvent, Conversation
 from app.providers.base import ChatMessage
+from app.services.chat_modes import thinking_provider_opts
 from app.services.model_stream import ModelCompletion
 from app.services.provider_configs import build_user_registry
 from app.services.usage_ledger import SOURCE_CHAT_TASK
@@ -25,7 +26,8 @@ TASK_STATUSES = (
 )
 TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
 PAUSED_STATUSES = frozenset({"paused", "waiting_approval"})
-TASK_KINDS = ("llm_steps",)
+TASK_KINDS = ("llm_steps", "research", "agent")
+GENERIC_TASK_KINDS = ("llm_steps",)
 LEASE_MINUTES = 5
 
 
@@ -80,6 +82,7 @@ async def list_tasks(
     *,
     conversation_id: UUID | None = None,
     status: str | None = None,
+    kind: str | None = None,
 ) -> list[ChatTask]:
     conditions = [
         ChatTask.workspace_id == workspace_id,
@@ -87,6 +90,10 @@ async def list_tasks(
     ]
     if conversation_id is not None:
         conditions.append(ChatTask.conversation_id == conversation_id)
+    if kind is not None:
+        if kind not in TASK_KINDS:
+            raise ChatTaskError("invalid_kind", "Unsupported task kind")
+        conditions.append(ChatTask.kind == kind)
     if status is not None:
         if status not in TASK_STATUSES:
             raise ChatTaskError("invalid_status", "Unsupported task status")
@@ -115,7 +122,7 @@ async def create_task(
     model: str,
     steps: list[str],
 ) -> ChatTask:
-    if kind not in TASK_KINDS:
+    if kind not in GENERIC_TASK_KINDS:
         raise ChatTaskError("invalid_kind", "Unsupported task kind")
     clean_steps = [step.strip() for step in steps if step.strip()]
     if not clean_steps:
@@ -244,6 +251,129 @@ async def list_events(session: AsyncSession, task_id: UUID, after: int) -> list[
     )
 
 
+async def resolve_task_model(
+    session: AsyncSession,
+    registry,
+    redis,
+    *,
+    provider_id: str,
+    model: str,
+    workspace_id: UUID,
+    user_id: UUID,
+) -> tuple[str, str]:
+    """Resolve ``auto`` and validate that the model supports chat."""
+    from app.providers.base import ProviderError
+    from app.services.provider_configs import ProviderConfigError, ensure_model_capability
+    from app.services.routing import route_candidates
+
+    resolved_provider = provider_id
+    resolved_model = model
+    if provider_id == "auto" or model == "auto":
+        for candidate_provider, candidate_model in await route_candidates(
+            session, registry, redis
+        ):
+            resolved_provider, resolved_model = candidate_provider, candidate_model
+            break
+        if resolved_provider == "auto":
+            raise ChatTaskError("no_provider_available", "No provider is currently available")
+    try:
+        registry.get(resolved_provider)
+        await ensure_model_capability(
+            session,
+            workspace_id=workspace_id,
+            user_id=user_id,
+            provider_id=resolved_provider,
+            model_id=resolved_model,
+            capability="chat",
+        )
+    except ProviderError as exc:
+        raise ChatTaskError("provider_not_found", exc.message) from None
+    except ProviderConfigError as exc:
+        raise ChatTaskError(exc.code, exc.message) from None
+    return resolved_provider, resolved_model
+
+
+async def mark_task_started(session: AsyncSession, task: ChatTask) -> bool:
+    """Emit ``task_started`` for a claimed task; returns False when it should stop."""
+    if task.status in TERMINAL_STATUSES:
+        return False
+    if task.cancel_requested_at is not None:
+        await request_cancel(session, task, immediate=True)
+        await session.commit()
+        return False
+    await append_event(
+        session,
+        task.id,
+        "task_started",
+        {
+            "attempt": task.attempts,
+            "completed_steps": (task.checkpoint or {}).get("completed_steps", 0),
+        },
+    )
+    await session.commit()
+    return True
+
+
+def _renew_lease(task: ChatTask) -> None:
+    task.lease_expires_at = datetime.now(UTC) + timedelta(minutes=LEASE_MINUTES)
+
+
+async def touch_lease(task: ChatTask) -> None:
+    _renew_lease(task)
+
+
+async def checkpoint_or_stop(
+    session: AsyncSession,
+    task: ChatTask,
+    checkpoint: dict[str, Any],
+    completed_steps: int,
+) -> bool:
+    """Persist progress and honour cancel/pause at a safe step boundary."""
+    if task.status in TERMINAL_STATUSES:
+        return False
+    if task.cancel_requested_at is not None:
+        await request_cancel(session, task, immediate=True)
+        await session.commit()
+        return False
+    task.checkpoint = checkpoint
+    if task.pause_requested_at is not None:
+        task.status = "paused"
+        task.lease_expires_at = None
+        task.pause_requested_at = None
+        await append_event(
+            session,
+            task.id,
+            "task_paused",
+            {"completed_steps": completed_steps},
+        )
+        await session.commit()
+        return False
+    _renew_lease(task)
+    return True
+
+
+async def fail_task(
+    session: AsyncSession, task: ChatTask, code: str, message: str
+) -> None:
+    await _fail(session, task, code, message)
+
+
+async def finish_task(
+    session: AsyncSession,
+    task: ChatTask,
+    result: dict[str, Any],
+    event: str,
+    payload: dict[str, Any] | None = None,
+) -> None:
+    task.status = "completed"
+    task.result = result
+    task.finished_at = datetime.now(UTC)
+    task.lease_expires_at = None
+    await append_event(session, task.id, event, payload or {})
+    await append_event(session, task.id, "task_completed", {"status": "completed"})
+    await session.commit()
+
+
 async def _fail(session: AsyncSession, task: ChatTask, code: str, message: str) -> None:
     task.status = "failed"
     task.error_code = code
@@ -284,20 +414,20 @@ async def execute_chat_task(task_id: UUID, provider_registry=None) -> None:
         task = await session.get(ChatTask, task_id)
         if task is None:
             return
-        if task.cancel_requested_at is not None:
-            await request_cancel(session, task)
-            await session.commit()
+        kind = task.kind
+        if kind in {"research", "agent"}:
+            await session.rollback()
+            if kind == "research":
+                from app.services.research import execute_research_task
+
+                await execute_research_task(task_id, provider_registry)
+            else:
+                from app.services.agent_tasks import execute_agent_task
+
+                await execute_agent_task(task_id, provider_registry)
             return
-        await append_event(
-            session,
-            task.id,
-            "task_started",
-            {
-                "attempt": task.attempts,
-                "completed_steps": (task.checkpoint or {}).get("completed_steps", 0),
-            },
-        )
-        await session.commit()
+        if not await mark_task_started(session, task):
+            return
 
         workspace_id = task.workspace_id
         user_id = task.user_id
@@ -352,7 +482,13 @@ async def execute_chat_task(task_id: UUID, provider_registry=None) -> None:
             provider=provider,
             model=model,
             messages=[ChatMessage(role="user", content=steps[index])],
-            opts={"temperature": 0.2, "max_tokens": 2000},
+            opts={
+                "temperature": 0.2,
+                "max_tokens": 2000,
+                **thinking_provider_opts(
+                    str(input_payload.get("thinking_level") or "standard")
+                ),
+            },
             workspace_id=workspace_id,
             user_id=user_id,
             source=SOURCE_CHAT_TASK,

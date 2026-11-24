@@ -2666,6 +2666,97 @@ class ChatTaskCreate(BaseModel):
     steps: list[str] = Field(min_length=1, max_length=20)
 
 
+class ResearchStepIn(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    query: str = Field(default="", max_length=400)
+
+    @field_validator("title", "query", mode="before")
+    @classmethod
+    def strip_research_step(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class ResearchTaskCreate(BaseModel):
+    topic: str = Field(min_length=1, max_length=500)
+    questions: list[str] = Field(default_factory=list, max_length=8)
+    scope: Literal["web", "knowledge", "hybrid"] = "web"
+    kb_ids: list[UUID] = Field(default_factory=list, max_length=10)
+    search_provider_id: UUID | None = None
+    conversation_id: UUID | None = None
+    provider_id: str = Field(min_length=1, max_length=50)
+    model: str = Field(min_length=1, max_length=200)
+    language: Literal["zh", "en"] = "zh"
+    max_steps: int = Field(default=5, ge=3, le=8)
+    thinking_level: Literal["fast", "standard", "deep"] = "standard"
+
+    @field_validator("topic", mode="before")
+    @classmethod
+    def strip_research_topic(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class ResearchPlanUpdate(BaseModel):
+    steps: list[ResearchStepIn] = Field(min_length=1, max_length=8)
+
+
+class ResearchFollowupIn(BaseModel):
+    question: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("question", mode="before")
+    @classmethod
+    def strip_research_question(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class ResearchSectionRegenerateIn(BaseModel):
+    section: Literal["background", "method", "findings", "comparison", "conclusion"]
+    instruction: str = Field(default="", max_length=1000)
+
+
+class AgentStepIn(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    detail: str = Field(default="", max_length=500)
+
+
+class AgentTaskCreate(BaseModel):
+    goal: str = Field(min_length=1, max_length=2000)
+    agent_id: UUID | None = None
+    conversation_id: UUID | None = None
+    provider_id: str = Field(min_length=1, max_length=50)
+    model: str = Field(min_length=1, max_length=200)
+    plugin_ids: list[str] = Field(default_factory=list, max_length=20)
+    kb_ids: list[UUID] = Field(default_factory=list, max_length=10)
+    max_steps: int = Field(default=8, ge=3, le=12)
+    thinking_level: Literal["fast", "standard", "deep"] = "standard"
+    language: Literal["zh", "en"] = "zh"
+
+    @field_validator("goal", mode="before")
+    @classmethod
+    def strip_agent_goal(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class AgentPlanUpdate(BaseModel):
+    steps: list[AgentStepIn] = Field(min_length=1, max_length=12)
+
+
+class TaskApprovalIn(BaseModel):
+    approval_id: str = Field(min_length=1, max_length=64)
+    decision: Literal["approve", "reject"]
+    note: str = Field(default="", max_length=500)
+
+
+class TaskSaveToKnowledgeIn(BaseModel):
+    kb_id: UUID
+    title: str = Field(default="", max_length=200)
+
+
+class TaskSaveToProjectIn(BaseModel):
+    project_id: UUID
+    kb_id: UUID | None = None
+    title: str = Field(default="", max_length=200)
+
+
 class ChatTaskOut(BaseModel):
     id: UUID
     conversation_id: UUID | None

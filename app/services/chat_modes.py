@@ -37,7 +37,7 @@ DEFAULT_THINKING_LEVEL = THINKING_STANDARD
 _MODE_SPECS: dict[str, tuple[bool, tuple[str, ...]]] = {
     CHAT_MODE_CHAT: (True, ()),
     CHAT_MODE_WEB_SEARCH: (True, ()),
-    CHAT_MODE_DEEP_RESEARCH: (False, ()),
+    CHAT_MODE_DEEP_RESEARCH: (True, ()),
     CHAT_MODE_STUDY: (True, ()),
     CHAT_MODE_AGENT: (True, ("tools",)),
 }
@@ -133,6 +133,35 @@ def reasoning_levels_for(
     return [THINKING_STANDARD]
 
 
+# Real OpenAI-compatible parameter mapping. ``standard`` deliberately sends no
+# override so models that only expose a default behaviour are never mutated.
+THINKING_PROVIDER_PARAMS: dict[str, dict[str, object]] = {
+    THINKING_FAST: {"reasoning_effort": "low"},
+    THINKING_STANDARD: {},
+    THINKING_DEEP: {"reasoning_effort": "high"},
+}
+
+
+def thinking_provider_opts(level: str) -> dict[str, object]:
+    """Map a validated level to provider request parameters."""
+    return dict(THINKING_PROVIDER_PARAMS.get(level, {}))
+
+
+def ensure_thinking_supported(
+    level: str,
+    *,
+    capabilities: list[str] | None,
+    reasoning_levels: list[str] | None,
+) -> list[str]:
+    supported = reasoning_levels_for(capabilities, reasoning_levels)
+    if level not in supported:
+        raise ChatModeError(
+            "thinking_level_unsupported",
+            f"Model does not support thinking level '{level}'",
+        )
+    return supported
+
+
 def validate_turn_mode(
     *,
     mode: str | None,
@@ -161,12 +190,11 @@ def validate_turn_mode(
         )
     if capabilities is not None and "tools" in requires and "tools" not in capabilities:
         raise ChatModeError("mode_requires_tools", "This model does not support tools")
-    supported = reasoning_levels_for(capabilities, reasoning_levels)
-    if meta["thinking_level"] not in supported:
-        raise ChatModeError(
-            "thinking_level_unsupported",
-            f"Model does not support thinking level '{meta['thinking_level']}'",
-        )
+    ensure_thinking_supported(
+        meta["thinking_level"],
+        capabilities=capabilities,
+        reasoning_levels=reasoning_levels,
+    )
     return resolved_mode, meta
 
 

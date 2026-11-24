@@ -21,6 +21,8 @@ SOURCE_MEMORY_QUALITY = "memory_quality"
 SOURCE_MEMORY_EVAL = "memory_eval"
 SOURCE_STUDY = "study"
 SOURCE_CHAT_TASK = "chat_task"
+SOURCE_RESEARCH = "research"
+SOURCE_AGENT_TASK = "agent_task"
 ALLOWED_SOURCES = frozenset(
     {
         SOURCE_CHAT,
@@ -37,6 +39,8 @@ ALLOWED_SOURCES = frozenset(
         SOURCE_MEMORY_EVAL,
         SOURCE_STUDY,
         SOURCE_CHAT_TASK,
+        SOURCE_RESEARCH,
+        SOURCE_AGENT_TASK,
     }
 )
 

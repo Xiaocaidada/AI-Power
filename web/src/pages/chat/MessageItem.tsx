@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
+import { Link } from 'react-router-dom'
 
 import { Badge } from '../../components/ui/badge'
 import { downloadChatAttachment } from '../../lib/attachments'
@@ -364,6 +365,22 @@ export function MessageItem({
                 {t('chat.thinkingLevel')}:{' '}
                 {t(thinkingLabelKey(message.mode_meta.thinking_level))}
               </span>
+            )}
+            {message.mode_meta?.research_task_id !== undefined && (
+              <Link
+                to={`/research?task=${message.mode_meta.research_task_id}`}
+                className="text-accent hover:underline"
+              >
+                {t('chat.openResearchTask')}
+              </Link>
+            )}
+            {message.mode_meta?.agent_task_id !== undefined && (
+              <Link
+                to={`/tasks?task=${message.mode_meta.agent_task_id}`}
+                className="text-accent hover:underline"
+              >
+                {t('chat.openAgentTask')}
+              </Link>
             )}
             {hasTokens && (
               <span>

@@ -383,6 +383,7 @@ async def build_plugin_tools(
                 ).strip(),
                 args_model=build_arguments_model(definition),
                 handler=_plugin_handler(definition.id),
+                risk="high" if definition.sensitive else "low",
             )
         )
     return tools
@@ -427,6 +428,7 @@ async def build_plugin_tools_for_ids(
             ).strip(),
             args_model=build_arguments_model(definition),
             handler=_plugin_handler(definition.id),
+            risk="high" if definition.sensitive else "low",
         )
         for definition in definitions
     ]

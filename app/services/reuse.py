@@ -128,17 +128,22 @@ async def _owned_project(session: AsyncSession, workspace_id: UUID, project_id: 
     return project
 
 
-async def save_answer_to_knowledge(
+async def save_generated_document(
     session: AsyncSession,
     *,
     queue,
     workspace_id: UUID,
     user_id: UUID,
-    conversation: Conversation,
-    message: Message,
     kb_id: UUID,
     title: str,
+    body: str,
+    tags: list[str],
+    source: str,
+    metadata: dict[str, Any],
+    source_url: str,
+    stem: str = "generated",
 ) -> dict[str, Any]:
+    """Persist generated Markdown through the normal ingestion pipeline."""
     kb = (
         await session.execute(
             select(KnowledgeBase).where(
@@ -150,6 +155,83 @@ async def save_answer_to_knowledge(
     ).scalar_one_or_none()
     if kb is None:
         raise ReuseError("knowledge_base_not_found", "Knowledge base not found")
+    heading = (title or "").strip()[:200] or "Generated document"
+    content = (body or "").strip()
+    if content == "":
+        raise ReuseError("document_empty", "Generated document is empty")
+    encoded = content.encode("utf-8")
+    digest = hashlib.sha256(encoded).hexdigest()
+    existing = (
+        await session.execute(
+            select(Document).where(
+                Document.workspace_id == workspace_id,
+                Document.kb_id == kb.id,
+                Document.content_hash == digest,
+                Document.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return {
+            "document_id": existing.id,
+            "status": existing.status,
+            "duplicate": True,
+        }
+
+    upload_dir = Path(get_settings().upload_dir)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    safe_title = re.sub(r"[^\w一-鿿.-]+", "-", heading).strip("-")[:60] or "answer"
+    filename = f"{safe_title}.md"
+    path = upload_dir / f"{stem}-{secret_suffix()}.md"
+    path.write_bytes(encoded)
+    document = Document(
+        workspace_id=workspace_id,
+        kb_id=kb.id,
+        user_id=user_id,
+        filename=filename,
+        mime="text/markdown",
+        size_bytes=len(encoded),
+        content_hash=digest,
+        storage_path=str(path),
+        status="uploaded",
+        tags=tags,
+        folder="",
+        doc_metadata={**metadata, "source": source},
+        source_url=source_url,
+        index_mode="hybrid",
+    )
+    job = IngestionJob(workspace_id=workspace_id, status="queued")
+    session.add(document)
+    await session.flush()
+    job.document_id = document.id
+    session.add(job)
+    await session.commit()
+    try:
+        await queue.enqueue_ingestion(document.id)
+    except Exception:
+        logger.exception("failed to enqueue generated document %s", document.id)
+        document.status = "failed"
+        document.error_code = "queue_unavailable"
+        job.status = "failed"
+        job.error = "queue_unavailable"
+        job.finished_at = datetime.now(UTC)
+        await session.commit()
+        path.unlink(missing_ok=True)
+        raise ReuseError("queue_unavailable", "Ingestion queue unavailable") from None
+    return {"document_id": document.id, "status": document.status, "duplicate": False}
+
+
+async def save_answer_to_knowledge(
+    session: AsyncSession,
+    *,
+    queue,
+    workspace_id: UUID,
+    user_id: UUID,
+    conversation: Conversation,
+    message: Message,
+    kb_id: UUID,
+    title: str,
+) -> dict[str, Any]:
     if message.role != "assistant" or message.status != "completed":
         raise ReuseError("message_not_reusable", "Only completed assistant answers can be saved")
     web_sources = list(
@@ -175,70 +257,23 @@ async def save_answer_to_knowledge(
         for source in web_sources:
             lines.append(f"- [{source.citation_index}] {source.title} — {source.url}")
     body = "\n".join(lines).strip() + "\n"
-    encoded = body.encode("utf-8")
-    digest = hashlib.sha256(encoded).hexdigest()
-    existing = (
-        await session.execute(
-            select(Document).where(
-                Document.workspace_id == workspace_id,
-                Document.kb_id == kb.id,
-                Document.content_hash == digest,
-                Document.deleted_at.is_(None),
-            )
-        )
-    ).scalar_one_or_none()
-    if existing is not None:
-        return {
-            "document_id": existing.id,
-            "status": existing.status,
-            "duplicate": True,
-        }
-
-    upload_dir = Path(get_settings().upload_dir)
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    safe_title = re.sub(r"[^\w一-鿿.-]+", "-", heading).strip("-")[:60] or "answer"
-    filename = f"{safe_title}.md"
-    path = upload_dir / f"{message.id}-{secret_suffix()}.md"
-    path.write_bytes(encoded)
-    document = Document(
+    return await save_generated_document(
+        session,
+        queue=queue,
         workspace_id=workspace_id,
-        kb_id=kb.id,
         user_id=user_id,
-        filename=filename,
-        mime="text/markdown",
-        size_bytes=len(encoded),
-        content_hash=digest,
-        storage_path=str(path),
-        status="uploaded",
+        kb_id=kb_id,
+        title=heading,
+        body=body,
         tags=["generated", "conversation_answer"],
-        folder="",
-        doc_metadata={
-            "source": "conversation_answer",
+        source="conversation_answer",
+        metadata={
             "conversation_id": str(conversation.id),
             "message_id": str(message.id),
         },
         source_url=f"conversation://{conversation.id}/messages/{message.id}",
-        index_mode="hybrid",
+        stem=str(message.id),
     )
-    job = IngestionJob(workspace_id=workspace_id, status="queued")
-    session.add(document)
-    await session.flush()
-    job.document_id = document.id
-    session.add(job)
-    await session.commit()
-    try:
-        await queue.enqueue_ingestion(document.id)
-    except Exception:
-        logger.exception("failed to enqueue generated document %s", document.id)
-        document.status = "failed"
-        document.error_code = "queue_unavailable"
-        job.status = "failed"
-        job.error = "queue_unavailable"
-        job.finished_at = datetime.now(UTC)
-        await session.commit()
-        path.unlink(missing_ok=True)
-        raise ReuseError("queue_unavailable", "Ingestion queue unavailable") from None
-    return {"document_id": document.id, "status": document.status, "duplicate": False}
 
 
 def secret_suffix() -> str:

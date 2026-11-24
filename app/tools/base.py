@@ -48,6 +48,9 @@ class ToolSpec:
     # MCP tools expose their remote JSON schema while still validating arguments
     # through a permissive model.
     parameters_schema_override: dict[str, Any] | None = None
+    # ``high`` tools can cause external side effects and must be approved before
+    # an autonomous long-running task executes them.
+    risk: str = "low"
 
     def parameters_schema(self) -> dict[str, Any]:
         if self.parameters_schema_override is not None:

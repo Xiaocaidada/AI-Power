@@ -106,6 +106,7 @@ export function ChatPage() {
   const [editLaterCount, setEditLaterCount] = useState(0)
   const [cooldown, setCooldown] = useState(0)
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('standard')
+  const [thinkingAdjusted, setThinkingAdjusted] = useState(false)
   const [searchProviderId, setSearchProviderId] = useState('')
   const [studySessionId, setStudySessionId] = useState('')
   const [reuseMessageId, setReuseMessageId] = useState<string | null>(null)
@@ -387,10 +388,12 @@ export function ChatPage() {
   }, [cooldown])
 
   useEffect(() => {
-    setThinkingLevel((current) =>
-      normalizeThinkingLevel(current, supportedThinking),
-    )
-  }, [supportedThinkingKey])
+    const next = normalizeThinkingLevel(thinkingLevel, supportedThinking)
+    if (next !== thinkingLevel) {
+      setThinkingLevel(next)
+      setThinkingAdjusted(true)
+    }
+  }, [supportedThinkingKey, thinkingLevel, supportedThinking])
 
   useEffect(() => {
     if (conversation.data === undefined) return
@@ -918,9 +921,10 @@ export function ChatPage() {
                     className="h-6 rounded-md border border-border bg-surface px-1 text-[11px] text-ink"
                     value={thinkingLevel}
                     disabled={!modeImplemented}
-                    onChange={(event) =>
+                    onChange={(event) => {
                       setThinkingLevel(event.target.value as ThinkingLevel)
-                    }
+                      setThinkingAdjusted(false)
+                    }}
                   >
                     {THINKING_LEVELS.map((level) => (
                       <option
@@ -936,6 +940,11 @@ export function ChatPage() {
                     ))}
                   </select>
                 </label>
+                {thinkingAdjusted && (
+                  <span className="text-[11px] text-warning">
+                    {t('chat.thinkingAdjusted')}
+                  </span>
+                )}
                 {activeMode === 'web_search' && enabledSearchProviders.length > 0 && (
                   <label className="inline-flex items-center gap-1 text-[11px] text-ink-muted">
                     <span>{t('chat.searchProvider')}</span>
