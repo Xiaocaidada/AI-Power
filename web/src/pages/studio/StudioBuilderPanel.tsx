@@ -5,6 +5,12 @@ import { useEffect, useRef, useState } from 'react'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { PopoverSelect } from '../../components/ui/popover-select'
+import {
+  applyBuilderSelection,
+  defaultBuilderSelection,
+  edgeChangeKey,
+  nodeChangeKey,
+} from '../../lib/builderApply'
 import { errorTextKey } from '../../lib/errorText'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
@@ -35,28 +41,44 @@ function shortValue(value: unknown): string {
   return text.length > 80 ? `${text.slice(0, 77)}…` : text
 }
 
-export function DiffView({ diff }: { diff: AgentBuilderDiff }) {
+export function DiffView({
+  diff,
+  selection,
+  onToggle,
+}: {
+  diff: AgentBuilderDiff
+  selection?: Set<string>
+  onToggle?: (key: string) => void
+}) {
   const { t } = useI18n()
   const groups = [
     {
       label: t('studio.builderAddedNodes'),
-      items: diff.added_nodes.map((item) => `${item.id} · ${item.type}`),
+      items: diff.added_nodes.map((item) => ({
+        key: nodeChangeKey('add', item.id),
+        label: `${item.id} · ${item.type}`,
+      })),
     },
     {
       label: t('studio.builderRemovedNodes'),
-      items: diff.removed_nodes.map((item) => `${item.id} · ${item.type}`),
+      items: diff.removed_nodes.map((item) => ({
+        key: nodeChangeKey('remove', item.id),
+        label: `${item.id} · ${item.type}`,
+      })),
     },
     {
       label: t('studio.builderAddedEdges'),
-      items: diff.added_edges.map(
-        (item) => `${item.from} → ${item.to}${item.when ? ` (${item.when})` : ''}`,
-      ),
+      items: diff.added_edges.map((item) => ({
+        key: edgeChangeKey('add', item),
+        label: `${item.from} → ${item.to}${item.when ? ` (${item.when})` : ''}`,
+      })),
     },
     {
       label: t('studio.builderRemovedEdges'),
-      items: diff.removed_edges.map(
-        (item) => `${item.from} → ${item.to}${item.when ? ` (${item.when})` : ''}`,
-      ),
+      items: diff.removed_edges.map((item) => ({
+        key: edgeChangeKey('remove', item),
+        label: `${item.from} → ${item.to}${item.when ? ` (${item.when})` : ''}`,
+      })),
     },
   ].filter((group) => group.items.length > 0)
   return (
@@ -66,8 +88,15 @@ export function DiffView({ diff }: { diff: AgentBuilderDiff }) {
           <p className="text-[11px] font-medium text-ink">{group.label}</p>
           <ul className="mt-0.5 space-y-0.5 text-[10px] text-ink-muted">
             {group.items.map((item) => (
-              <li key={item} className="font-mono">
-                {item}
+              <li key={item.key} className="flex items-center gap-1.5 font-mono">
+                {selection !== undefined && onToggle !== undefined && (
+                  <input
+                    type="checkbox"
+                    checked={selection.has(item.key)}
+                    onChange={() => onToggle(item.key)}
+                  />
+                )}
+                {item.label}
               </li>
             ))}
           </ul>
@@ -114,9 +143,11 @@ export function StudioBuilderPanel({
   const [prompt, setPrompt] = useState('')
   const [messages, setMessages] = useState<AgentBuilderMessage[]>([])
   const [turn, setTurn] = useState<AgentBuilderTurn | null>(null)
+  const [selection, setSelection] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [newSession, setNewSession] = useState(false)
+  const controllerRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const skipSessionLoad = useRef(false)
 
@@ -189,6 +220,12 @@ export function StudioBuilderPanel({
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
   }, [messages])
 
+  useEffect(() => {
+    setSelection(
+      turn?.diff ? defaultBuilderSelection(turn.diff) : new Set<string>(),
+    )
+  }, [turn])
+
   const currentDefinition = turn?.definition ?? definition
 
   const ensureSession = async (): Promise<string> => {
@@ -219,12 +256,15 @@ export function StudioBuilderPanel({
     }
     setLoading(true)
     setError(null)
+    const controller = new AbortController()
+    controllerRef.current = controller
     try {
       const id = await ensureSession()
       const result = await apiRequest<AgentBuilderTurn>(
         `/agent-builder/sessions/${id}/messages`,
         {
           method: 'POST',
+          signal: controller.signal,
           body: {
             kind: mode,
             prompt: prompt.trim(),
@@ -246,30 +286,44 @@ export function StudioBuilderPanel({
         diff: result.diff,
         missing_resources: result.missing_resources,
         suggestions: result.suggestions,
+        clarification: result.clarification,
       }
       setMessages((prev) => [...prev, userMessage, assistantMessage])
       setTurn(result)
       setPrompt('')
     } catch (caught) {
-      setError(t(errorTextKey(caught)))
+      if (caught instanceof DOMException && caught.name === 'AbortError') {
+        setError(t('studio.builderCancelled'))
+      } else {
+        setError(t(errorTextKey(caught)))
+      }
     } finally {
+      controllerRef.current = null
       setLoading(false)
     }
   }
 
+  const cancelGeneration = () => {
+    controllerRef.current?.abort()
+  }
+
   const apply = async () => {
     if (turn?.definition === null || turn?.definition === undefined) return
+    const applied =
+      turn.diff !== null
+        ? applyBuilderSelection(definition, turn.definition, turn.diff, selection)
+        : turn.definition
     setLoading(true)
     setError(null)
     try {
       if (sessionId !== '') {
         const updated = await apiRequest<AgentBuilderSession>(
           `/agent-builder/sessions/${sessionId}/apply`,
-          { method: 'POST', body: { definition: turn.definition } },
+          { method: 'POST', body: { definition: applied } },
         )
         setMessages(updated.messages)
       }
-      onApply(turn.definition)
+      onApply(applied)
       setTurn(null)
     } catch (caught) {
       setError(t(errorTextKey(caught)))
@@ -349,6 +403,11 @@ export function StudioBuilderPanel({
               }
             >
               <p className="whitespace-pre-wrap">{message.content}</p>
+              {message.role === 'assistant' && message.clarification && (
+                <p className="mt-1 text-[11px] text-warning">
+                  {t('studio.builderNeedsClarification')}: {message.clarification}
+                </p>
+              )}
               {message.role === 'assistant' && message.kind !== 'apply' && (
                 <div className="mt-1 flex flex-wrap gap-1">
                   {message.definition && <Badge tone="accent">{t('studio.builderHasPatch')}</Badge>}
@@ -382,6 +441,11 @@ export function StudioBuilderPanel({
               <Send className="h-3.5 w-3.5" />
               {loading ? t('studio.builderGenerating') : t('studio.builderSend')}
             </Button>
+            {loading && (
+              <Button size="sm" variant="secondary" onClick={cancelGeneration}>
+                {t('studio.builderCancel')}
+              </Button>
+            )}
             {lastRunId !== null && mode === 'fix' && (
               <span className="text-[10px] text-ink-muted">run {lastRunId.slice(0, 8)}</span>
             )}
@@ -426,9 +490,29 @@ export function StudioBuilderPanel({
                 <p className="mb-2 text-[11px] font-medium text-ink">
                   {t('studio.builderDiff')}
                 </p>
-                <DiffView diff={turn.diff} />
+                <DiffView
+                  diff={turn.diff}
+                  selection={selection}
+                  onToggle={(key) =>
+                    setSelection((current) => {
+                      const next = new Set(current)
+                      if (next.has(key)) next.delete(key)
+                      else next.add(key)
+                      return next
+                    })
+                  }
+                />
+                <p className="mt-2 text-[10px] text-ink-muted">
+                  {t('studio.builderPartialHint')}
+                </p>
               </div>
             )}
+            {turn.clarification !== null &&
+              turn.clarification !== undefined && (
+                <div className="rounded-lg border border-warning/40 bg-warning/10 p-2 text-[11px] text-warning">
+                  {t('studio.builderNeedsClarification')}: {turn.clarification}
+                </div>
+              )}
             {turn.definition !== null && (
               <div className="rounded-lg border border-border bg-surface-muted p-2">
                 <p className="text-[10px] text-ink-muted">

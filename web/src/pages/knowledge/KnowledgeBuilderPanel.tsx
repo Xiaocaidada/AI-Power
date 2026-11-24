@@ -5,6 +5,10 @@ import { useEffect, useRef, useState } from 'react'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { Spinner } from '../../components/ui/spinner'
+import {
+  applyBuilderSelection,
+  defaultBuilderSelection,
+} from '../../lib/builderApply'
 import { errorTextKey } from '../../lib/errorText'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
@@ -66,9 +70,11 @@ export function KnowledgeBuilderPanel({
   const [prompt, setPrompt] = useState('')
   const [messages, setMessages] = useState<AgentBuilderMessage[]>([])
   const [turn, setTurn] = useState<AgentBuilderTurn | null>(null)
+  const [selection, setSelection] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
   const [applying, setApplying] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const controllerRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
   const platformModels = useQuery({
@@ -121,6 +127,12 @@ export function KnowledgeBuilderPanel({
     }
   }, [messages.length, turn])
 
+  useEffect(() => {
+    setSelection(
+      turn?.diff ? defaultBuilderSelection(turn.diff) : new Set<string>(),
+    )
+  }, [turn])
+
   const ensureSession = async (): Promise<string> => {
     if (sessionId !== '') return sessionId
     if (choice === '') throw new Error(t('knowledgeBuilder.noModel'))
@@ -144,6 +156,8 @@ export function KnowledgeBuilderPanel({
     setLoading(true)
     setError(null)
     setTurn(null)
+    const controller = new AbortController()
+    controllerRef.current = controller
     try {
       const active = await ensureSession()
       const body = {
@@ -154,7 +168,7 @@ export function KnowledgeBuilderPanel({
       }
       const result = await apiRequest<AgentBuilderTurn>(
         `/agent-builder/sessions/${active}/messages`,
-        { method: 'POST', body },
+        { method: 'POST', body, signal: controller.signal },
       )
       setMessages((current) => [
         ...current,
@@ -168,28 +182,42 @@ export function KnowledgeBuilderPanel({
           diff: result.diff,
           missing_resources: result.missing_resources,
           suggestions: result.suggestions,
+          clarification: result.clarification,
         },
       ])
       setTurn(result)
       setPrompt('')
     } catch (caught) {
-      setError(t(errorTextKey(caught)))
+      if (caught instanceof DOMException && caught.name === 'AbortError') {
+        setError(t('studio.builderCancelled'))
+      } else {
+        setError(t(errorTextKey(caught)))
+      }
     } finally {
+      controllerRef.current = null
       setLoading(false)
     }
   }
 
+  const cancelGeneration = () => {
+    controllerRef.current?.abort()
+  }
+
   const apply = async () => {
     if (turn?.definition === null || turn?.definition === undefined) return
+    const applied =
+      turn.diff !== null
+        ? applyBuilderSelection(definition, turn.definition, turn.diff, selection)
+        : turn.definition
     setApplying(true)
     setError(null)
     try {
       const active = await ensureSession()
       await apiRequest(`/agent-builder/sessions/${active}/apply`, {
         method: 'POST',
-        body: { definition: turn.definition },
+        body: { definition: applied },
       })
-      onApply(turn.definition)
+      onApply(applied)
     } catch (caught) {
       setError(t(errorTextKey(caught)))
     } finally {
@@ -262,8 +290,27 @@ export function KnowledgeBuilderPanel({
                 {t('knowledgeBuilder.diff')}
               </p>
               <div className="mt-2">
-                <DiffView diff={turn.diff} />
+                <DiffView
+                  diff={turn.diff}
+                  selection={selection}
+                  onToggle={(key) =>
+                    setSelection((current) => {
+                      const next = new Set(current)
+                      if (next.has(key)) next.delete(key)
+                      else next.add(key)
+                      return next
+                    })
+                  }
+                />
+                <p className="mt-2 text-[10px] text-ink-muted">
+                  {t('studio.builderPartialHint')}
+                </p>
               </div>
+            </div>
+          )}
+          {turn?.clarification && (
+            <div className="rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
+              {t('studio.builderNeedsClarification')}: {turn.clarification}
             </div>
           )}
           {turn !== null && turn.missing_resources.length > 0 && (
@@ -329,6 +376,11 @@ export function KnowledgeBuilderPanel({
               )}
               {t('knowledgeBuilder.send')}
             </Button>
+            {loading && (
+              <Button size="sm" variant="secondary" onClick={cancelGeneration}>
+                {t('studio.builderCancel')}
+              </Button>
+            )}
             {turn?.definition !== null && turn?.definition !== undefined && (
               <Button
                 size="sm"

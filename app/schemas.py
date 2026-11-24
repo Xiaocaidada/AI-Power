@@ -1726,8 +1726,9 @@ class AgentBuilderIn(BaseModel):
 
 
 class AgentBuilderOut(BaseModel):
-    definition: dict
+    definition: dict | None = None
     summary: str = ""
+    clarification: str | None = None
     missing_resources: list[str] = Field(default_factory=list)
     provider_id: str
     model: str
@@ -1793,6 +1794,7 @@ class AgentBuilderTurnOut(BaseModel):
     diff: AgentBuilderDiff | None = None
     missing_resources: list[str] = Field(default_factory=list)
     suggestions: list[str] = Field(default_factory=list)
+    clarification: str | None = None
 
 
 class PluginCreate(BaseModel):

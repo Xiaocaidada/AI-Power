@@ -321,9 +321,56 @@ test('Agent builder shows a diff and applies it to the canvas', async ({ page })
   await page.getByRole('button', { name: '发送' }).click()
   await expect(page.getByText('变更预览')).toBeVisible()
   await expect(page.getByText('ask · llm')).toBeVisible()
+  await expect(page.getByRole('checkbox').first()).toBeChecked()
+  await page.getByRole('checkbox').first().uncheck()
+  await page.getByRole('checkbox').first().check()
   await page.getByRole('button', { name: '应用到画布' }).click()
   await expect(page.getByText('节点', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: '保存画布' })).toBeVisible()
+})
+
+test('Agent builder surfaces clarification questions', async ({ page }) => {
+  await page.addInitScript(() =>
+    localStorage.setItem('ai_power_refresh_token', 'e2e-refresh-token-0123456789'),
+  )
+  await mockBase(page)
+  const session = {
+    id: 'bs-2',
+    agent_id: 'agent-1',
+    workflow_id: 'wf-1',
+    provider_id: 'fake',
+    model: 'fake-model',
+    messages: [],
+    draft_definition: definition,
+    created_at: '2026-11-23T00:00:00Z',
+    updated_at: '2026-11-23T00:00:00Z',
+  }
+  await page.route(/\/api\/agent-builder\/sessions\?agent_id=agent-1$/, (route) =>
+    route.fulfill({ json: [session] }),
+  )
+  await page.route('**/api/agent-builder/sessions/bs-2', (route) =>
+    route.fulfill({ json: session }),
+  )
+  await page.route('**/api/agent-builder/sessions/bs-2/messages', (route) =>
+    route.fulfill({
+      json: {
+        session_id: 'bs-2',
+        message: 'I need one detail.',
+        definition: null,
+        diff: null,
+        missing_resources: [],
+        suggestions: [],
+        clarification: 'Should it use web search?',
+      },
+    }),
+  )
+  await page.goto('/studio/agent-1')
+  await page.getByRole('button', { name: 'AI 构建' }).click()
+  await page.getByPlaceholder('需求描述').fill('Build a research assistant')
+  await page.getByRole('button', { name: '发送' }).click()
+  await expect(page.getByText(/需要澄清/).first()).toBeVisible()
+  await expect(page.getByText(/Should it use web search\?/).first()).toBeVisible()
+  await expect(page.getByRole('button', { name: '应用到画布' })).toHaveCount(0)
 })
 
 test('Agent experience page renders chat and workflow modes', async ({ page }) => {
