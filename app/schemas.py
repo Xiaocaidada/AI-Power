@@ -1820,6 +1820,13 @@ class MemoryRelationIn(BaseModel):
     basis: str = Field(default="", max_length=500)
 
 
+class MemoryRelationUpdate(BaseModel):
+    relation_type: Literal[
+        "related", "supports", "contradicts", "supersedes", "derived_from"
+    ] | None = None
+    basis: str | None = Field(default=None, max_length=500)
+
+
 class MemoryUsageOut(BaseModel):
     id: UUID
     memory_id: UUID

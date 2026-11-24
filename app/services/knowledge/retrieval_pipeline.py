@@ -12,11 +12,13 @@ from app.services.knowledge.retrieval_schema import (
     FallbackSearchConfig,
     FilterResultsConfig,
     HybridSearchConfig,
+    IntentClassifyConfig,
     KnowledgeRetrievalDefinition,
     LexicalSearchConfig,
     MultiQueryConfig,
     RerankConfig,
     RewriteQueryConfig,
+    SynonymExpandConfig,
     TopKConfig,
     VectorSearchConfig,
 )
@@ -63,6 +65,7 @@ class RetrievalWorkflowResult:
     context: str = ""
     citations: list[Citation] = field(default_factory=list)
     traces: list[RetrievalTrace] = field(default_factory=list)
+    intent: str = ""
     mode: str = "workflow"
 
 
@@ -196,6 +199,109 @@ async def run_retrieval_workflow(
                     )
                 chunks = merged[: config.top_k]
                 state.rewritten_query = variants[0]
+            elif node.type == "intent_classify":
+                config = IntentClassifyConfig.model_validate(node.config)
+                active_registry = active_registry or await build_user_registry(
+                    session, workspace_id, user_id or workspace_id
+                )
+                try:
+                    provider = active_registry.get(config.provider_id)
+                except ProviderError:
+                    raise RetrievalWorkflowError(
+                        "intent_provider_unavailable",
+                        "Intent classification provider is unavailable",
+                    ) from None
+                messages = []
+                if config.system_prompt:
+                    messages.append(
+                        ChatMessage(role="system", content=config.system_prompt)
+                    )
+                prompt = _render_query(config.prompt, query).replace(
+                    "{categories}", ", ".join(config.categories)
+                )
+                messages.append(ChatMessage(role="user", content=prompt))
+                completion = ModelCompletion(
+                    provider=provider,
+                    model=config.model,
+                    messages=messages,
+                    opts={},
+                    workspace_id=workspace_id,
+                    user_id=user_id or workspace_id,
+                    source=SOURCE_KNOWLEDGE_RETRIEVAL,
+                )
+                metrics = await completion.run()
+                if metrics.status != "completed" or not metrics.content.strip():
+                    raise RetrievalWorkflowError(
+                        "intent_failed", "Intent classification failed"
+                    )
+                answer = metrics.content.strip().casefold()
+                matched = sorted(
+                    config.categories,
+                    key=lambda item: len(item),
+                    reverse=True,
+                )
+                label = next(
+                    (item for item in matched if item.casefold() in answer),
+                    config.categories[0],
+                )
+                state.intent = label
+                if label in config.routes:
+                    routed = await _resolve_search_ids(
+                        session, workspace_id, list(config.routes[label])
+                    )
+                    if not routed:
+                        raise RetrievalWorkflowError(
+                            "intent_route_unavailable",
+                            "Intent route has no accessible knowledge base",
+                        )
+                    kb_ids = routed
+            elif node.type == "synonym_expand":
+                config = SynonymExpandConfig.model_validate(node.config)
+                active_registry = active_registry or await build_user_registry(
+                    session, workspace_id, user_id or workspace_id
+                )
+                try:
+                    provider = active_registry.get(config.provider_id)
+                except ProviderError:
+                    raise RetrievalWorkflowError(
+                        "synonym_provider_unavailable",
+                        "Synonym expansion provider is unavailable",
+                    ) from None
+                messages = []
+                if config.system_prompt:
+                    messages.append(
+                        ChatMessage(role="system", content=config.system_prompt)
+                    )
+                messages.append(
+                    ChatMessage(
+                        role="user", content=_render_query(config.prompt, query)
+                    )
+                )
+                completion = ModelCompletion(
+                    provider=provider,
+                    model=config.model,
+                    messages=messages,
+                    opts={},
+                    workspace_id=workspace_id,
+                    user_id=user_id or workspace_id,
+                    source=SOURCE_KNOWLEDGE_RETRIEVAL,
+                )
+                metrics = await completion.run()
+                if metrics.status != "completed":
+                    raise RetrievalWorkflowError(
+                        "synonym_failed", "Synonym expansion failed"
+                    )
+                terms = [
+                    line.strip(" -\t")
+                    for line in metrics.content.splitlines()
+                    if line.strip(" -\t")
+                ][: config.max_terms]
+                if not terms:
+                    raise RetrievalWorkflowError(
+                        "synonym_failed", "Synonym expansion was empty"
+                    )
+                query = f"{query} {' '.join(terms)}"[:2000]
+                state.rewritten_query = query
             elif node.type == "vector_search":
                 config = VectorSearchConfig.model_validate(node.config)
                 chunks = await vector_search_chunks(

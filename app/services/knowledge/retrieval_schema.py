@@ -10,6 +10,8 @@ RetrievalNodeType = Literal[
     "start",
     "rewrite_query",
     "multi_query",
+    "intent_classify",
+    "synonym_expand",
     "vector_search",
     "lexical_search",
     "hybrid_search",
@@ -89,6 +91,49 @@ class MultiQueryConfig(SearchNodeConfig):
     candidate_k: int = Field(default=20, ge=1, le=100)
 
 
+class IntentClassifyConfig(BaseModel):
+    provider_id: str = Field(min_length=1, max_length=50)
+    model: str = Field(min_length=1, max_length=200)
+    categories: list[str] = Field(
+        default_factory=lambda: ["general"], min_length=1, max_length=10
+    )
+    routes: dict[str, list[UUID]] = Field(default_factory=dict)
+    prompt: str = Field(
+        default=(
+            "Classify the user question into exactly one of these categories: "
+            "{categories}. Return only the category name.\n\n{{query}}"
+        ),
+        min_length=1,
+        max_length=20000,
+    )
+    system_prompt: str | None = Field(default=None, max_length=20000)
+
+    @model_validator(mode="after")
+    def _routes(self) -> "IntentClassifyConfig":
+        cleaned = [item.strip()[:40] for item in self.categories if item.strip()]
+        if not cleaned:
+            raise ValueError("categories must not be empty")
+        unknown = set(self.routes) - set(cleaned)
+        if unknown:
+            raise ValueError("routes must reference declared categories")
+        return self
+
+
+class SynonymExpandConfig(BaseModel):
+    provider_id: str = Field(min_length=1, max_length=50)
+    model: str = Field(min_length=1, max_length=200)
+    max_terms: int = Field(default=5, ge=1, le=10)
+    prompt: str = Field(
+        default=(
+            "List synonyms or related search terms for the user question. "
+            "Return one term per line, no numbering.\n\n{{query}}"
+        ),
+        min_length=1,
+        max_length=20000,
+    )
+    system_prompt: str | None = Field(default=None, max_length=20000)
+
+
 class FilterResultsConfig(BaseModel):
     max_distance: float | None = Field(default=None, ge=0.0)
     min_rerank_score: float | None = Field(default=None)
@@ -119,6 +164,8 @@ RETRIEVAL_CONFIGS: dict[str, type[BaseModel]] = {
     "start": EmptyRetrievalConfig,
     "rewrite_query": RewriteQueryConfig,
     "multi_query": MultiQueryConfig,
+    "intent_classify": IntentClassifyConfig,
+    "synonym_expand": SynonymExpandConfig,
     "vector_search": VectorSearchConfig,
     "lexical_search": LexicalSearchConfig,
     "hybrid_search": HybridSearchConfig,

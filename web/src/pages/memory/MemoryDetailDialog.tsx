@@ -45,6 +45,9 @@ export function MemoryDetailDialog({
   const [relationType, setRelationType] = useState('related')
   const [basis, setBasis] = useState('')
   const [savingRelation, setSavingRelation] = useState(false)
+  const [editingRelationId, setEditingRelationId] = useState('')
+  const [editRelationType, setEditRelationType] = useState('related')
+  const [editRelationBasis, setEditRelationBasis] = useState('')
   const [diffVersion, setDiffVersion] = useState<number | null>(null)
   const versions = useQuery({
     queryKey: ['memory-versions', memoryId],
@@ -126,6 +129,32 @@ export function MemoryDetailDialog({
       queryKey: ['memory-relations', memoryId],
     })
     await queryClient.invalidateQueries({ queryKey: ['memory-graph'] })
+  }
+
+  const startRelationEdit = (relation: MemoryRelation) => {
+    setEditingRelationId(relation.id)
+    setEditRelationType(relation.relation_type)
+    setEditRelationBasis(relation.basis)
+  }
+
+  const saveRelationEdit = async () => {
+    if (editingRelationId === '') return
+    try {
+      await apiRequest(`/memories/relations/${editingRelationId}`, {
+        method: 'PATCH',
+        body: {
+          relation_type: editRelationType,
+          basis: editRelationBasis.trim(),
+        },
+      })
+      setEditingRelationId('')
+      await queryClient.invalidateQueries({
+        queryKey: ['memory-relations', memoryId],
+      })
+      await queryClient.invalidateQueries({ queryKey: ['memory-graph'] })
+    } catch (caught) {
+      window.alert(t(errorTextKey(caught)))
+    }
   }
 
   const rate = async (rating: 'helpful' | 'unhelpful') => {
@@ -276,28 +305,86 @@ export function MemoryDetailDialog({
                     key={relation.id}
                     className="flex flex-wrap items-center gap-1.5 rounded-md bg-surface-muted px-2 py-1 text-[11px] text-ink-muted"
                   >
-                    <Badge tone={relation.source === 'auto' ? 'neutral' : 'accent'}>
-                      {relation.source === 'auto'
-                        ? t('memory.relations.auto')
-                        : t('memory.relations.manual')}
-                    </Badge>
-                    <span className="text-ink">
-                      {outgoing ? '→' : '←'}{' '}
-                      {t(`memory.relationType.${relation.relation_type}`)}
-                    </span>
-                    <span>
-                      {otherType} · {otherLabel}
-                    </span>
-                    {relation.basis !== '' && <span>· {relation.basis}</span>}
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="ml-auto"
-                      aria-label={t('common.delete')}
-                      onClick={() => void removeRelation(relation.id)}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
+                    {editingRelationId === relation.id ? (
+                      <>
+                        <select
+                          value={editRelationType}
+                          onChange={(event) =>
+                            setEditRelationType(event.target.value)
+                          }
+                          className="h-7 rounded border border-border bg-surface px-1 text-ink"
+                        >
+                          {[
+                            'related',
+                            'supports',
+                            'contradicts',
+                            'supersedes',
+                            'derived_from',
+                          ].map((item) => (
+                            <option key={item} value={item}>
+                              {t(`memory.relationType.${item}`)}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          value={editRelationBasis}
+                          onChange={(event) =>
+                            setEditRelationBasis(event.target.value)
+                          }
+                          placeholder={t('memory.relations.basis')}
+                          className="h-7 min-w-40 flex-1 rounded border border-border bg-surface px-2 text-ink"
+                        />
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => void saveRelationEdit()}
+                        >
+                          {t('common.save')}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setEditingRelationId('')}
+                        >
+                          {t('common.cancel')}
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Badge
+                          tone={relation.source === 'auto' ? 'neutral' : 'accent'}
+                        >
+                          {relation.source === 'auto'
+                            ? t('memory.relations.auto')
+                            : t('memory.relations.manual')}
+                        </Badge>
+                        <span className="text-ink">
+                          {outgoing ? '→' : '←'}{' '}
+                          {t(`memory.relationType.${relation.relation_type}`)}
+                        </span>
+                        <span>
+                          {otherType} · {otherLabel}
+                        </span>
+                        {relation.basis !== '' && <span>· {relation.basis}</span>}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="ml-auto"
+                          aria-label={t('common.edit')}
+                          onClick={() => startRelationEdit(relation)}
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          aria-label={t('common.delete')}
+                          onClick={() => void removeRelation(relation.id)}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </>
+                    )}
                   </li>
                 )
               })}

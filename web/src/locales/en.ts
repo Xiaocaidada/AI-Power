@@ -1460,6 +1460,12 @@ export const en: Dictionary = {
     builderPrompt: 'Requirement',
     builderPlaceholder: 'Example: search the knowledge base, have an agent analyze it, then output a report.',
     builderGenerating: 'Generating…',
+    builderStage: {
+      preparing: 'Preparing…',
+      generating: 'Generating…',
+      finalizing: 'Validating and saving…',
+      done: 'Done',
+    },
     builderCancel: 'Cancel generation',
     builderCancelled: 'Generation cancelled',
     builderNeedsClarification: 'Needs clarification',

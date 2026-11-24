@@ -1450,6 +1450,12 @@ export const zh = {
     builderPrompt: '需求描述',
     builderPlaceholder: '例如：创建一个先检索知识库、再让 Agent 分析并输出报告的流程。',
     builderGenerating: '生成中…',
+    builderStage: {
+      preparing: '准备中…',
+      generating: '生成中…',
+      finalizing: '校验并保存…',
+      done: '完成',
+    },
     builderCancel: '取消生成',
     builderCancelled: '已取消生成',
     builderNeedsClarification: '需要澄清',

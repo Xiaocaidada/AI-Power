@@ -84,6 +84,8 @@ const ICONS = {
   review: UserCheck,
   loop: Repeat,
   multi_query: Sparkles,
+  intent_classify: Brain,
+  synonym_expand: Sparkles,
   filter_results: Filter,
   fallback_search: RefreshCw,
   http: Globe,
