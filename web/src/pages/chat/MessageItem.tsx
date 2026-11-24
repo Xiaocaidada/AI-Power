@@ -4,6 +4,7 @@ import {
   ExternalLink,
   FileText,
   Image as ImageIcon,
+  Layers,
   Pencil,
   Quote,
   RotateCcw,
@@ -61,6 +62,7 @@ interface MessageItemProps {
   onRegenerate?: (messageId: string) => void
   onFeedback?: (messageId: string, rating: 'up' | 'down') => void
   onEdit?: (message: DisplayMessage) => void
+  onReuse?: (messageId: string) => void
 }
 
 export function MessageItem({
@@ -71,6 +73,7 @@ export function MessageItem({
   onRegenerate,
   onFeedback,
   onEdit,
+  onReuse,
 }: MessageItemProps) {
   const { t, language } = useI18n()
   const [copied, setCopied] = useState(false)
@@ -293,6 +296,18 @@ export function MessageItem({
               {t('chat.regenerate')}
             </button>
           )}
+          {message.status === 'completed' &&
+            message.role === 'assistant' &&
+            onReuse !== undefined && (
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 hover:text-ink"
+                onClick={() => onReuse(message.id)}
+              >
+                <Layers className="h-3 w-3" />
+                {t('reuse.action')}
+              </button>
+            )}
           {message.status === 'completed' && onFeedback !== undefined && (
             <span className="inline-flex items-center gap-1">
               <button

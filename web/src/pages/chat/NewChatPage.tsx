@@ -3,6 +3,7 @@ import {
   BookOpen,
   Bot,
   FolderOpen,
+  Globe2,
   SlidersHorizontal,
 } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
@@ -483,7 +484,31 @@ export function NewChatPage() {
             disabled={!canChat || searchProviderMissing}
             size="hero"
             autoFocus
-            footerStart={modelSelect}
+            footerStart={
+              <>
+                {modelSelect}
+                <button
+                  type="button"
+                  aria-pressed={effectiveMode === 'web_search'}
+                  disabled={modeLockedByAgent}
+                  title={t('chat.webSearchQuickHint')}
+                  onClick={() => {
+                    const next =
+                      effectiveMode === 'web_search' ? 'chat' : 'web_search'
+                    setMode(next)
+                    if (next === 'web_search') setAgent(false)
+                  }}
+                  className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[11px] transition-colors ${
+                    effectiveMode === 'web_search'
+                      ? 'border-accent bg-accent-soft text-accent'
+                      : 'border-border text-ink-muted hover:text-ink'
+                  } disabled:cursor-not-allowed disabled:opacity-50`}
+                >
+                  <Globe2 className="h-3.5 w-3.5" />
+                  {t('chat.webSearchQuick')}
+                </button>
+              </>
+            }
             placeholder={t('chat.inputPlaceholder')}
             attachments={attachments}
             attaching={attaching}

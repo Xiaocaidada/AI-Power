@@ -19,6 +19,7 @@ from app.routers import (
     attachments,
     auth,
     chat_modes,
+    code_snippets,
     collaborations,
     content,
     conversations,
@@ -35,13 +36,16 @@ from app.routers import (
     model_eval,
     models,
     plugins,
+    project_tasks,
     projects,
     prompt_lab,
     prompts,
     provider_configs,
     providers,
+    reuse,
     search,
     search_providers,
+    shares,
     study,
     traces,
     usage,
@@ -142,6 +146,10 @@ app.include_router(models.router)
 app.include_router(chat_modes.router)
 app.include_router(search_providers.router)
 app.include_router(study.router)
+app.include_router(reuse.router)
+app.include_router(code_snippets.router)
+app.include_router(project_tasks.router)
+app.include_router(shares.router)
 app.include_router(market.router)
 app.include_router(market.admin_router)
 app.include_router(content.router)

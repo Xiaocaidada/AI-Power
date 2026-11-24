@@ -1,5 +1,12 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Archive, Download, MoreHorizontal, Quote, SlidersHorizontal } from 'lucide-react'
+import {
+  Archive,
+  Download,
+  Link2,
+  MoreHorizontal,
+  Quote,
+  SlidersHorizontal,
+} from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 
@@ -50,6 +57,8 @@ import { CitationDrawer } from './CitationDrawer'
 import { Composer } from './Composer'
 import { MessageItem, type DisplayMessage } from './MessageItem'
 import { ModeSelector } from './ModeSelector'
+import { ReuseDialog } from './ReuseDialog'
+import { ShareDialog } from './ShareDialog'
 import { StudyPanel } from './StudyPanel'
 import { TraceDialog } from './TraceDialog'
 
@@ -99,6 +108,8 @@ export function ChatPage() {
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('standard')
   const [searchProviderId, setSearchProviderId] = useState('')
   const [studySessionId, setStudySessionId] = useState('')
+  const [reuseMessageId, setReuseMessageId] = useState<string | null>(null)
+  const [shareOpen, setShareOpen] = useState(false)
   const [modeError, setModeError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const activityIdRef = useRef(0)
@@ -747,6 +758,17 @@ export function ChatPage() {
                     className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-ink-muted hover:bg-surface-muted hover:text-ink"
                     onClick={() => {
                       setMenuOpen(false)
+                      setShareOpen(true)
+                    }}
+                  >
+                    <Link2 className="h-3.5 w-3.5" />
+                    {t('share.action')}
+                  </button>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-ink-muted hover:bg-surface-muted hover:text-ink"
+                    onClick={() => {
+                      setMenuOpen(false)
                       setExportError(null)
                       setExportOpen(true)
                     }}
@@ -794,6 +816,11 @@ export function ChatPage() {
               }
               onFeedback={(messageId, rating) => void setFeedback(messageId, rating)}
               onEdit={message.role === 'user' ? openEdit : undefined}
+              onReuse={
+                message.role === 'assistant' && message.status === 'completed'
+                  ? setReuseMessageId
+                  : undefined
+              }
             />
           ))}
           {pending?.stage !== null && pending?.stage !== undefined && (
@@ -1035,6 +1062,21 @@ export function ChatPage() {
         />
         {editError !== null && <p className="mt-2 text-xs text-danger">{editError}</p>}
       </Dialog>
+
+      {reuseMessageId !== null && (
+        <ReuseDialog
+          open
+          conversationId={conversationId}
+          messageId={reuseMessageId}
+          onClose={() => setReuseMessageId(null)}
+        />
+      )}
+
+      <ShareDialog
+        open={shareOpen}
+        conversationId={conversationId}
+        onClose={() => setShareOpen(false)}
+      />
 
       <Dialog
         open={confirmArchive}

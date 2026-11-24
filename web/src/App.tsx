@@ -60,6 +60,8 @@ import { ProfilePage } from './pages/settings/ProfilePage'
 import { PromptTemplatesPage } from './pages/settings/PromptTemplatesPage'
 import { SearchProvidersPage } from './pages/settings/SearchProvidersPage'
 import { WebhooksPage } from './pages/settings/WebhooksPage'
+import { SharePage } from './pages/chat/SharePage'
+import { SnippetsPage } from './pages/snippets/SnippetsPage'
 import { WorkspaceSettingsPage } from './pages/settings/WorkspaceSettingsPage'
 import { useAuthStore } from './store/auth'
 
@@ -118,6 +120,7 @@ export function App() {
           <Route path="chat" element={<NewChatPage />} />
           <Route path="chat/:id" element={<ChatPage />} />
         </Route>
+        <Route path="share/:token" element={<SharePage />} />
         <Route element={<AppShell />}>
           <Route path="arena" element={<ArenaPage />} />
           <Route path="arena/:id" element={<ArenaDetailPage />} />
@@ -133,6 +136,7 @@ export function App() {
           <Route path="memory" element={<MemoryPage />} />
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="files" element={<FilesPage />} />
+          <Route path="snippets" element={<SnippetsPage />} />
           <Route path="search" element={<SearchPage />} />
           <Route path="workflows" element={<WorkflowsPage />} />
           <Route path="collaborations" element={<CollaborationsPage />} />

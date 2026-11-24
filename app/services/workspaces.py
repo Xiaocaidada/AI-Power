@@ -29,7 +29,11 @@ async def ensure_personal_workspace(session: AsyncSession, user: User) -> Worksp
     result = await session.execute(
         select(Workspace)
         .join(WorkspaceMember, WorkspaceMember.workspace_id == Workspace.id)
-        .where(WorkspaceMember.user_id == user.id, Workspace.is_personal.is_(True))
+        .where(
+            WorkspaceMember.user_id == user.id,
+            WorkspaceMember.role == "owner",
+            Workspace.is_personal.is_(True),
+        )
     )
     workspace = result.scalar_one_or_none()
     if workspace is None:

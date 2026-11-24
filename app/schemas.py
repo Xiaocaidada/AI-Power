@@ -2584,6 +2584,96 @@ class ChatCapabilitiesOut(BaseModel):
     thinking_levels: list[dict[str, object]]
 
 
+class SaveAnswerIn(BaseModel):
+    kb_id: UUID
+    title: str = Field(default="", max_length=200)
+
+
+class SavedDocumentOut(BaseModel):
+    document_id: UUID
+    status: str
+    duplicate: bool = False
+
+
+class CodeBlockOut(BaseModel):
+    index: int
+    language: str
+    title: str
+    code: str
+
+
+class CodeSnippetCreate(BaseModel):
+    title: str = Field(default="", max_length=200)
+    language: str = Field(default="text", max_length=40)
+    code: str = Field(min_length=1, max_length=20000)
+    conversation_id: UUID | None = None
+    message_id: UUID | None = None
+    project_id: UUID | None = None
+
+
+class CodeSnippetOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    project_id: UUID | None
+    conversation_id: UUID | None
+    message_id: UUID | None
+    title: str
+    language: str
+    code: str
+    created_at: datetime
+
+
+class TaskCandidateOut(BaseModel):
+    title: str
+    status: Literal["todo", "done"] = "todo"
+
+
+class ProjectTaskCreate(BaseModel):
+    project_id: UUID
+    conversation_id: UUID | None = None
+    message_id: UUID | None = None
+    tasks: list[dict] = Field(min_length=1, max_length=50)
+
+
+class ProjectTaskUpdate(BaseModel):
+    title: str | None = Field(default=None, max_length=300)
+    status: Literal["todo", "doing", "done"] | None = None
+    priority: Literal["low", "medium", "high"] | None = None
+
+
+class ProjectTaskOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    project_id: UUID
+    user_id: UUID
+    title: str
+    status: str
+    priority: str
+    source_conversation_id: UUID | None
+    source_message_id: UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ConversationShareCreate(BaseModel):
+    expires_in_days: int | None = Field(default=None, ge=1, le=365)
+
+
+class ConversationShareOut(BaseModel):
+    id: UUID
+    conversation_id: UUID
+    expires_at: datetime | None
+    revoked_at: datetime | None
+    created_at: datetime
+    active: bool
+
+
+class ConversationShareCreatedOut(ConversationShareOut):
+    token: str
+
+
 class StudySessionCreate(BaseModel):
     topic: str = Field(min_length=1, max_length=200)
     conversation_id: UUID | None = None

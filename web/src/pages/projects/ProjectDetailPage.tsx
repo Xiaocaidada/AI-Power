@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { ProjectTasksPanel } from './ProjectTasksPanel'
 import {
   ArrowLeft,
   Bot,
@@ -214,6 +215,8 @@ export function ProjectDetailPage() {
               {detail.instructions || t('projects.noInstructions')}
             </p>
           </div>
+
+          <ProjectTasksPanel projectId={detail.id} />
 
           <div className="rounded-2xl border border-border bg-surface">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-3">

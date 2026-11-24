@@ -1235,6 +1235,76 @@ class StudyAttempt(Base):
     graded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
 
+class CodeSnippet(Base):
+    __tablename__ = "code_snippets"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    project_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"), default=None, index=True
+    )
+    conversation_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="SET NULL"), default=None
+    )
+    message_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("messages.id", ondelete="SET NULL"), default=None
+    )
+    title: Mapped[str] = mapped_column(String(200), default="")
+    language: Mapped[str] = mapped_column(String(40), default="text")
+    code: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (Index("ix_code_snippets_workspace_user", "workspace_id", "user_id"),)
+
+
+class ProjectTask(Base):
+    __tablename__ = "project_tasks"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    project_id: Mapped[UUID] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(300))
+    status: Mapped[str] = mapped_column(String(20), default="todo", index=True)
+    priority: Mapped[str] = mapped_column(String(20), default="medium")
+    source_conversation_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="SET NULL"), default=None
+    )
+    source_message_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("messages.id", ondelete="SET NULL"), default=None
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    __table_args__ = (Index("ix_project_tasks_workspace_project", "workspace_id", "project_id"),)
+
+
+class ConversationShare(Base):
+    __tablename__ = "conversation_shares"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    conversation_id: Mapped[UUID] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), index=True
+    )
+    created_by: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class MarketModel(Base):
     __tablename__ = "market_models"
 

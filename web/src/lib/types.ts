@@ -256,6 +256,61 @@ export interface StudyAnswerResult {
   mastery: StudyMastery
 }
 
+export interface SavedDocument {
+  document_id: string
+  status: string
+  duplicate: boolean
+}
+
+export interface CodeBlock {
+  index: number
+  language: string
+  title: string
+  code: string
+}
+
+export interface CodeSnippet {
+  id: string
+  project_id: string | null
+  conversation_id: string | null
+  message_id: string | null
+  title: string
+  language: string
+  code: string
+  created_at: string
+}
+
+export interface TaskCandidate {
+  title: string
+  status: 'todo' | 'done'
+}
+
+export interface ProjectTask {
+  id: string
+  project_id: string
+  user_id: string
+  title: string
+  status: 'todo' | 'doing' | 'done'
+  priority: 'low' | 'medium' | 'high'
+  source_conversation_id: string | null
+  source_message_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ConversationShare {
+  id: string
+  conversation_id: string
+  expires_at: string | null
+  revoked_at: string | null
+  created_at: string
+  active: boolean
+}
+
+export interface ConversationShareCreated extends ConversationShare {
+  token: string
+}
+
 export interface ProviderTestResult {
   status: string
   model_count: number

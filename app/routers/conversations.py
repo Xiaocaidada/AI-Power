@@ -1822,6 +1822,12 @@ def _markdown_export(detail: ConversationDetailOut, filenames: dict[UUID, str]) 
                 page = f" · 第 {citation.page_no} 页" if citation.page_no is not None else ""
                 lines.append(f"- [{citation.index}] {source}{page} — {citation.snippet}")
             lines.append("")
+        if message.web_sources:
+            lines.append("### 网页来源")
+            lines.append("")
+            for source in message.web_sources:
+                lines.append(f"- [{source.citation_index}] {source.title} — {source.url}")
+            lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
 
