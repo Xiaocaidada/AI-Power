@@ -2052,5 +2052,10 @@ export const en: Dictionary = {
     questionInUse: 'This question is referenced by an evaluation run and cannot be deleted',
     network: 'Network error, check your connection',
     generic: 'Something went wrong, please try again',
+    memoryDisabled: 'Memory hub is off. Enable it in rules settings first.',
+    memoryProviderNotConfigured: 'No memory analysis model is configured.',
+    memoryProviderUnavailable:
+      'Memory analysis model is unavailable. Check the provider settings.',
+    memorySemanticFailed: 'Semantic conflict analysis failed. Try again later.',
   },
 }

@@ -2038,6 +2038,10 @@ export const zh = {
     questionInUse: '该题目已被评测任务引用，无法删除',
     network: '网络异常，请检查连接',
     generic: '操作失败，请稍后重试',
+    memoryDisabled: '记忆中心未开启，请先在规则设置中启用。',
+    memoryProviderNotConfigured: '未配置可用的记忆分析模型。',
+    memoryProviderUnavailable: '记忆分析模型不可用，请检查 Provider 配置。',
+    memorySemanticFailed: '语义矛盾分析失败，请稍后重试。',
   },
 } as const
 
