@@ -131,6 +131,44 @@ async function mockKnowledgeApi(page: Page) {
   await page.route('**/api/knowledge-bases/kb-1/documents**', (route) =>
     route.fulfill({ json: [] }),
   )
+  await page.route('**/api/knowledge-bases/kb-1/stats', (route) =>
+    route.fulfill({
+      json: {
+        document_count: 0,
+        ready_count: 0,
+        processing_count: 0,
+        failed_count: 0,
+        chunk_count: 0,
+        char_count: 0,
+      },
+    }),
+  )
+  await page.route('**/api/knowledge-bases/kb-1/folders', (route) =>
+    route.fulfill({ json: [] }),
+  )
+  await page.route('**/api/knowledge-bases/kb-1/settings', (route) =>
+    route.fulfill({ json: {} }),
+  )
+  await page.route('**/api/knowledge-bases/kb-1/processing/analytics**', (route) =>
+    route.fulfill({
+      json: {
+        days: 30,
+        total: 2,
+        completed: 1,
+        failed: 1,
+        cancelled: 0,
+        running: 0,
+        success_rate: 0.5,
+        avg_duration_ms: 120,
+        p95_duration_ms: 120,
+        avg_chunks: 4,
+        applied_count: 1,
+        pending_apply: 0,
+        failure_codes: { parse_failed: 1 },
+        recent: [],
+      },
+    }),
+  )
   await page.route('**/api/knowledge-bases/kb-1/processing/binding', (route) =>
     route.fulfill({ json: { workflow_id: 'wf-k', workflow_version_id: 'ver-k' } }),
   )
@@ -175,6 +213,18 @@ test('knowledge processing canvas renders after loading', async ({ page }) => {
   await expect(page.getByText('节点', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: '保存画布' })).toBeVisible()
   expect(errors).toEqual([])
+})
+
+test('knowledge processing analytics tab renders', async ({ page }) => {
+  await page.addInitScript(() =>
+    localStorage.setItem('ai_power_refresh_token', 'e2e-refresh-token-0123456789'),
+  )
+  await mockKnowledgeApi(page)
+  await page.goto('/knowledge/kb-1')
+  await page.getByRole('button', { name: '运行分析' }).click()
+  await expect(page.getByText('处理运行分析')).toBeVisible()
+  await expect(page.getByText('成功率', { exact: true })).toBeVisible()
+  await expect(page.getByText('parse_failed')).toBeVisible()
 })
 
 test('knowledge retrieval canvas renders after loading', async ({ page }) => {

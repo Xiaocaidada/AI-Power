@@ -182,6 +182,35 @@ export interface KnowledgeBaseSettings {
   }
 }
 
+export interface KnowledgeProcessAnalyticsRun {
+  id: string
+  document_id: string | null
+  filename: string
+  status: string
+  error_code: string | null
+  duration_ms: number | null
+  chunk_count: number
+  applied: boolean
+  started_at: string
+}
+
+export interface KnowledgeProcessAnalytics {
+  days: number
+  total: number
+  completed: number
+  failed: number
+  cancelled: number
+  running: number
+  success_rate: number
+  avg_duration_ms: number
+  p95_duration_ms: number
+  avg_chunks: number
+  applied_count: number
+  pending_apply: number
+  failure_codes: Record<string, number>
+  recent: KnowledgeProcessAnalyticsRun[]
+}
+
 export interface KnowledgeBaseStats {
   document_count: number
   ready_count: number

@@ -27,12 +27,31 @@ KNOWLEDGE_RETRIEVAL_CATALOG: list[dict[str, Any]] = [
         ],
     },
     {
+        "type": "multi_query",
+        "label": "多查询检索",
+        "description": "用 LLM 生成多个查询变体，分别混合检索后融合。",
+        "icon": "Sparkles",
+        "config_fields": [
+            {"name": "provider_id", "label": "模型提供商", "kind": "provider", "required": True},
+            {"name": "model", "label": "模型", "kind": "model", "required": True},
+            {"name": "variants", "label": "查询变体数", "kind": "number"},
+            {"name": "prompt", "label": "生成 Prompt", "kind": "textarea"},
+            {"name": "system_prompt", "label": "System Prompt", "kind": "textarea"},
+            {"name": "top_k", "label": "Top-K", "kind": "number"},
+            {"name": "candidate_k", "label": "候选数", "kind": "number"},
+            {"name": "metadata_filter", "label": "元数据过滤 JSON", "kind": "json"},
+            {"name": "kb_ids", "label": "指定知识库", "kind": "kb_multi"},
+        ],
+    },
+    {
         "type": "vector_search",
         "label": "向量检索",
         "description": "按 KB 的 Embedding 配置做向量召回。",
         "icon": "Boxes",
         "config_fields": [
             {"name": "top_k", "label": "Top-K", "kind": "number"},
+            {"name": "metadata_filter", "label": "元数据过滤 JSON", "kind": "json"},
+            {"name": "kb_ids", "label": "指定知识库", "kind": "kb_multi"},
         ],
     },
     {
@@ -42,6 +61,8 @@ KNOWLEDGE_RETRIEVAL_CATALOG: list[dict[str, Any]] = [
         "icon": "FileText",
         "config_fields": [
             {"name": "top_k", "label": "Top-K", "kind": "number"},
+            {"name": "metadata_filter", "label": "元数据过滤 JSON", "kind": "json"},
+            {"name": "kb_ids", "label": "指定知识库", "kind": "kb_multi"},
         ],
     },
     {
@@ -49,6 +70,42 @@ KNOWLEDGE_RETRIEVAL_CATALOG: list[dict[str, Any]] = [
         "label": "混合检索",
         "description": "向量 + 全文，RRF 融合。",
         "icon": "GitMerge",
+        "config_fields": [
+            {"name": "top_k", "label": "Top-K", "kind": "number"},
+            {"name": "candidate_k", "label": "候选数", "kind": "number"},
+            {"name": "metadata_filter", "label": "元数据过滤 JSON", "kind": "json"},
+            {"name": "kb_ids", "label": "指定知识库", "kind": "kb_multi"},
+        ],
+    },
+    {
+        "type": "filter_results",
+        "label": "结果过滤",
+        "description": "按距离/分数/文本长度过滤，并按文档或父块去重。",
+        "icon": "Filter",
+        "config_fields": [
+            {"name": "max_distance", "label": "最大向量距离", "kind": "number"},
+            {"name": "min_rerank_score", "label": "最低重排分", "kind": "number"},
+            {"name": "min_fused_score", "label": "最低融合分", "kind": "number"},
+            {"name": "min_text_chars", "label": "最短文本", "kind": "number"},
+            {
+                "name": "dedupe_documents",
+                "label": "每文档仅保留一条",
+                "kind": "select",
+                "options": ["false", "true"],
+            },
+            {
+                "name": "dedupe_parents",
+                "label": "按父块去重",
+                "kind": "select",
+                "options": ["true", "false"],
+            },
+        ],
+    },
+    {
+        "type": "fallback_search",
+        "label": "空结果回退",
+        "description": "当前结果为空时执行一次混合检索兜底。",
+        "icon": "RefreshCw",
         "config_fields": [
             {"name": "top_k", "label": "Top-K", "kind": "number"},
             {"name": "candidate_k", "label": "候选数", "kind": "number"},
@@ -107,6 +164,17 @@ RETRIEVAL_TEMPLATES: dict[str, dict[str, Any]] = {
             ("start", "start", {}),
             ("vector", "vector_search", {"top_k": 8}),
             ("rerank", "rerank", {"top_k": 5}),
+            ("out", "output", {}),
+        ],
+    },
+    "multi_query": {
+        "name": "多查询 + 过滤",
+        "nodes": [
+            ("start", "start", {}),
+            ("multi", "multi_query", {"variants": 3, "top_k": 12, "candidate_k": 30}),
+            ("filter", "filter_results", {"dedupe_parents": True}),
+            ("fallback", "fallback_search", {"top_k": 8, "candidate_k": 20}),
+            ("context", "context", {"max_chars": 6000}),
             ("out", "output", {}),
         ],
     },
