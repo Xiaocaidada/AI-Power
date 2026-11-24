@@ -1385,6 +1385,7 @@ class MemoryIn(BaseModel):
     pinned: bool = False
     favorite: bool = False
     valid_until: datetime | None = None
+    retention_days: int | None = Field(default=None, ge=0, le=3650)
     metadata: dict[str, object] = Field(default_factory=dict)
 
     @field_validator("tags", mode="before")
@@ -1416,6 +1417,7 @@ class MemoryUpdate(BaseModel):
     sensitivity: Literal["normal", "sensitive"] | None = None
     confidence: float | None = Field(default=None, ge=0, le=1)
     valid_until: datetime | None = None
+    retention_days: int | None = Field(default=None, ge=0, le=3650)
     metadata: dict[str, object] | None = None
     change_reason: str = Field(default="", max_length=300)
 
@@ -1450,6 +1452,7 @@ class MemoryOut(BaseModel):
     favorite: bool
     tags: list[str] = Field(default_factory=list)
     valid_until: datetime | None = None
+    retention_days: int | None = None
     use_count: int
     version: int
     metadata: dict[str, object] = Field(
@@ -1471,6 +1474,58 @@ class MemoryVersionOut(BaseModel):
     changed_by: UUID | None = None
     change_reason: str
     created_at: datetime
+
+
+class MemoryDiffChangeOut(BaseModel):
+    field: str
+    before: object | None = None
+    after: object | None = None
+
+
+class MemoryVersionDiffOut(BaseModel):
+    from_version: int
+    to_version: int
+    from_created_at: datetime
+    to_created_at: datetime
+    from_reason: str = ""
+    to_reason: str = ""
+    changes: list[MemoryDiffChangeOut] = Field(default_factory=list)
+    content_diff: str = ""
+    risk_flags: list[str] = Field(default_factory=list)
+
+
+class MemoryLifecycleItemOut(BaseModel):
+    id: UUID
+    title: str
+    updated_at: datetime
+    retention_days: int
+
+
+class MemoryLifecycleOut(BaseModel):
+    retention_days: int | None = None
+    expiring_count: int = 0
+    items: list[MemoryLifecycleItemOut] = Field(default_factory=list)
+
+
+class MemoryUsageModelOut(BaseModel):
+    provider_id: str = ""
+    model: str = ""
+    count: int = 0
+    injected_chars: int = 0
+
+
+class MemoryUsageRefOut(BaseModel):
+    agent_id: UUID | None = None
+    project_id: UUID | None = None
+    context_id: str | None = None
+    count: int = 0
+
+
+class MemoryCompletenessOut(BaseModel):
+    average_score: float = 0.0
+    complete: int = 0
+    partial: int = 0
+    sparse: int = 0
 
 
 class MemoryRelationOut(BaseModel):
@@ -1671,6 +1726,20 @@ class MemoryStatsOut(BaseModel):
     archived: int
     by_category: dict[str, int] = Field(default_factory=dict)
     by_scope: dict[str, int] = Field(default_factory=dict)
+    by_status: dict[str, int] = Field(default_factory=dict)
+    by_source: dict[str, int] = Field(default_factory=dict)
+    completeness: MemoryCompletenessOut = Field(default_factory=MemoryCompletenessOut)
+    retention_days: int | None = None
+    expiring_soon: int = 0
+    stale: int = 0
+    active_chars: int = 0
+    usage_total: int = 0
+    usage_chars: int = 0
+    usage_by_model: list[MemoryUsageModelOut] = Field(default_factory=list)
+    usage_by_context: dict[str, int] = Field(default_factory=dict)
+    usage_by_agent: list[MemoryUsageRefOut] = Field(default_factory=list)
+    usage_by_project: list[MemoryUsageRefOut] = Field(default_factory=list)
+    usage_by_conversation: list[MemoryUsageRefOut] = Field(default_factory=list)
     recent: list[MemoryOut] = Field(default_factory=list)
     top_used: list[MemoryOut] = Field(default_factory=list)
 

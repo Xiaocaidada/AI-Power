@@ -39,6 +39,7 @@ interface Draft {
   enabled: boolean
   sensitivity: 'normal' | 'sensitive'
   validUntil: string
+  retentionDays: string
 }
 
 function draftFrom(
@@ -60,6 +61,10 @@ function draftFrom(
     enabled: memory?.enabled ?? true,
     sensitivity: memory?.sensitivity ?? 'normal',
     validUntil: memory?.valid_until ? memory.valid_until.slice(0, 10) : '',
+    retentionDays:
+      memory?.retention_days === null || memory?.retention_days === undefined
+        ? ''
+        : String(memory.retention_days),
   }
 }
 
@@ -120,6 +125,10 @@ export function MemoryFormDialog({
       sensitivity: draft.sensitivity,
       valid_until:
         draft.validUntil === '' ? null : `${draft.validUntil}T00:00:00Z`,
+      retention_days:
+        draft.retentionDays.trim() === ''
+          ? 0
+          : Number(draft.retentionDays),
     }
     try {
       if (initial === null) {
@@ -271,6 +280,15 @@ export function MemoryFormDialog({
               type="date"
               value={draft.validUntil}
               onChange={(event) => update('validUntil', event.target.value)}
+            />
+          </Field>
+          <Field label={t('memory.retentionDays')}>
+            <Input
+              type="number"
+              min={0}
+              value={draft.retentionDays}
+              placeholder={t('memory.retentionDaysPlaceholder')}
+              onChange={(event) => update('retentionDays', event.target.value)}
             />
           </Field>
         </div>

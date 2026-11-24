@@ -546,6 +546,7 @@ class AgentMemory(Base):
     valid_until: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), default=None
     )
+    retention_days: Mapped[int | None] = mapped_column(Integer, default=None)
     use_count: Mapped[int] = mapped_column(Integer, default=0)
     content_hash: Mapped[str | None] = mapped_column(String(64), default=None, index=True)
     version: Mapped[int] = mapped_column(Integer, default=1)

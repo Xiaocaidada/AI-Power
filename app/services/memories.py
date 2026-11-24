@@ -6,7 +6,7 @@ import logging
 import math
 import re
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import String, and_, cast, delete, func, or_, select
@@ -200,12 +200,41 @@ def _snapshot(memory: AgentMemory) -> dict[str, object]:
         "sensitivity": memory.sensitivity,
         "confidence": memory.confidence,
         "valid_until": memory.valid_until.isoformat() if memory.valid_until else None,
+        "retention_days": memory.retention_days,
         "version": memory.version,
     }
 
 
 def _personal_filters(workspace_id: UUID, user_id: UUID) -> list:
     return [AgentMemory.workspace_id == workspace_id, AgentMemory.user_id == user_id]
+
+
+def _as_aware(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+
+async def _ensure_topic_allowed(
+    session: AsyncSession,
+    workspace_id: UUID,
+    user_id: UUID,
+    title: str,
+    content: str,
+) -> None:
+    row = (
+        await session.execute(
+            select(MemorySettings).where(
+                MemorySettings.workspace_id == workspace_id,
+                MemorySettings.user_id == user_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None or not row.blocked_topics:
+        return
+    text = f"{title}\n{content}".casefold()
+    if any(str(topic).casefold() in text for topic in row.blocked_topics if topic):
+        raise MemoryError(
+            "blocked_topic", "Memory matches a blocked topic in memory settings"
+        )
 
 
 
@@ -454,6 +483,7 @@ async def create_memory(
     pinned: bool = False,
     favorite: bool = False,
     valid_until: datetime | None = None,
+    retention_days: int | None = None,
     metadata: dict[str, object] | None = None,
 ) -> AgentMemory:
     content = content.strip()
@@ -477,6 +507,7 @@ async def create_memory(
         raise MemoryError("invalid_scope", "Agent memory requires agent_id")
     await enforce_memory_quota(session, workspace_id)
     title = title.strip()[:120] or content[:60]
+    await _ensure_topic_allowed(session, workspace_id, user_id, title, content)
     memory = AgentMemory(
         workspace_id=workspace_id,
         user_id=user_id,
@@ -501,6 +532,7 @@ async def create_memory(
         pinned=pinned,
         favorite=favorite,
         valid_until=valid_until,
+        retention_days=retention_days if retention_days and retention_days > 0 else None,
         version=1,
         memory_metadata=dict(metadata or {}),
     )
@@ -545,9 +577,11 @@ async def update_memory(
     sensitivity: str | None = None,
     confidence: float | None = None,
     valid_until: datetime | None = None,
+    retention_days: int | None = None,
     metadata: dict[str, object] | None = None,
     change_reason: str = "",
     changed_by: UUID | None = None,
+    auto_link: bool = True,
 ) -> AgentMemory:
     content_changed = False
     if content is not None:
@@ -607,6 +641,12 @@ async def update_memory(
         memory.confidence = max(0.0, min(confidence, 1.0))
     if valid_until is not None:
         memory.valid_until = valid_until
+    if retention_days is not None:
+        memory.retention_days = retention_days if retention_days > 0 else None
+    if content_changed:
+        await _ensure_topic_allowed(
+            session, memory.workspace_id, memory.user_id, memory.title, memory.content
+        )
     if metadata is not None:
         memory.memory_metadata = dict(metadata)
     if memory.scope_type == "project" and memory.project_id is None:
@@ -630,7 +670,8 @@ async def update_memory(
         )
     )
     await session.flush()
-    await auto_link_memory(session, memory)
+    if auto_link:
+        await auto_link_memory(session, memory)
     return memory
 
 
@@ -698,6 +739,10 @@ async def restore_memory_version(
     memory.favorite = bool(snapshot.get("favorite", False))
     memory.sensitivity = str(snapshot.get("sensitivity") or memory.sensitivity)
     memory.confidence = float(snapshot.get("confidence") or memory.confidence)
+    retention_days = snapshot.get("retention_days")
+    memory.retention_days = (
+        int(retention_days) if retention_days is not None else memory.retention_days
+    )
     memory.content_hash = memory_hash(memory.title, memory.content)
     memory.version += 1
     memory.updated_at = datetime.now(UTC)
@@ -760,6 +805,109 @@ async def batch_update_memories(
     return len(rows)
 
 
+async def retention_preview(
+    session: AsyncSession,
+    workspace_id: UUID,
+    user_id: UUID,
+    *,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    settings = await get_memory_settings(session, workspace_id, user_id)
+    current = now or datetime.now(UTC)
+    global_days = settings.retention_days
+    rows = list(
+        (
+            await session.execute(
+                select(AgentMemory)
+                .where(
+                    *_personal_filters(workspace_id, user_id),
+                    AgentMemory.status == "active",
+                    AgentMemory.enabled.is_(True),
+                    AgentMemory.pinned.is_(False),
+                    AgentMemory.favorite.is_(False),
+                )
+                .limit(5000)
+            )
+        ).scalars()
+    )
+    items = []
+    for memory in rows:
+        days = memory.retention_days or global_days
+        if not days or days <= 0:
+            continue
+        if _as_aware(memory.updated_at) < current - timedelta(days=days):
+            items.append(
+                {
+                    "id": memory.id,
+                    "title": memory.title,
+                    "updated_at": memory.updated_at,
+                    "retention_days": days,
+                }
+            )
+    return {
+        "retention_days": global_days,
+        "expiring_count": len(items),
+        "items": items[:50],
+    }
+
+
+async def expire_retention_memories(
+    session: AsyncSession,
+    *,
+    now: datetime | None = None,
+    limit: int = 500,
+) -> dict[str, int]:
+    """Mark stale memories as expired; never hard-delete user data."""
+    current = now or datetime.now(UTC)
+    settings_rows = list(
+        (
+            await session.execute(
+                select(MemorySettings).where(MemorySettings.retention_days.is_not(None))
+            )
+        ).scalars()
+    )
+    settings_map = {
+        (row.workspace_id, row.user_id): int(row.retention_days)
+        for row in settings_rows
+        if row.retention_days
+    }
+    rows = list(
+        (
+            await session.execute(
+                select(AgentMemory)
+                .where(
+                    AgentMemory.status == "active",
+                    AgentMemory.enabled.is_(True),
+                    AgentMemory.pinned.is_(False),
+                    AgentMemory.favorite.is_(False),
+                )
+                .limit(5000)
+            )
+        ).scalars()
+    )
+    expired = 0
+    for memory in rows:
+        days = memory.retention_days or settings_map.get(
+            (memory.workspace_id, memory.user_id)
+        )
+        if not days or days <= 0:
+            continue
+        if _as_aware(memory.updated_at) >= current - timedelta(days=days):
+            continue
+        await update_memory(
+            session,
+            memory,
+            status="expired",
+            change_reason="retention policy",
+            changed_by=None,
+            auto_link=False,
+        )
+        expired += 1
+        if expired >= limit:
+            break
+    return {"scanned": len(rows), "expired": expired}
+
+
 async def memory_stats(
     session: AsyncSession, workspace_id: UUID, user_id: UUID
 ) -> dict[str, object]:
@@ -807,6 +955,172 @@ async def memory_stats(
             .group_by(AgentMemory.scope_type)
         )
     ).all()
+    status_rows = (
+        await session.execute(
+            select(AgentMemory.status, func.count())
+            .where(*base)
+            .group_by(AgentMemory.status)
+        )
+    ).all()
+    source_rows = (
+        await session.execute(
+            select(AgentMemory.source_type, func.count())
+            .where(*base)
+            .group_by(AgentMemory.source_type)
+        )
+    ).all()
+    all_rows = list(
+        (
+            await session.execute(
+                select(AgentMemory).where(*base).order_by(AgentMemory.updated_at.desc()).limit(5000)
+            )
+        ).scalars()
+    )
+    completeness_buckets = {"complete": 0, "partial": 0, "sparse": 0}
+    completeness_total = 0
+    for memory in all_rows:
+        score = 0
+        if memory.title:
+            score += 15
+        content_length = len(memory.content or "")
+        if content_length >= 40:
+            score += 20
+        if content_length >= 120:
+            score += 15
+        if memory.category != "fact":
+            score += 10
+        if memory.tags:
+            score += 10
+        if memory.source_type != "manual":
+            score += 10
+        if memory.embedding is not None:
+            score += 10
+        if memory.importance >= 4:
+            score += 5
+        if memory.project_id is not None or memory.agent_id is not None:
+            score += 5
+        completeness_total += score
+        if score >= 80:
+            completeness_buckets["complete"] += 1
+        elif score >= 50:
+            completeness_buckets["partial"] += 1
+        else:
+            completeness_buckets["sparse"] += 1
+    settings_row = (
+        await session.execute(
+            select(MemorySettings).where(
+                MemorySettings.workspace_id == workspace_id,
+                MemorySettings.user_id == user_id,
+            )
+        )
+    ).scalar_one_or_none()
+    now = datetime.now(UTC)
+    expiring_soon = int(
+        (
+            await session.execute(
+                select(func.count())
+                .select_from(AgentMemory)
+                .where(
+                    *base,
+                    AgentMemory.status == "active",
+                    AgentMemory.valid_until.is_not(None),
+                    AgentMemory.valid_until <= now + timedelta(days=7),
+                )
+            )
+        ).scalar_one()
+    )
+    stale_cutoff = now - timedelta(days=30)
+    stale = int(
+        (
+            await session.execute(
+                select(func.count())
+                .select_from(AgentMemory)
+                .where(
+                    *base,
+                    AgentMemory.status == "active",
+                    AgentMemory.updated_at < stale_cutoff,
+                    or_(
+                        AgentMemory.last_used_at.is_(None),
+                        AgentMemory.last_used_at < stale_cutoff,
+                    ),
+                )
+            )
+        ).scalar_one()
+    )
+    usage_filters = [
+        MemoryUsageEvent.workspace_id == workspace_id,
+        MemoryUsageEvent.user_id == user_id,
+    ]
+    usage_total = int(
+        (
+            await session.execute(
+                select(func.count())
+                .select_from(MemoryUsageEvent)
+                .where(*usage_filters)
+            )
+        ).scalar_one()
+    )
+    usage_chars = int(
+        (
+            await session.execute(
+                select(func.coalesce(func.sum(MemoryUsageEvent.injected_chars), 0)).where(
+                    *usage_filters
+                )
+            )
+        ).scalar_one()
+    )
+    usage_model_rows = (
+        await session.execute(
+            select(
+                MemoryUsageEvent.provider_id,
+                MemoryUsageEvent.model,
+                func.count(),
+                func.coalesce(func.sum(MemoryUsageEvent.injected_chars), 0),
+            )
+            .where(*usage_filters)
+            .group_by(MemoryUsageEvent.provider_id, MemoryUsageEvent.model)
+            .order_by(func.count().desc())
+            .limit(10)
+        )
+    ).all()
+    usage_context_rows = (
+        await session.execute(
+            select(MemoryUsageEvent.context_type, func.count())
+            .where(*usage_filters)
+            .group_by(MemoryUsageEvent.context_type)
+        )
+    ).all()
+    usage_agent_rows = (
+        await session.execute(
+            select(AgentMemory.agent_id, func.count())
+            .select_from(MemoryUsageEvent)
+            .join(AgentMemory, AgentMemory.id == MemoryUsageEvent.memory_id)
+            .where(*usage_filters)
+            .group_by(AgentMemory.agent_id)
+            .order_by(func.count().desc())
+            .limit(10)
+        )
+    ).all()
+    usage_project_rows = (
+        await session.execute(
+            select(AgentMemory.project_id, func.count())
+            .select_from(MemoryUsageEvent)
+            .join(AgentMemory, AgentMemory.id == MemoryUsageEvent.memory_id)
+            .where(*usage_filters)
+            .group_by(AgentMemory.project_id)
+            .order_by(func.count().desc())
+            .limit(10)
+        )
+    ).all()
+    usage_conversation_rows = (
+        await session.execute(
+            select(MemoryUsageEvent.context_id, func.count())
+            .where(*usage_filters, MemoryUsageEvent.context_type == "chat")
+            .group_by(MemoryUsageEvent.context_id)
+            .order_by(func.count().desc())
+            .limit(5)
+        )
+    ).all()
     recent = list(
         (
             await session.execute(
@@ -837,6 +1151,50 @@ async def memory_stats(
         "archived": archived,
         "by_category": {str(key): int(value) for key, value in category_rows},
         "by_scope": {str(key): int(value) for key, value in scope_rows},
+        "by_status": {str(key): int(value) for key, value in status_rows},
+        "by_source": {str(key): int(value) for key, value in source_rows},
+        "completeness": {
+            "average_score": round(
+                completeness_total / len(all_rows), 1
+            )
+            if all_rows
+            else 0.0,
+            **completeness_buckets,
+        },
+        "retention_days": settings_row.retention_days if settings_row else None,
+        "expiring_soon": expiring_soon,
+        "stale": stale,
+        "active_chars": sum(
+            len(memory.content or "")
+            for memory in all_rows
+            if memory.status == "active"
+        ),
+        "usage_total": usage_total,
+        "usage_chars": usage_chars,
+        "usage_by_model": [
+            {
+                "provider_id": provider_id or "",
+                "model": model or "",
+                "count": int(count),
+                "injected_chars": int(chars or 0),
+            }
+            for provider_id, model, count, chars in usage_model_rows
+        ],
+        "usage_by_context": {
+            str(key): int(value) for key, value in usage_context_rows
+        },
+        "usage_by_agent": [
+            {"agent_id": str(agent_id) if agent_id else None, "count": int(count)}
+            for agent_id, count in usage_agent_rows
+        ],
+        "usage_by_project": [
+            {"project_id": str(project_id) if project_id else None, "count": int(count)}
+            for project_id, count in usage_project_rows
+        ],
+        "usage_by_conversation": [
+            {"context_id": str(context_id) if context_id else None, "count": int(count)}
+            for context_id, count in usage_conversation_rows
+        ],
         "recent": recent,
         "top_used": top_used,
     }

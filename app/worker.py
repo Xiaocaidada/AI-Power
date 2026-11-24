@@ -12,6 +12,7 @@ from app.models import Document
 from app.services.evaluation_runner import run_evaluation
 from app.services.ingestion import ingest_document, mark_job_dead, schedule_retry
 from app.services.maintenance import cleanup_audit_logs, cleanup_orphan_files, cleanup_traces
+from app.services.memories import expire_retention_memories
 from app.services.memory_extraction import run_memory_extraction_for_message
 from app.services.memory_quality import nightly_consolidation
 from app.services.model_eval import run_model_eval_job
@@ -88,6 +89,13 @@ async def consolidate_memories_job(ctx: dict[str, Any]) -> None:
     logger.info("memory consolidation complete: %s", result)
 
 
+async def expire_memories_job(ctx: dict[str, Any]) -> None:
+    async with SessionLocal() as session:
+        result = await expire_retention_memories(session)
+        await session.commit()
+    logger.info("memory retention complete: %s", result)
+
+
 async def run_memory_extraction_job(ctx: dict[str, Any], message_id: str) -> None:
     await run_memory_extraction_for_message(UUID(message_id))
 
@@ -159,6 +167,7 @@ class WorkerSettings:
         cron(cleanup_traces_job, hour=3, minute=15),
         cron(cleanup_audit_logs_job, hour=3, minute=30),
         cron(consolidate_memories_job, hour=4, minute=0),
+        cron(expire_memories_job, hour=4, minute=30),
     ]
     on_startup = startup_requeue_reviews
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)

@@ -21,6 +21,7 @@ import type {
   CustomAgent,
   MemoryCandidate,
   MemoryCategory,
+  MemoryLifecycle,
   MemorySettings,
   MemoryStats,
   MemoryStatus,
@@ -137,6 +138,7 @@ export function MemoryPage() {
       queryClient.invalidateQueries({ queryKey: ['memories'] }),
       queryClient.invalidateQueries({ queryKey: ['memory-stats'] }),
       queryClient.invalidateQueries({ queryKey: ['memory-usage'] }),
+      queryClient.invalidateQueries({ queryKey: ['memory-lifecycle'] }),
     ])
   }
 
@@ -218,7 +220,13 @@ export function MemoryPage() {
 
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
         {tab === 'overview' && (
-          <Overview stats={stats.data} loading={stats.isLoading} onOpen={setDetail} />
+          <Overview
+            stats={stats.data}
+            loading={stats.isLoading}
+            agents={agentOptions}
+            projects={projects.data ?? []}
+            onOpen={setDetail}
+          />
         )}
 
         {tab === 'all' && (
@@ -433,13 +441,21 @@ export function MemoryPage() {
 function Overview({
   stats,
   loading,
+  agents,
+  projects,
   onOpen,
 }: {
   stats: MemoryStats | undefined
   loading: boolean
+  agents: CustomAgent[]
+  projects: Project[]
   onOpen: (memory: AgentMemory) => void
 }) {
   const { t } = useI18n()
+  const lifecycle = useQuery({
+    queryKey: ['memory-lifecycle'],
+    queryFn: () => apiRequest<MemoryLifecycle>('/memories/lifecycle'),
+  })
   if (loading || stats === undefined) {
     return (
       <div className="flex justify-center py-10">
@@ -447,6 +463,9 @@ function Overview({
       </div>
     )
   }
+  const completeness = stats.completeness
+  const agentNames = new Map(agents.map((agent) => [agent.id, agent.name]))
+  const projectNames = new Map(projects.map((project) => [project.id, project.name]))
   const cards = [
     { label: t('memory.stats.total'), value: stats.total, tone: 'accent' },
     { label: t('memory.stats.active'), value: stats.active, tone: 'success' },
@@ -456,6 +475,22 @@ function Overview({
       tone: 'warning',
     },
     { label: t('memory.stats.conflict'), value: stats.conflict, tone: 'danger' },
+    {
+      label: t('memory.stats.completeness'),
+      value: `${Math.round(completeness?.average_score ?? 0)}%`,
+      tone: 'accent',
+    },
+    {
+      label: t('memory.stats.expiringSoon'),
+      value: stats.expiring_soon ?? 0,
+      tone: 'warning',
+    },
+    { label: t('memory.stats.stale'), value: stats.stale ?? 0, tone: 'neutral' },
+    {
+      label: t('memory.stats.usageTotal'),
+      value: stats.usage_total ?? 0,
+      tone: 'success',
+    },
   ] as const
   return (
     <div className="space-y-4">
@@ -533,6 +568,166 @@ function Overview({
           </div>
         </section>
       </div>
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        <section className="rounded-card border border-border bg-surface p-4">
+          <h2 className="text-sm font-medium text-ink">
+            {t('memory.stats.completenessTitle')}
+          </h2>
+          <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+            {(
+              [
+                ['complete', completeness?.complete ?? 0],
+                ['partial', completeness?.partial ?? 0],
+                ['sparse', completeness?.sparse ?? 0],
+              ] as const
+            ).map(([key, value]) => (
+              <div key={key} className="rounded-lg bg-surface-muted px-2 py-1.5">
+                <p className="text-[10px] text-ink-muted">
+                  {t(`memory.stats.completenessLevel.${key}`)}
+                </p>
+                <p className="mt-0.5 font-semibold text-ink">{value}</p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-surface-muted">
+            <div
+              className="h-full bg-accent"
+              style={{ width: `${Math.min(completeness?.average_score ?? 0, 100)}%` }}
+            />
+          </div>
+          <p className="mt-1 text-[11px] text-ink-muted">
+            {t('memory.stats.averageCompleteness', {
+              score: Math.round(completeness?.average_score ?? 0),
+            })}
+          </p>
+          {Object.keys(stats.by_source ?? {}).length > 0 && (
+            <p className="mt-2 text-[10px] text-ink-muted">
+              {Object.entries(stats.by_source ?? {})
+                .map(([key, value]) => `${key}: ${value}`)
+                .join(' · ')}
+            </p>
+          )}
+        </section>
+
+        <section className="rounded-card border border-border bg-surface p-4">
+          <h2 className="text-sm font-medium text-ink">
+            {t('memory.stats.usageTitle')}
+          </h2>
+          <p className="mt-1 text-[11px] text-ink-muted">
+            {t('memory.stats.usageSummary', {
+              total: stats.usage_total ?? 0,
+              chars: stats.usage_chars ?? 0,
+            })}
+          </p>
+          <div className="mt-2 space-y-1">
+            {(stats.usage_by_model ?? []).length === 0 && (
+              <p className="text-xs text-ink-muted">—</p>
+            )}
+            {(stats.usage_by_model ?? []).map((item) => (
+              <div
+                key={`${item.provider_id}/${item.model}`}
+                className="flex items-center justify-between text-xs"
+              >
+                <span className="truncate text-ink-muted">
+                  {item.provider_id}/{item.model}
+                </span>
+                <span className="text-ink">{item.count}</span>
+              </div>
+            ))}
+          </div>
+          {Object.keys(stats.usage_by_context ?? {}).length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {Object.entries(stats.usage_by_context ?? {}).map(([key, value]) => (
+                <Badge key={key} tone="neutral">
+                  {key}: {value}
+                </Badge>
+              ))}
+            </div>
+          )}
+          {(stats.usage_by_agent ?? []).length > 0 && (
+            <div className="mt-2">
+              <p className="text-[10px] font-medium text-ink">
+                {t('memory.stats.byAgent')}
+              </p>
+              {(stats.usage_by_agent ?? []).slice(0, 3).map((item) => (
+                <p key={item.agent_id ?? 'none'} className="text-[10px] text-ink-muted">
+                  {item.agent_id
+                    ? agentNames.get(item.agent_id) ??
+                      item.agent_id.slice(0, 8)
+                    : t('memory.stats.noAgent')}
+                  : {item.count}
+                </p>
+              ))}
+            </div>
+          )}
+          {(stats.usage_by_project ?? []).length > 0 && (
+            <div className="mt-2">
+              <p className="text-[10px] font-medium text-ink">
+                {t('memory.stats.byProject')}
+              </p>
+              {(stats.usage_by_project ?? []).slice(0, 3).map((item) => (
+                <p
+                  key={item.project_id ?? 'none'}
+                  className="text-[10px] text-ink-muted"
+                >
+                  {item.project_id
+                    ? projectNames.get(item.project_id) ??
+                      item.project_id.slice(0, 8)
+                    : t('memory.stats.noProject')}
+                  : {item.count}
+                </p>
+              ))}
+            </div>
+          )}
+          {(stats.usage_by_conversation ?? []).length > 0 && (
+            <div className="mt-2">
+              <p className="text-[10px] font-medium text-ink">
+                {t('memory.stats.byConversation')}
+              </p>
+              {(stats.usage_by_conversation ?? []).slice(0, 3).map((item) => (
+                <p
+                  key={item.context_id ?? 'none'}
+                  className="text-[10px] text-ink-muted"
+                >
+                  {item.context_id ? item.context_id.slice(0, 8) : '—'}: {item.count}
+                </p>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
+
+      {lifecycle.data !== undefined && lifecycle.data.retention_days !== null && (
+        <section className="rounded-card border border-border bg-surface p-4">
+          <h2 className="text-sm font-medium text-ink">
+            {t('memory.stats.lifecycleTitle')}
+          </h2>
+          <p className="mt-1 text-[11px] text-ink-muted">
+            {t('memory.stats.lifecycleLead', {
+              days: lifecycle.data.retention_days,
+              count: lifecycle.data.expiring_count,
+            })}
+          </p>
+          {lifecycle.data.items.length > 0 && (
+            <ul className="mt-2 space-y-1">
+              {lifecycle.data.items.slice(0, 5).map((item) => (
+                <li
+                  key={item.id}
+                  className="flex items-center justify-between rounded-md bg-surface-muted px-2 py-1 text-[11px]"
+                >
+                  <span className="truncate text-ink">{item.title}</span>
+                  <span className="ml-2 text-ink-muted">
+                    {t('memory.stats.lifecycleItem', {
+                      days: item.retention_days,
+                    })}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
 
       <section className="rounded-card border border-border bg-surface p-4">
         <h2 className="text-sm font-medium text-ink">{t('memory.stats.recent')}</h2>
