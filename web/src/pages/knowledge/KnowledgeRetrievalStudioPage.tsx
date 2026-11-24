@@ -139,6 +139,17 @@ export function KnowledgeRetrievalStudioPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workflowId, latestVersion?.id])
 
+  const autosaveCanvas = useCallback(
+    async (next: WorkflowDefinition) => {
+      if (workflowId !== '') {
+        await saveWorkflowDraft(workflowId, next)
+      } else {
+        writeLocalDraft(canvasLocalKey, next)
+      }
+    },
+    [workflowId, canvasLocalKey],
+  )
+
   if (id === '' || kb.isError) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-ink-muted">
@@ -159,17 +170,6 @@ export function KnowledgeRetrievalStudioPage() {
       queryKey: ['knowledge-retrieval-workflows'],
     })
   }
-
-  const autosaveCanvas = useCallback(
-    async (next: WorkflowDefinition) => {
-      if (workflowId !== '') {
-        await saveWorkflowDraft(workflowId, next)
-      } else {
-        writeLocalDraft(canvasLocalKey, next)
-      }
-    },
-    [workflowId, canvasLocalKey],
-  )
 
   const restoreCanvasVersion = async (version: number) => {
     if (workflowId === '') return

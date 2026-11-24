@@ -143,6 +143,17 @@ export function KnowledgeStudioPage() {
     if (first) setDocumentId(first.id)
   }, [documentId, documents.data])
 
+  const autosaveCanvas = useCallback(
+    async (next: WorkflowDefinition) => {
+      if (workflowId !== '') {
+        await saveWorkflowDraft(workflowId, next)
+      } else {
+        writeLocalDraft(canvasLocalKey, next)
+      }
+    },
+    [workflowId, canvasLocalKey],
+  )
+
   if (id === '' || kb.isError) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-ink-muted">
@@ -161,17 +172,6 @@ export function KnowledgeStudioPage() {
   const refreshWorkflows = async () => {
     await queryClient.invalidateQueries({ queryKey: ['knowledge-process-workflows'] })
   }
-
-  const autosaveCanvas = useCallback(
-    async (next: WorkflowDefinition) => {
-      if (workflowId !== '') {
-        await saveWorkflowDraft(workflowId, next)
-      } else {
-        writeLocalDraft(canvasLocalKey, next)
-      }
-    },
-    [workflowId, canvasLocalKey],
-  )
 
   const restoreCanvasVersion = async (version: number) => {
     if (workflowId === '') return
