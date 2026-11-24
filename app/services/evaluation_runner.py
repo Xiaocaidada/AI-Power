@@ -374,6 +374,17 @@ async def _evaluate_question(
         return item
 
     used_chunks = fit_context(chunks, max_context_chars)
+    cited_documents = {chunk.document_id for chunk in used_chunks}
+    item.citation_precision = (
+        round(len(cited_documents & relevant) / len(cited_documents), 4)
+        if cited_documents
+        else 0.0
+    )
+    item.citation_recall = (
+        round(len(cited_documents & relevant) / len(relevant), 4)
+        if relevant
+        else None
+    )
     answer_started = time.perf_counter()
     try:
         completion = await complete(
@@ -434,6 +445,30 @@ def compute_metrics(
     latencies = [item.latency_ms for item in items if item.latency_ms is not None]
     evidence_items = [item for item in items if item.evidence_hit is not None]
     judged = [item for item in items if item.judge_score is not None]
+    citation_items = [
+        item for item in items if item.citation_precision is not None
+    ]
+    citation_recall_items = [
+        item for item in items if item.citation_recall is not None
+    ]
+    citation_precision = (
+        round(
+            sum(item.citation_precision or 0.0 for item in citation_items)
+            / len(citation_items),
+            4,
+        )
+        if citation_items
+        else None
+    )
+    citation_recall = (
+        round(
+            sum(item.citation_recall or 0.0 for item in citation_recall_items)
+            / len(citation_recall_items),
+            4,
+        )
+        if citation_recall_items
+        else None
+    )
     metrics: dict[str, object] = {
         "total": total,
         "completed": sum(1 for item in items if item.error_code is None),
@@ -454,6 +489,21 @@ def compute_metrics(
         "evidence_hit_rate": (
             round(sum(1 for item in evidence_items if item.evidence_hit) / len(evidence_items), 4)
             if evidence_items
+            else None
+        ),
+        "citation_precision": citation_precision,
+        "citation_recall": citation_recall,
+        "citation_f1": (
+            round(
+                2
+                * citation_precision
+                * citation_recall
+                / (citation_precision + citation_recall),
+                4,
+            )
+            if citation_precision is not None
+            and citation_recall is not None
+            and (citation_precision + citation_recall) > 0
             else None
         ),
         "latency_p50_ms": _percentile(latencies, 50),

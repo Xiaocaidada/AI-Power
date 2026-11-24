@@ -207,6 +207,24 @@ async def _validate_model_choice(
         raise HTTPException(status_code, {"code": exc.code, "message": exc.message}) from None
 
 
+async def _validate_agent_attachments(
+    session: AsyncSession,
+    conversation: Conversation,
+    attachments: Sequence[ChatAttachment],
+) -> None:
+    if not attachments or conversation.custom_agent_id is None:
+        return
+    agent = await session.get(CustomAgent, conversation.custom_agent_id)
+    if agent is not None and not agent.attachments_enabled:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {
+                "code": "agent_attachments_disabled",
+                "message": "This Agent does not accept attachments",
+            },
+        )
+
+
 async def _validate_attachment_images(
     session: AsyncSession,
     context: AuthContext,
@@ -1770,6 +1788,7 @@ async def _start_chat_turn(
                 else status.HTTP_422_UNPROCESSABLE_CONTENT,
                 {"code": exc.code, "message": exc.message},
             ) from None
+    await _validate_agent_attachments(session, conversation, current_rows)
     await _validate_attachment_images(
         session,
         context,

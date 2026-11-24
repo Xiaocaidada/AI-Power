@@ -42,6 +42,7 @@ export interface StudioAgentDraft extends GenerationDraft {
   allowCopy: boolean
   showStructure: boolean
   memoryEnabled: boolean
+  attachmentsEnabled: boolean
   memoryReadGlobal: boolean
   memoryReadProject: boolean
   memoryReadAgent: boolean
@@ -86,6 +87,7 @@ export function draftFromAgent(agent: CustomAgent): StudioAgentDraft {
     allowCopy: agent.allow_copy,
     showStructure: agent.show_structure,
     memoryEnabled: agent.memory_enabled,
+    attachmentsEnabled: agent.attachments_enabled,
     memoryReadGlobal: agent.memory_read_global,
     memoryReadProject: agent.memory_read_project,
     memoryReadAgent: agent.memory_read_agent,

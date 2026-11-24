@@ -34,6 +34,11 @@ const STATUS_TONE: Record<string, 'neutral' | 'success' | 'warning' | 'danger'> 
   rolled_back: 'neutral',
 }
 
+function metricNumber(metrics: Record<string, unknown>, key: string): number | null {
+  const value = metrics[key]
+  return typeof value === 'number' ? value : null
+}
+
 const ACTIONABLE_KINDS = new Set([
   'merge_duplicates',
   'resolve_conflict',
@@ -52,6 +57,7 @@ export function MemoryQualityPanel() {
   const [caseNotes, setCaseNotes] = useState('')
   const [expectedIds, setExpectedIds] = useState<string[]>([])
   const [topK, setTopK] = useState(5)
+  const [generateAnswers, setGenerateAnswers] = useState(false)
   const [latestRun, setLatestRun] = useState<MemoryEvalRun | null>(null)
 
   const quality = useQuery({
@@ -164,7 +170,7 @@ export function MemoryQualityPanel() {
     try {
       const run = await apiRequest<MemoryEvalRun>('/memories/eval/run', {
         method: 'POST',
-        body: { top_k: topK },
+        body: { top_k: topK, generate_answers: generateAnswers },
       })
       setLatestRun(run)
       await queryClient.invalidateQueries({ queryKey: ['memory-eval-runs'] })
@@ -391,6 +397,14 @@ export function MemoryQualityPanel() {
                   className="h-8 w-16 rounded-lg border border-border bg-surface px-2 text-ink"
                 />
               </label>
+              <label className="flex items-center gap-1.5 text-xs text-ink-muted">
+                <input
+                  type="checkbox"
+                  checked={generateAnswers}
+                  onChange={(event) => setGenerateAnswers(event.target.checked)}
+                />
+                {t('memory.quality.generateAnswers')}
+              </label>
               <Button
                 size="sm"
                 variant="secondary"
@@ -444,14 +458,51 @@ export function MemoryQualityPanel() {
                 {t('memory.quality.casesCount', { count: activeRun.cases_count })}
               </Badge>
               <Badge tone="accent">
-                Precision {activeRun.metrics.precision?.toFixed(3) ?? '—'}
+                Precision {metricNumber(activeRun.metrics, 'precision')?.toFixed(3) ?? '—'}
               </Badge>
               <Badge tone="success">
-                Recall {activeRun.metrics.recall?.toFixed(3) ?? '—'}
+                Recall {metricNumber(activeRun.metrics, 'recall')?.toFixed(3) ?? '—'}
               </Badge>
               <Badge tone="warning">
-                MRR {activeRun.metrics.mrr?.toFixed(3) ?? '—'}
+                MRR {metricNumber(activeRun.metrics, 'mrr')?.toFixed(3) ?? '—'}
               </Badge>
+              {activeRun.metrics.generate_answers === true && (
+                <>
+                  <Badge tone="accent">
+                    {t('memory.quality.scoreWithMemory')}{' '}
+                    {metricNumber(
+                      activeRun.metrics,
+                      'answer_score_with_memory',
+                    )?.toFixed(2) ?? '—'}
+                  </Badge>
+                  <Badge tone="neutral">
+                    {t('memory.quality.scoreWithoutMemory')}{' '}
+                    {metricNumber(
+                      activeRun.metrics,
+                      'answer_score_without_memory',
+                    )?.toFixed(2) ?? '—'}
+                  </Badge>
+                  <Badge tone="success">
+                    {t('memory.quality.answerLift')}{' '}
+                    {metricNumber(activeRun.metrics, 'answer_lift')?.toFixed(2) ??
+                      '—'}
+                  </Badge>
+                  <Badge tone="neutral">
+                    {t('memory.quality.faithfulWithMemory')}{' '}
+                    {metricNumber(
+                      activeRun.metrics,
+                      'faithful_rate_with_memory',
+                    ) !== null
+                      ? `${(
+                          (metricNumber(
+                            activeRun.metrics,
+                            'faithful_rate_with_memory',
+                          ) ?? 0) * 100
+                        ).toFixed(0)}%`
+                      : '—'}
+                  </Badge>
+                </>
+              )}
               <span className="text-[11px] text-ink-muted">
                 {activeRun.duration_ms.toFixed(0)} ms
               </span>

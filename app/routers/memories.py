@@ -6,7 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
-from app.deps import AuthContext, get_jwt_context
+from app.deps import AuthContext, get_jwt_context, get_scoped_registry
+from app.providers.registry import ProviderRegistry
 from app.schemas import (
     MemoryBatchIn,
     MemoryBatchOut,
@@ -100,6 +101,7 @@ from app.services.memory_semantic import detect_semantic_contradictions
 router = APIRouter(prefix="/memories", tags=["memories"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 JwtContext = Annotated[AuthContext, Depends(get_jwt_context)]
+RegistryDep = Annotated[ProviderRegistry, Depends(get_scoped_registry)]
 
 
 def _error(exc: MemoryError) -> HTTPException:
@@ -638,7 +640,10 @@ async def delete_memory_eval_case(
 
 @router.post("/eval/run", response_model=MemoryEvalRunOut)
 async def run_memory_evaluation(
-    payload: MemoryEvalRunIn, context: JwtContext, session: SessionDep
+    payload: MemoryEvalRunIn,
+    context: JwtContext,
+    session: SessionDep,
+    registry: RegistryDep,
 ) -> MemoryEvalRunOut:
     try:
         row = await run_evaluation(
@@ -646,6 +651,10 @@ async def run_memory_evaluation(
             context.workspace.id,
             context.user.id,
             top_k=payload.top_k,
+            generate_answers=payload.generate_answers,
+            provider_id=payload.provider_id,
+            model=payload.model,
+            registry=registry,
         )
     except MemoryEvalError as exc:
         raise _eval_error(exc) from None

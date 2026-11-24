@@ -565,6 +565,7 @@ export interface CustomAgent {
   visibility: 'private' | 'shared'
   enabled: boolean
   memory_enabled: boolean
+  attachments_enabled: boolean
   memory_read_global: boolean
   memory_read_project: boolean
   memory_read_agent: boolean
@@ -1044,7 +1045,7 @@ export interface MemoryEvalRun {
   id: string
   status: string
   cases_count: number
-  metrics: Record<string, number>
+  metrics: Record<string, unknown>
   results: {
     case_id: string
     name: string
@@ -1055,6 +1056,13 @@ export interface MemoryEvalRun {
     precision: number
     recall: number
     mrr: number
+    answer_with_memory?: string | null
+    answer_without?: string | null
+    score_with_memory?: number | null
+    score_without_memory?: number | null
+    answer_lift?: number | null
+    faithful_with_memory?: boolean | null
+    faithful_without_memory?: boolean | null
   }[]
   duration_ms: number
   created_at: string

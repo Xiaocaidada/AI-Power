@@ -247,6 +247,7 @@ def fake_provider():
             self.error: Exception | None = None
             self.list_models_error: Exception | None = None
             self.complete_content: str | None = None
+            self.complete_contents: list[str] = []
             self.calls: list[tuple[list[object], str]] = []
             self.complete_calls: list[tuple[list[object], str]] = []
             self.opts_calls: list[dict[str, object]] = []
@@ -269,9 +270,12 @@ def fake_provider():
             self.opts_calls.append(dict(opts))
             if self.error is not None:
                 raise self.error
-            content = self.complete_content or "".join(
-                chunk.delta for chunk in self.chunks
-            )
+            if self.complete_contents:
+                content = self.complete_contents.pop(0)
+            else:
+                content = self.complete_content or "".join(
+                    chunk.delta for chunk in self.chunks
+                )
             usage = next(
                 (chunk.usage for chunk in self.chunks if chunk.usage is not None), None
             )

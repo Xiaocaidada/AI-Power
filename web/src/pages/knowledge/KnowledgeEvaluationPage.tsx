@@ -31,6 +31,11 @@ const COMPARE_KEYS = [
   'recall_at_10_docs',
   'ndcg_at_10',
   'mrr',
+  'citation_precision',
+  'citation_recall',
+  'citation_f1',
+  'faithful_rate',
+  'judge_avg_score',
   'latency_p95_ms',
   'success_rate',
 ] as const

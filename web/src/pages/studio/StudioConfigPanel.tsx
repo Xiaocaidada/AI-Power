@@ -236,6 +236,19 @@ export function StudioConfigPanel({
           <label className="mt-3 flex items-center gap-2 text-xs text-ink">
             <input
               type="checkbox"
+              checked={draft.attachmentsEnabled}
+              onChange={(event) =>
+                onChange({ attachmentsEnabled: event.target.checked })
+              }
+            />
+            {t('studio.attachmentsEnabled')}
+          </label>
+          <p className="mt-1 text-[10px] text-ink-muted">
+            {t('studio.attachmentsHint')}
+          </p>
+          <label className="mt-3 flex items-center gap-2 text-xs text-ink">
+            <input
+              type="checkbox"
               checked={draft.memoryEnabled}
               onChange={(event) => onChange({ memoryEnabled: event.target.checked })}
             />

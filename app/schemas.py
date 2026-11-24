@@ -1086,6 +1086,7 @@ class CustomAgentCreate(BaseModel):
     allow_copy: bool = True
     show_structure: bool = True
     memory_enabled: bool = False
+    attachments_enabled: bool = True
     memory_read_global: bool = True
     memory_read_project: bool = True
     memory_read_agent: bool = True
@@ -1131,6 +1132,7 @@ class CustomAgentUpdate(BaseModel):
     allow_copy: bool | None = None
     show_structure: bool | None = None
     memory_enabled: bool | None = None
+    attachments_enabled: bool | None = None
     memory_read_global: bool | None = None
     memory_read_project: bool | None = None
     memory_read_agent: bool | None = None
@@ -1175,6 +1177,7 @@ class CustomAgentOut(BaseModel):
     visibility: str
     enabled: bool
     memory_enabled: bool = False
+    attachments_enabled: bool = True
     memory_read_global: bool = True
     memory_read_project: bool = True
     memory_read_agent: bool = True
@@ -1791,6 +1794,9 @@ class MemoryEvalCaseOut(BaseModel):
 
 class MemoryEvalRunIn(BaseModel):
     top_k: int = Field(default=5, ge=1, le=20)
+    generate_answers: bool = False
+    provider_id: str | None = Field(default=None, max_length=50)
+    model: str | None = Field(default=None, max_length=200)
 
 
 class MemoryEvalRunOut(BaseModel):
