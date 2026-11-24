@@ -1,13 +1,15 @@
 import asyncio
+import logging
 from collections.abc import Awaitable
 from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import get_session
+from app.db import SessionLocal, get_session
 from app.deps import AuthContext, get_jwt_context, get_scoped_registry
 from app.providers.registry import ProviderRegistry
 from app.schemas import (
@@ -31,6 +33,9 @@ from app.services.agent_builder import (
     list_builder_sessions,
     run_builder_turn,
 )
+from app.services.model_stream import sse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/agent-builder", tags=["agent-builder"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -306,6 +311,157 @@ async def send_message(
     )
     await session.commit()
     return _turn_out(row.id, result)
+
+
+@router.post("/sessions/{session_id}/messages/stream")
+async def send_message_stream(
+    session_id: UUID,
+    payload: AgentBuilderMessageIn,
+    request: Request,
+    context: JwtContext,
+    session: SessionDep,
+    registry: RegistryDep,
+) -> StreamingResponse:
+    try:
+        await get_builder_session(
+            session, session_id, context.workspace.id, context.user.id
+        )
+    except AgentBuilderError as exc:
+        raise _http_error(exc) from None
+
+    async def generate():
+        yield sse("stage", {"stage": "preparing"})
+        async with SessionLocal() as db:
+            try:
+                row = await get_builder_session(
+                    db, session_id, context.workspace.id, context.user.id
+                )
+            except AgentBuilderError as exc:
+                yield sse(
+                    "error", {"code": exc.code, "message": exc.message}
+                )
+                return
+            current_definition = (
+                payload.current_definition
+                if payload.current_definition is not None
+                else (
+                    dict(row.draft_definition) if row.draft_definition else None
+                )
+            )
+            run_context = None
+            if payload.run_id is not None:
+                try:
+                    run_context = await build_run_context(
+                        db, payload.run_id, context.workspace.id
+                    )
+                except AgentBuilderError as exc:
+                    yield sse(
+                        "error", {"code": exc.code, "message": exc.message}
+                    )
+                    return
+            yield sse("stage", {"stage": "generating"})
+            task = asyncio.create_task(
+                run_builder_turn(
+                    db,
+                    registry,
+                    workspace_id=context.workspace.id,
+                    user_id=context.user.id,
+                    kind=payload.kind,
+                    prompt=payload.prompt,
+                    provider_id=row.provider_id,
+                    model=row.model,
+                    current_definition=current_definition,
+                    raw_agent_id=str(row.agent_id) if row.agent_id else None,
+                    run_context=run_context,
+                    scope=row.scope,
+                    history=list(row.messages or [])[-10:],
+                )
+            )
+            try:
+                while not task.done():
+                    done, _ = await asyncio.wait({task}, timeout=0.5)
+                    if done:
+                        break
+                    if await request.is_disconnected():
+                        task.cancel()
+                        try:
+                            await task
+                        except (asyncio.CancelledError, Exception):
+                            pass
+                        yield sse(
+                            "error",
+                            {
+                                "code": "generation_cancelled",
+                                "message": "Generation cancelled",
+                            },
+                        )
+                        return
+                try:
+                    result = task.result()
+                except AgentBuilderError as exc:
+                    yield sse(
+                        "error", {"code": exc.code, "message": exc.message}
+                    )
+                    return
+                except Exception:
+                    logger.exception("builder stream generation failed")
+                    yield sse(
+                        "error",
+                        {
+                            "code": "builder_failed",
+                            "message": "Builder generation failed",
+                        },
+                    )
+                    return
+                yield sse("stage", {"stage": "finalizing"})
+                if current_definition is not None:
+                    row.draft_definition = current_definition
+                append_builder_message(
+                    row,
+                    {
+                        "role": "user",
+                        "kind": payload.kind,
+                        "content": payload.prompt,
+                        "run_id": str(payload.run_id)
+                        if payload.run_id
+                        else None,
+                        "created_at": datetime.now(UTC).isoformat(),
+                    },
+                )
+                append_builder_message(
+                    row,
+                    {
+                        "role": "assistant",
+                        "kind": payload.kind,
+                        "content": (
+                            f"{result.message}\n\n{result.clarification}"
+                            if result.clarification
+                            else result.message
+                        ),
+                        "summary": result.summary,
+                        "definition": result.definition,
+                        "diff": result.diff,
+                        "missing_resources": result.missing_resources,
+                        "suggestions": result.suggestions,
+                        "clarification": result.clarification,
+                        "created_at": datetime.now(UTC).isoformat(),
+                    },
+                )
+                await db.commit()
+                yield sse(
+                    "result",
+                    _turn_out(row.id, result).model_dump(mode="json"),
+                )
+                yield sse("stage", {"stage": "done"})
+            finally:
+                if not task.done():
+                    task.cancel()
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post(

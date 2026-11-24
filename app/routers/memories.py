@@ -29,6 +29,7 @@ from app.schemas import (
     MemoryQualityOut,
     MemoryRelationIn,
     MemoryRelationOut,
+    MemoryRelationUpdate,
     MemorySemanticIn,
     MemorySemanticOut,
     MemorySettingsIn,
@@ -58,6 +59,7 @@ from app.services.memories import (
     restore_memory_version,
     retention_preview,
     update_memory,
+    update_memory_relation,
     update_memory_settings,
     upsert_memory_feedback,
     validate_memory_targets,
@@ -459,6 +461,29 @@ async def delete_relation_by_id(
         raise _error(exc) from None
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.patch("/relations/{relation_id}", response_model=MemoryRelationOut)
+async def update_relation_by_id(
+    relation_id: UUID,
+    payload: MemoryRelationUpdate,
+    context: JwtContext,
+    session: SessionDep,
+) -> MemoryRelationOut:
+    try:
+        row = await update_memory_relation(
+            session,
+            context.workspace.id,
+            context.user.id,
+            relation_id,
+            relation_type=payload.relation_type,
+            basis=payload.basis,
+        )
+    except MemoryError as exc:
+        raise _error(exc) from None
+    await session.commit()
+    await session.refresh(row)
+    return MemoryRelationOut.model_validate(row)
 
 
 @router.get("/quality", response_model=MemoryQualityOut)

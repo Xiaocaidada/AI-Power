@@ -30,6 +30,7 @@
 - 2026-11-24：P11-S10 完成剩余 P0：A-P0-2 模板链路验证、A-P0-4 项目 Agent/文件关联与工具、K-P0-5 处理版本对比、M-P0-6 记忆过滤维度。见 [p11-s10-p0-closure.md](../tdd/p11-s10-p0-closure.md)。
 - 2026-11-24：P11-S11 完成三项 P1：A-P1-5 Agent 运行分析、K-P1-3 解析原文预览、M-P1-5 记忆反馈闭环。见 [p11-s11-p1.md](../tdd/p11-s11-p1.md)。
 - 2026-11-24：P11-S12 完成 A-P1-4 附件能力、K-P1-4 引用/忠实度指标、M-P1-4 记忆 A/B 回答评测。见 [p11-s12-p1-followups.md](../tdd/p11-s12-p1-followups.md)。
+- 2026-11-24：P11-S13 完成 M-P1-2 关系编辑、A-P1-3 Builder 阶段流、K-P1-2 意图/同义词节点；K-P1-1 仍为部分。见 [p11-s13-p1-remainder.md](../tdd/p11-s13-p1-remainder.md)。
 
 ## 2. P0：下一阶段必须补齐
 
@@ -80,7 +81,7 @@
 |---|---|---|---|---|---|
 | A-P1-1 ✅ | 广场封面、发布者筛选、官方精选组合 | P11-S4 已新增封面、发布者/分类/官方筛选与 facets | `app/models.py`（CustomAgent）、`app/routers/agent_market.py`、`web/src/pages/market` | 封面字段、筛选/排序、审核展示 | 无 |
 | A-P1-2 ✅ | Agent 模板创建（从模板起步） | P11-S4 已提供三个模板与原子创建流程 | `app/services/custom_agents.py`、`web/src/pages/studio` | 模板定义、创建流程 | A-P0-2 |
-| A-P1-3 | AI Builder 流式状态与多轮上下文增强 | 无生成阶段流、澄清、取消已列 P0 | `app/routers/agent_builder.py`、`StudioBuilderPanel.tsx` | SSE/阶段事件、上下文摘要 | X-P0-4 |
+| A-P1-3 ✅ | AI Builder 流式状态与多轮上下文增强 | P11-S13 已新增阶段 SSE、断连取消；多轮/澄清沿用 S3 | `app/routers/agent_builder.py`、`StudioBuilderPanel.tsx` | SSE/阶段事件、上下文摘要 | X-P0-4 |
 | A-P1-4 ✅ | Agent 附件能力声明与限制 | P11-S12 已新增 `attachments_enabled` 声明、上传/消息校验与 Studio 开关 | `app/services/custom_agents.py`、`app/routers/conversations.py`、`StudioConfigPanel.tsx` | 能力字段、上传/解析开关 | 无 |
 | A-P1-5 ✅ | Agent 级运行分析与工作流优化建议 | P11-S11 已新增成功率/耗时/成本/失败码/慢节点与规则建议 | `app/services/custom_agents.py::list_agent_runs`、`app/metrics.py`、`AgentExperiencePage.tsx` | 聚合指标、失败原因、建议 | X-P0-3 |
 
@@ -89,7 +90,7 @@
 | ID | 缺口 | 现状 | 代码入口 | 改动范围 | 依赖 |
 |---|---|---|---|---|---|
 | K-P1-1 ◐ | 完整处理节点库 | P11-S5 已补文本过滤/增强节点；OCR 节点、格式专用解析、独立全文/混合索引模式仍缺 | `app/services/knowledge/catalog.py`、`pipeline.py` | OCR 节点、格式专用解析、文本处理、全文/混合索引 | K-P0-1/2 |
-| K-P1-2 ◐ | 完整检索节点库 | P11-S6 已补多查询与空结果回退；意图识别/分类路由/同义词扩展仍缺 | `app/services/knowledge/retrieval_catalog.py`、`retrieval_pipeline.py` | 新节点、条件分支或回退语义 | K-P0-3 |
+| K-P1-2 ✅ | 完整检索节点库 | P11-S6/S13 已补多查询、回退、意图分类路由与同义词扩展 | `app/services/knowledge/retrieval_catalog.py`、`retrieval_pipeline.py` | 新节点、条件分支或回退语义 | K-P0-3 |
 | K-P1-3 ✅ | 文档处理结果与解析原文预览 | P11-S11 已新增按页解析原文预览与截断/错误提示 | `web/src/pages/knowledge/KnowledgeChunksTab.tsx`、`app/services/parsing.py` | 解析文本/结构预览、失败定位 | 无 |
 | K-P1-4 ✅ | 评估指标补齐：引用准确性、答案忠实度 | P11-S12 已新增引用准确率/召回/F1，并展示忠实度与判分 | `app/services/knowledge/metrics.py`、`app/services/evaluation_runner.py` | 引用校验、答案指标 | 评测平台 |
 
@@ -98,7 +99,7 @@
 | ID | 缺口 | 现状 | 代码入口 | 改动范围 | 依赖 |
 |---|---|---|---|---|---|
 | M-P1-1 ✅ | 按模型/Agent 的细粒度读取白名单 | P11-S8 已新增 provider/model/agent 白名单 | `app/services/memory_permissions.py`、`MemorySettingsPanel.tsx` | 模型/Agent 白名单、选择器 | 无 |
-| M-P1-2 | 记忆关系编辑增强 | 只能创建/删除，不能改类型/依据 | `app/routers/memories.py`、`MemoryDetailDialog.tsx` | PATCH 关系、依据编辑 | 无 |
+| M-P1-2 ✅ | 记忆关系编辑增强 | P11-S13 已新增 PATCH 关系类型/依据与内联编辑 | `app/routers/memories.py`、`MemoryDetailDialog.tsx` | PATCH 关系、依据编辑 | 无 |
 | M-P1-3 ✅ | 记忆完整度/变化分析 | P11-S8 已新增最近变化与偏好/项目/技术维度统计 | `app/services/memory_quality.py`、`MemoryPage.tsx` | 版本对比、变化摘要 | M-P0-3 |
 | M-P1-4 ✅ | 记忆评测与回答效果联动 | P11-S12 已新增有/无记忆 A/B 回答生成与判分 | `app/services/memory_eval.py`、`app/services/rag.py` | A/B 注入对比、回答质量指标 | 评测平台 |
 | M-P1-5 ✅ | 记忆反馈闭环 | P11-S11 已新增反馈表/API、排序加成与质量建议 | `app/models.py`、`app/services/memories.py`、`MemoryPage.tsx` | 反馈表、排序权重、质量建议 | 无 |
@@ -130,6 +131,7 @@
 | P11-S10 ✅ | 剩余 P0 收尾 | A-P0-2/A-P0-4、K-P0-5、M-P0-6 | S9 |
 | P11-S11 ✅ | P1 体验闭环 | A-P1-5、K-P1-3、M-P1-5 | S10 |
 | P11-S12 ✅ | P1 能力与评测补齐 | A-P1-4、K-P1-4、M-P1-4 | S11 |
+| P11-S13 ✅ | 剩余 P1 | M-P1-2、A-P1-3、K-P1-2 | S12 |
 
 ## 6. 验收基线
 

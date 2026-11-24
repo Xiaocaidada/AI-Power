@@ -1466,6 +1466,52 @@ async def create_memory_relation(
     return relation
 
 
+async def update_memory_relation(
+    session: AsyncSession,
+    workspace_id: UUID,
+    user_id: UUID,
+    relation_id: UUID,
+    *,
+    relation_type: str | None = None,
+    basis: str | None = None,
+) -> MemoryRelation:
+    row = (
+        await session.execute(
+            select(MemoryRelation).where(
+                MemoryRelation.id == relation_id,
+                MemoryRelation.workspace_id == workspace_id,
+                MemoryRelation.user_id == user_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise MemoryError("not_found", "Relation not found")
+    if relation_type is not None:
+        if relation_type not in RELATION_TYPES:
+            raise MemoryError("invalid_relation", "Invalid relation type")
+        if relation_type != row.relation_type:
+            existing = (
+                await session.execute(
+                    select(MemoryRelation.id).where(
+                        MemoryRelation.from_type == row.from_type,
+                        MemoryRelation.from_id == row.from_id,
+                        MemoryRelation.to_type == row.to_type,
+                        MemoryRelation.to_id == row.to_id,
+                        MemoryRelation.relation_type == relation_type,
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing is not None:
+                raise MemoryError(
+                    "invalid_relation", "This relation type already exists"
+                )
+            row.relation_type = relation_type
+    if basis is not None:
+        row.basis = basis.strip()[:500]
+    await session.flush()
+    return row
+
+
 async def delete_memory_relation(
     session: AsyncSession,
     workspace_id: UUID,

@@ -44,6 +44,33 @@ KNOWLEDGE_RETRIEVAL_CATALOG: list[dict[str, Any]] = [
         ],
     },
     {
+        "type": "intent_classify",
+        "label": "意图分类",
+        "description": "用 LLM 识别问题意图；可按意图路由到指定知识库。",
+        "icon": "Brain",
+        "config_fields": [
+            {"name": "provider_id", "label": "模型提供商", "kind": "provider", "required": True},
+            {"name": "model", "label": "模型", "kind": "model", "required": True},
+            {"name": "categories", "label": "意图分类列表", "kind": "json"},
+            {"name": "routes", "label": "意图到知识库路由 JSON", "kind": "json"},
+            {"name": "prompt", "label": "分类 Prompt", "kind": "textarea"},
+            {"name": "system_prompt", "label": "System Prompt", "kind": "textarea"},
+        ],
+    },
+    {
+        "type": "synonym_expand",
+        "label": "同义词扩展",
+        "description": "用 LLM 生成同义词/相关词并追加到检索问题。",
+        "icon": "Sparkles",
+        "config_fields": [
+            {"name": "provider_id", "label": "模型提供商", "kind": "provider", "required": True},
+            {"name": "model", "label": "模型", "kind": "model", "required": True},
+            {"name": "max_terms", "label": "最大扩展词数", "kind": "number"},
+            {"name": "prompt", "label": "扩展 Prompt", "kind": "textarea"},
+            {"name": "system_prompt", "label": "System Prompt", "kind": "textarea"},
+        ],
+    },
+    {
         "type": "vector_search",
         "label": "向量检索",
         "description": "按 KB 的 Embedding 配置做向量召回。",

@@ -13,6 +13,7 @@ import {
 } from '../../lib/builderApply'
 import { errorTextKey } from '../../lib/errorText'
 import { apiRequest } from '../../lib/http'
+import { streamBuilderTurn } from '../../lib/sse'
 import { useI18n } from '../../lib/i18n'
 import type {
   AgentBuilderDiff,
@@ -145,6 +146,7 @@ export function StudioBuilderPanel({
   const [turn, setTurn] = useState<AgentBuilderTurn | null>(null)
   const [selection, setSelection] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
+  const [stage, setStage] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [newSession, setNewSession] = useState(false)
   const controllerRef = useRef<AbortController | null>(null)
@@ -260,19 +262,37 @@ export function StudioBuilderPanel({
     controllerRef.current = controller
     try {
       const id = await ensureSession()
-      const result = await apiRequest<AgentBuilderTurn>(
-        `/agent-builder/sessions/${id}/messages`,
-        {
-          method: 'POST',
-          signal: controller.signal,
-          body: {
-            kind: mode,
-            prompt: prompt.trim(),
-            current_definition: currentDefinition,
-            run_id: mode === 'fix' ? lastRunId : null,
-          },
+      let result: AgentBuilderTurn | undefined
+      let failure: string | null = null
+      setStage('preparing')
+      await streamBuilderTurn({
+        sessionId: id,
+        signal: controller.signal,
+        body: {
+          kind: mode,
+          prompt: prompt.trim(),
+          current_definition: currentDefinition,
+          run_id: mode === 'fix' ? lastRunId : null,
         },
-      )
+        onEvent: (event) => {
+          const data = event.data as Record<string, unknown>
+          if (event.event === 'stage') {
+            setStage(String(data.stage ?? ''))
+          } else if (event.event === 'result') {
+            result = event.data as AgentBuilderTurn
+          } else if (event.event === 'error') {
+            failure = String(data.message ?? data.code ?? '')
+          }
+        },
+      })
+      if (failure !== null) {
+        setError(failure)
+        return
+      }
+      if (result === undefined) {
+        setError(t('errors.generic'))
+        return
+      }
       const userMessage: AgentBuilderMessage = {
         role: 'user',
         kind: mode,
@@ -439,7 +459,11 @@ export function StudioBuilderPanel({
               onClick={() => void send()}
             >
               <Send className="h-3.5 w-3.5" />
-              {loading ? t('studio.builderGenerating') : t('studio.builderSend')}
+              {loading
+                ? stage !== ''
+                  ? t(`studio.builderStage.${stage}`)
+                  : t('studio.builderGenerating')
+                : t('studio.builderSend')}
             </Button>
             {loading && (
               <Button size="sm" variant="secondary" onClick={cancelGeneration}>

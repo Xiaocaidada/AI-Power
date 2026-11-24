@@ -172,6 +172,27 @@ export async function streamChat({
   )
 }
 
+export interface StreamBuilderTurnOptions {
+  sessionId: string
+  body: Record<string, unknown>
+  signal?: AbortSignal
+  onEvent: SseHandler
+}
+
+export async function streamBuilderTurn({
+  sessionId,
+  body,
+  signal,
+  onEvent,
+}: StreamBuilderTurnOptions): Promise<void> {
+  return streamResponse(
+    `${API_BASE}/agent-builder/sessions/${sessionId}/messages/stream`,
+    body,
+    signal,
+    onEvent,
+  )
+}
+
 export interface StreamRegenerateOptions {
   conversationId: string
   messageId: string
