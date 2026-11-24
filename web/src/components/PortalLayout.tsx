@@ -1,8 +1,18 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, CheckCheck, Code2, LayoutDashboard, LogIn, Sparkles } from 'lucide-react'
+import {
+  Bell,
+  CheckCheck,
+  Github,
+  KeyRound,
+  LayoutDashboard,
+  LogIn,
+  Menu,
+  Sparkles,
+} from 'lucide-react'
 import { useState } from 'react'
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
 
+import { UserAvatarMenu } from './UserAvatarMenu'
 import { Button } from './ui/button'
 import { apiRequest } from '../lib/http'
 import { useI18n } from '../lib/i18n'
@@ -10,12 +20,13 @@ import type { NotificationFeed } from '../lib/types'
 import { cn } from '../lib/utils'
 import { useAuthStore } from '../store/auth'
 
+const GITHUB_URL = import.meta.env.VITE_GITHUB_URL ?? 'https://github.com'
+
 export function PortalLayout() {
   const { t } = useI18n()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const status = useAuthStore((state) => state.status)
-  const user = useAuthStore((state) => state.user)
   const [showNotifications, setShowNotifications] = useState(false)
 
   const notifications = useQuery({
@@ -31,37 +42,74 @@ export function PortalLayout() {
     await queryClient.invalidateQueries({ queryKey: ['notifications'] })
   }
 
+  const go = (path: string) => {
+    if (status === 'authenticated') {
+      navigate(path)
+    } else {
+      navigate('/login', { state: { from: path } })
+    }
+  }
+
+  const createItems = [
+    { to: '/prompt-lab', label: t('promptLab.title') },
+    { to: '/arena', label: t('arena.title') },
+    { to: '/model-eval', label: t('modelEval.title') },
+  ]
+  const resourceItems = [
+    { to: '/announcements', label: t('announcements.title') },
+    { to: '/help', label: t('help.title') },
+  ]
+
   return (
     <div className="flex min-h-dvh flex-col bg-canvas">
       <header className="sticky top-0 z-30 border-b border-border bg-surface/90 backdrop-blur">
-        <div className="mx-auto flex h-16 w-full max-w-7xl items-center gap-6 px-4 sm:px-6">
-          <Link to="/" className="flex items-center gap-2 text-ink">
+        <div className="mx-auto flex h-16 w-full max-w-7xl items-center gap-4 px-4 sm:px-6">
+          <MobileMenu createItems={createItems} resourceItems={resourceItems} />
+          <Link to="/" className="flex shrink-0 items-center gap-2 text-ink">
             <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-accent-soft text-accent">
               <Sparkles className="h-4 w-4" />
             </span>
             <span className="font-serif text-lg">{t('common.appName')}</span>
           </Link>
-          <nav className="hidden items-center gap-1 md:flex">
-            <PortalLink to="/" label={t('portal.home')} end />
+          <nav className="hidden items-center gap-0.5 whitespace-nowrap lg:flex">
             <PortalLink to="/models" label={t('portal.models')} />
             <PortalLink to="/market/agents" label={t('market.nav')} />
-            <PortalLink to="/arena" label={t('arena.title')} />
-            <PortalLink to="/prompt-lab" label={t('promptLab.title')} />
-            <PortalLink to="/model-eval" label={t('modelEval.title')} />
-            <PortalLink to="/announcements" label={t('announcements.title')} />
-            <PortalLink to="/help" label={t('help.title')} />
-            <PortalLink to="/chat" label={t('portal.workspace')} />
+            <PortalMenu label={t('portal.create')} items={createItems} />
+            <PortalMenu label={t('portal.resources')} items={resourceItems} />
           </nav>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-1.5">
+            {status === 'authenticated' && (
+              <Link
+                to="/dashboard"
+                aria-label={t('nav.console')}
+                title={t('nav.console')}
+                className="hidden rounded-lg p-2 text-ink-muted hover:bg-surface-muted hover:text-ink sm:block"
+              >
+                <LayoutDashboard className="h-4 w-4" />
+              </Link>
+            )}
             <a
-              href="https://github.com"
+              href={GITHUB_URL}
               target="_blank"
               rel="noreferrer"
               aria-label="GitHub"
               className="hidden rounded-lg p-2 text-ink-muted hover:bg-surface-muted hover:text-ink sm:block"
             >
-              <Code2 className="h-4 w-4" />
+              <Github className="h-4 w-4" />
             </a>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="hidden sm:inline-flex"
+              onClick={() => go('/settings/api-keys')}
+            >
+              <KeyRound className="h-3.5 w-3.5" />
+              {t('portal.getApiKey')}
+            </Button>
+            <Button size="sm" onClick={() => go('/chat')}>
+              <Sparkles className="h-3.5 w-3.5" />
+              {t('portal.tryNow')}
+            </Button>
             {status === 'authenticated' ? (
               <>
                 <div className="relative">
@@ -84,7 +132,7 @@ export function PortalLayout() {
                         className="fixed inset-0 z-40"
                         onClick={() => setShowNotifications(false)}
                       />
-                      <div className="absolute right-0 top-full z-50 mt-2 w-80 rounded-2xl border border-border bg-surface shadow-xl">
+                      <div className="absolute right-0 top-full z-50 mt-2 w-80 animate-pop rounded-2xl border border-border bg-surface shadow-xl">
                         <div className="flex items-center justify-between border-b border-border px-4 py-3">
                           <div>
                             <p className="text-sm font-semibold text-ink">
@@ -149,13 +197,7 @@ export function PortalLayout() {
                     </>
                   )}
                 </div>
-                <span className="hidden max-w-[180px] truncate text-xs text-ink-muted sm:block">
-                  {user?.email ?? ''}
-                </span>
-                <Button size="sm" onClick={() => navigate('/chat')}>
-                  <LayoutDashboard className="h-3.5 w-3.5" />
-                  {t('portal.console')}
-                </Button>
+                <UserAvatarMenu />
               </>
             ) : (
               <Button size="sm" variant="secondary" onClick={() => navigate('/login')}>
@@ -166,7 +208,7 @@ export function PortalLayout() {
           </div>
         </div>
       </header>
-      <main className="flex flex-1 flex-col">
+      <main className="flex flex-1 flex-col animate-page">
         <Outlet />
       </main>
       <footer className="border-t border-border bg-surface px-6 py-6">
@@ -181,8 +223,8 @@ export function PortalLayout() {
             <Link to="/help" className="hover:text-ink">
               {t('help.title')}
             </Link>
-            <Link to="/chat" className="hover:text-ink">
-              {t('portal.console')}
+            <Link to="/dashboard" className="hover:text-ink">
+              {t('nav.console')}
             </Link>
           </div>
         </div>
@@ -198,12 +240,77 @@ function PortalLink({ to, label, end }: { to: string; label: string; end?: boole
       end={end}
       className={({ isActive }) =>
         cn(
-          'rounded-lg px-3 py-2 text-sm transition-colors',
+          'rounded-lg px-2.5 py-2 text-sm transition-colors',
           isActive ? 'bg-accent-soft font-medium text-accent' : 'text-ink-muted hover:text-ink',
         )
       }
     >
       {label}
     </NavLink>
+  )
+}
+
+function PortalMenu({
+  label,
+  items,
+}: {
+  label: string
+  items: { to: string; label: string }[]
+}) {
+  return (
+    <details className="group relative">
+      <summary className="flex cursor-pointer list-none items-center gap-1 rounded-lg px-2.5 py-2 text-sm text-ink-muted hover:text-ink [&::-webkit-details-marker]:hidden">
+        {label}
+        <span className="text-[10px] transition-transform group-open:rotate-180">▾</span>
+      </summary>
+      <div className="absolute left-0 top-full z-50 mt-1 w-44 animate-pop overflow-hidden rounded-xl border border-border bg-surface py-1 shadow-xl">
+        {items.map((item) => (
+          <Link
+            key={item.to}
+            to={item.to}
+            className="block px-3 py-2 text-sm text-ink-muted hover:bg-surface-muted hover:text-ink"
+          >
+            {item.label}
+          </Link>
+        ))}
+      </div>
+    </details>
+  )
+}
+
+function MobileMenu({
+  createItems,
+  resourceItems,
+}: {
+  createItems: { to: string; label: string }[]
+  resourceItems: { to: string; label: string }[]
+}) {
+  const { t } = useI18n()
+  return (
+    <details className="group relative lg:hidden">
+      <summary
+        aria-label={t('portal.menu')}
+        className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-lg text-ink-muted hover:bg-surface-muted hover:text-ink [&::-webkit-details-marker]:hidden"
+      >
+        <Menu className="h-5 w-5" />
+      </summary>
+      <div className="absolute left-0 top-full z-50 mt-1 w-56 animate-pop overflow-hidden rounded-xl border border-border bg-surface py-1 shadow-xl">
+        <Link to="/models" className="block px-3 py-2 text-sm hover:bg-surface-muted">
+          {t('portal.models')}
+        </Link>
+        <Link to="/market/agents" className="block px-3 py-2 text-sm hover:bg-surface-muted">
+          {t('market.nav')}
+        </Link>
+        {[...createItems, ...resourceItems].map((item) => (
+          <Link
+            key={item.to}
+            to={item.to}
+            className="block px-3 py-2 text-sm hover:bg-surface-muted"
+          >
+            {item.label}
+          </Link>
+        ))}
+      </div>
+    </details>
   )
 }

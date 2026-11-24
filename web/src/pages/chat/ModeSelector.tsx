@@ -16,6 +16,7 @@ interface ModeSelectorProps {
   disabled?: boolean
   variant?: 'chip' | 'ghost'
   placement?: 'top' | 'bottom'
+  hiddenModes?: ChatMode[]
 }
 
 export function ModeSelector({
@@ -25,9 +26,11 @@ export function ModeSelector({
   disabled = false,
   variant = 'chip',
   placement = 'bottom',
+  hiddenModes = [],
 }: ModeSelectorProps) {
   const { t } = useI18n()
-  const options: PopoverSelectOption[] = CHAT_MODES.map((mode) => {
+  const visibleModes = CHAT_MODES.filter((mode) => !hiddenModes.includes(mode))
+  const options: PopoverSelectOption[] = visibleModes.map((mode) => {
     const implemented = isModeImplemented(mode, catalog)
     return {
       value: mode,

@@ -64,6 +64,7 @@ import { SharePage } from './pages/chat/SharePage'
 import { SnippetsPage } from './pages/snippets/SnippetsPage'
 import { ResearchPage } from './pages/research/ResearchPage'
 import { AgentTasksPage } from './pages/tasks/AgentTasksPage'
+import { ToolLayout } from './components/ToolLayout'
 import { IntegrationsPage } from './pages/settings/IntegrationsPage'
 import { MultimodalPage } from './pages/media/MultimodalPage'
 import { SkillsPage } from './pages/skills/SkillsPage'
@@ -127,11 +128,13 @@ export function App() {
           <Route path="chat/:id" element={<ChatPage />} />
         </Route>
         <Route path="share/:token" element={<SharePage />} />
-        <Route element={<AppShell />}>
+        <Route element={<ToolLayout />}>
           <Route path="arena" element={<ArenaPage />} />
           <Route path="arena/:id" element={<ArenaDetailPage />} />
           <Route path="prompt-lab" element={<PromptLabPage />} />
           <Route path="model-eval" element={<ModelEvalPage />} />
+        </Route>
+        <Route element={<AppShell />}>
           <Route path="archive" element={<ArchivedConversationsPage />} />
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="projects/:id" element={<ProjectDetailPage />} />

@@ -2,32 +2,50 @@ import { useQuery } from '@tanstack/react-query'
 import {
   ArrowRight,
   BookOpen,
+  Bot,
   Boxes,
+  Brain,
   CalendarDays,
   Layers,
   MessageSquare,
   Pin,
   Sparkles,
 } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import ReactMarkdown from 'react-markdown'
 import { Link, useNavigate } from 'react-router-dom'
 
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
-import { Textarea } from '../../components/ui/input'
 import { Spinner } from '../../components/ui/spinner'
+import { errorMessage } from '../../lib/errors'
 import { formatDate } from '../../lib/format'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
-import type { Announcement, HomeFeed, HomePlacement, MarketModel } from '../../lib/types'
+import { streamChat } from '../../lib/sse'
+import type {
+  Announcement,
+  Conversation,
+  HomeFeed,
+  HomePlacement,
+  MarketModel,
+  ModelEntry,
+  ProviderConfig,
+} from '../../lib/types'
 import { useAuthStore } from '../../store/auth'
+import { Composer } from '../chat/Composer'
 
 export function HomePage() {
   const { t } = useI18n()
   const navigate = useNavigate()
   const status = useAuthStore((state) => state.status)
   const [prompt, setPrompt] = useState('')
-  const [modelSlug, setModelSlug] = useState('')
+  const [modelValue, setModelValue] = useState('auto::auto')
+  const [answer, setAnswer] = useState('')
+  const [answerConversationId, setAnswerConversationId] = useState<string | null>(null)
+  const [streaming, setStreaming] = useState(false)
+  const [homeError, setHomeError] = useState<string | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
 
   const featured = useQuery({
     queryKey: ['home-featured-models'],
@@ -45,19 +63,67 @@ export function HomePage() {
   const placements = [...(home.data?.featured ?? []), ...(home.data?.activities ?? [])]
   const announcements = home.data?.announcements ?? []
 
-  const start = () => {
-    const selected = (featured.data ?? []).find((model) => model.slug === modelSlug)
-    const params = new URLSearchParams()
-    if (selected !== undefined) {
-      params.set('provider', selected.provider_id)
-      params.set('model', selected.model_id)
+  const models = useQuery({
+    queryKey: ['home-models'],
+    queryFn: () => apiRequest<ModelEntry[]>('/models'),
+    enabled: status === 'authenticated',
+  })
+  const providers = useQuery({
+    queryKey: ['home-providers'],
+    queryFn: () => apiRequest<ProviderConfig[]>('/provider-configs'),
+    enabled: status === 'authenticated',
+  })
+
+  useEffect(() => {
+    if (status !== 'authenticated') return
+    const pending = sessionStorage.getItem('home_pending_prompt')
+    if (pending !== null && pending.trim() !== '') {
+      setPrompt(pending)
+      sessionStorage.removeItem('home_pending_prompt')
     }
-    if (prompt.trim() !== '') params.set('prompt', prompt.trim())
-    const target = `/chat/new${params.toString() ? `?${params.toString()}` : ''}`
-    if (status === 'anonymous') {
-      navigate('/login', { state: { from: target } })
-    } else {
-      navigate(target)
+  }, [status])
+
+  const start = async (content: string): Promise<void> => {
+    if (status !== 'authenticated') {
+      sessionStorage.setItem('home_pending_prompt', content)
+      navigate('/login', { state: { from: '/' } })
+      return
+    }
+    setStreaming(true)
+    setHomeError(null)
+    setAnswer('')
+    setAnswerConversationId(null)
+    setPrompt('')
+    try {
+      const [providerId, model] = modelValue.split('::')
+      const conversation = await apiRequest<Conversation>('/conversations', {
+        method: 'POST',
+        body: { provider_id: providerId, model },
+      })
+      setAnswerConversationId(conversation.id)
+      const controller = new AbortController()
+      abortRef.current = controller
+      await streamChat({
+        conversationId: conversation.id,
+        content,
+        mode: 'chat',
+        signal: controller.signal,
+        onEvent: (event) => {
+          if (event.data === null || typeof event.data !== 'object') return
+          const data = event.data as Record<string, unknown>
+          if (event.event === 'delta') {
+            setAnswer((previous) => previous + String(data.text ?? ''))
+          } else if (event.event === 'error') {
+            setHomeError(String(data.message ?? t('errors.generic')))
+          }
+        },
+      })
+    } catch (caught) {
+      if (abortRef.current?.signal.aborted !== true) {
+        setHomeError(errorMessage(caught))
+      }
+    } finally {
+      setStreaming(false)
     }
   }
 
@@ -80,38 +146,68 @@ export function HomePage() {
             {t('portal.heroLead')}
           </p>
 
-          <div className="mx-auto mt-8 max-w-3xl rounded-3xl border border-border bg-surface p-3 text-left shadow-[0_24px_80px_-40px_var(--accent)]">
-            <Textarea
-              className="min-h-28 border-0 bg-transparent px-3 py-2 text-base focus:border-0"
+          <div className="mx-auto mt-8 max-w-3xl animate-page text-left">
+            <Composer
               value={prompt}
-              onChange={(event) => setPrompt(event.target.value)}
+              onValueChange={setPrompt}
+              onSend={start}
+              size="hero"
+              autoFocus
+              showAttach={false}
+              streaming={streaming}
+              onStop={() => abortRef.current?.abort()}
               placeholder={t('portal.inputPlaceholder')}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.shiftKey) {
-                  event.preventDefault()
-                  start()
-                }
-              }}
+              footerStart={
+                <>
+                  <select
+                    aria-label={t('portal.model')}
+                    className="h-7 max-w-44 rounded-md border border-border bg-surface px-1 text-[11px] text-ink"
+                    value={modelValue}
+                    disabled={status !== 'authenticated'}
+                    onChange={(event) => setModelValue(event.target.value)}
+                  >
+                    <option value="auto::auto">{t('portal.autoModel')}</option>
+                    {(models.data ?? [])
+                      .filter((model) => model.available)
+                      .map((model) => (
+                        <option
+                          key={`${model.provider_id}::${model.model_id}`}
+                          value={`${model.provider_id}::${model.model_id}`}
+                        >
+                          {model.display_name}
+                        </option>
+                      ))}
+                  </select>
+                  <span className="hidden text-[11px] text-ink-muted sm:inline">
+                    {status === 'authenticated' ? t('portal.inlineHint') : t('portal.loginHint')}
+                  </span>
+                </>
+              }
             />
-            <div className="flex flex-wrap items-center gap-2 border-t border-border px-2 pt-3">
-              <select
-                className="h-9 rounded-lg border border-border bg-surface px-2 text-sm text-ink"
-                value={modelSlug}
-                onChange={(event) => setModelSlug(event.target.value)}
-              >
-                <option value="">{t('portal.autoModel')}</option>
-                {featureCards.map((model) => (
-                  <option key={model.slug} value={model.slug}>
-                    {model.name}
-                  </option>
-                ))}
-              </select>
-              <span className="text-xs text-ink-muted">{t('portal.loginHint')}</span>
-              <Button size="sm" className="ml-auto" onClick={start}>
-                <MessageSquare className="h-3.5 w-3.5" />
-                {t('portal.start')}
-              </Button>
-            </div>
+            {(streaming || answer !== '' || homeError !== null) && (
+              <div className="mt-3 animate-page rounded-2xl border border-border bg-surface p-4 shadow-subtle">
+                {homeError !== null && <p className="text-sm text-danger">{homeError}</p>}
+                {streaming && answer === '' ? (
+                  <div className="flex items-center gap-2 text-sm text-ink-muted">
+                    <Spinner />
+                    {t('chat.generating')}
+                  </div>
+                ) : (
+                  <div className="markdown text-sm text-ink">
+                    <ReactMarkdown>{answer}</ReactMarkdown>
+                  </div>
+                )}
+                {answerConversationId !== null && (
+                  <Link
+                    to={`/chat/${answerConversationId}`}
+                    className="mt-3 inline-flex items-center gap-1 text-sm text-accent hover:underline"
+                  >
+                    {t('portal.continueChat')}
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </Link>
+                )}
+              </div>
+            )}
           </div>
 
           {banners.length > 0 && (
@@ -121,6 +217,52 @@ export function HomePage() {
               ))}
             </div>
           )}
+        </div>
+      </section>
+
+      <section className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6">
+        <h2 className="text-lg font-semibold text-ink">{t('portal.capabilityTitle')}</h2>
+        <p className="mt-1 text-sm text-ink-muted">{t('portal.capabilityLead')}</p>
+        <div className="mt-5 grid gap-4 md:grid-cols-3">
+          <EntryCard
+            to="/studio"
+            icon={Bot}
+            title={t('portal.capabilityAgent')}
+            description={t('portal.capabilityAgentLead')}
+          />
+          <EntryCard
+            to="/knowledge"
+            icon={BookOpen}
+            title={t('portal.capabilityKnowledge')}
+            description={t('portal.capabilityKnowledgeLead')}
+          />
+          <EntryCard
+            to="/memory"
+            icon={Brain}
+            title={t('portal.capabilityMemory')}
+            description={t('portal.capabilityMemoryLead')}
+          />
+        </div>
+      </section>
+
+      <section className="border-y border-border bg-surface">
+        <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-5 px-4 py-8 sm:px-6">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-accent-soft text-accent">
+            <Layers className="h-5 w-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-base font-semibold text-ink">{t('portal.providerTitle')}</h2>
+            <p className="mt-1 text-sm text-ink-muted">{t('portal.providerLead')}</p>
+          </div>
+          {status === 'authenticated' && (
+            <Badge tone="neutral">
+              {t('portal.providerCount', { count: providers.data?.length ?? 0 })}
+            </Badge>
+          )}
+          <Button variant="secondary" size="sm" onClick={() => navigate('/settings/providers')}>
+            {t('portal.manageProviders')}
+            <ArrowRight className="h-3.5 w-3.5" />
+          </Button>
         </div>
       </section>
 
@@ -217,10 +359,10 @@ export function HomePage() {
             description={t('portal.entryModels')}
           />
           <EntryCard
-            to="/chat"
+            to="/dashboard"
             icon={MessageSquare}
-            title={t('portal.workspace')}
-            description={t('portal.entryChat')}
+            title={t('nav.console')}
+            description={t('portal.entryConsole')}
           />
           <EntryCard
             to="/knowledge"

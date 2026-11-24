@@ -20,6 +20,7 @@ interface ComposerProps {
   size?: 'default' | 'hero'
   autoFocus?: boolean
   footerStart?: ReactNode
+  footerEnd?: ReactNode
   showAttach?: boolean
   attachments?: ChatAttachment[]
   attaching?: boolean
@@ -38,6 +39,7 @@ export function Composer({
   size = 'default',
   autoFocus = false,
   footerStart,
+  footerEnd,
   showAttach = true,
   attachments = [],
   attaching = false,
@@ -165,22 +167,25 @@ export function Composer({
             {countVisible ? `${value.length}/${MAX_MESSAGE_CHARS}` : ''}
           </span>
         </div>
-        {streaming ? (
-          <Button size="sm" variant="secondary" onClick={onStop}>
-            <Square className="h-3 w-3" />
-            {t('chat.stop')}
-          </Button>
-        ) : (
-          <Button
-            size="sm"
-            aria-label={t('chat.send')}
-            className="h-8 w-8 rounded-full p-0"
-            disabled={disabled || sending || value.trim() === ''}
-            onClick={() => void submit()}
-          >
-            <ArrowUp className="h-4 w-4" />
-          </Button>
-        )}
+        <div className="flex shrink-0 items-center gap-1.5">
+          {footerEnd}
+          {streaming ? (
+            <Button size="sm" variant="secondary" onClick={onStop}>
+              <Square className="h-3 w-3" />
+              {t('chat.stop')}
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              aria-label={t('chat.send')}
+              className="h-8 w-8 rounded-full p-0"
+              disabled={disabled || sending || value.trim() === ''}
+              onClick={() => void submit()}
+            >
+              <ArrowUp className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   )

@@ -2,10 +2,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Archive,
   Download,
+  Globe2,
   Link2,
+  ListChecks,
   MoreHorizontal,
   Quote,
   SlidersHorizontal,
+  Telescope,
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
@@ -52,6 +55,7 @@ import type {
   WebSource,
 } from '../../lib/types'
 import { isModeImplemented, useChatModes } from '../../lib/useChatModes'
+import { ChatAgentTask } from './ChatAgentTask'
 import { ChatSettingsDialog } from './ChatSettingsDialog'
 import { CitationDrawer } from './CitationDrawer'
 import { Composer } from './Composer'
@@ -112,6 +116,7 @@ export function ChatPage() {
   const [reuseMessageId, setReuseMessageId] = useState<string | null>(null)
   const [shareOpen, setShareOpen] = useState(false)
   const [modeError, setModeError] = useState<string | null>(null)
+  const [taskOpen, setTaskOpen] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const activityIdRef = useRef(0)
   const startedRef = useRef(false)
@@ -312,18 +317,19 @@ export function ChatPage() {
   }
 
   const start = useCallback(
-    async (content: string, metaOverride?: ChatModeMeta) => {
+    async (content: string, metaOverride?: ChatModeMeta, modeOverride?: ChatMode) => {
       if (conversationId === '') return
       stickRef.current = true
       setInput('')
       const snapshot = attachments
       setAttachments([])
+      const sendMode = modeOverride ?? activeMode
       const modeMeta: ChatModeMeta = metaOverride ?? {
         thinking_level: thinkingLevel,
-        ...(activeMode === 'web_search' && searchProviderId !== ''
+        ...(sendMode === 'web_search' && searchProviderId !== ''
           ? { search_provider_id: searchProviderId }
           : {}),
-        ...(activeMode === 'study' && studySessionId !== ''
+        ...(sendMode === 'study' && studySessionId !== ''
           ? { study_session_id: studySessionId }
           : {}),
       }
@@ -333,7 +339,7 @@ export function ChatPage() {
             conversationId,
             content,
             attachmentIds: snapshot.map((item) => item.id),
-            mode: activeMode,
+            mode: sendMode,
             modeMeta,
             signal,
             onEvent,
@@ -892,6 +898,14 @@ export function ChatPage() {
               onSelectSession={setStudySessionId}
             />
           )}
+          <ChatAgentTask
+            conversationId={conversationId}
+            providerId={conversation.data?.provider_id ?? 'auto'}
+            model={conversation.data?.model ?? 'auto'}
+            agentId={conversation.data?.custom_agent_id ?? null}
+            open={taskOpen}
+            onClose={() => setTaskOpen(false)}
+          />
           <Composer
             value={input}
             onValueChange={setInput}
@@ -907,18 +921,89 @@ export function ChatPage() {
             footerStart={
               <>
                 <ModeSelector
-                  value={activeMode}
+                  value={activeMode === 'web_search' ? 'chat' : activeMode}
                   catalog={chatModes.data}
+                  hiddenModes={['web_search']}
                   variant="ghost"
                   placement="top"
                   disabled={conversation.data?.agent === true}
                   onChange={(next) => void changeMode(next)}
                 />
+                <button
+                  type="button"
+                  aria-pressed={activeMode === 'web_search'}
+                  disabled={conversation.data?.agent === true}
+                  title={t('chat.webSearchQuickHint')}
+                  onClick={() =>
+                    void changeMode(activeMode === 'web_search' ? 'chat' : 'web_search')
+                  }
+                  className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[11px] transition-colors ${
+                    activeMode === 'web_search'
+                      ? 'border-accent bg-accent-soft text-accent'
+                      : 'border-border text-ink-muted hover:text-ink'
+                  } disabled:cursor-not-allowed disabled:opacity-50`}
+                >
+                  <Globe2 className="h-3.5 w-3.5" />
+                  {t('chat.webSearchQuick')}
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    pending?.status === 'streaming' ||
+                    input.trim() === '' ||
+                    conversation.data?.agent === true
+                  }
+                  title={t('chat.deepResearchActionHint')}
+                  onClick={() => {
+                    if (input.trim() === '') return
+                    void start(input, { thinking_level: thinkingLevel }, 'deep_research')
+                  }}
+                  className="inline-flex h-7 items-center gap-1 rounded-full border border-border px-2 text-[11px] text-ink-muted transition-colors hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Telescope className="h-3.5 w-3.5" />
+                  {t('chat.deepResearchAction')}
+                </button>
+                <button
+                  type="button"
+                  disabled={conversationId === ''}
+                  title={t('chat.agentTaskActionHint')}
+                  onClick={() => setTaskOpen(true)}
+                  className="inline-flex h-7 items-center gap-1 rounded-full border border-border px-2 text-[11px] text-ink-muted transition-colors hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <ListChecks className="h-3.5 w-3.5" />
+                  {t('chat.agentTaskAction')}
+                </button>
+                {activeMode === 'web_search' && enabledSearchProviders.length > 0 && (
+                  <label className="inline-flex items-center gap-1 text-[11px] text-ink-muted">
+                    <span>{t('chat.searchProvider')}</span>
+                    <select
+                      aria-label={t('chat.searchProvider')}
+                      className="h-6 max-w-40 rounded-md border border-border bg-surface px-1 text-[11px] text-ink"
+                      value={searchProviderId}
+                      onChange={(event) => setSearchProviderId(event.target.value)}
+                    >
+                      {enabledSearchProviders.map((provider) => (
+                        <option key={provider.id} value={provider.id}>
+                          {provider.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+              </>
+            }
+            footerEnd={
+              <>
+                {thinkingAdjusted && (
+                  <span className="hidden max-w-28 text-[10px] text-warning sm:inline">
+                    {t('chat.thinkingAdjusted')}
+                  </span>
+                )}
                 <label className="inline-flex items-center gap-1 text-[11px] text-ink-muted">
                   <span>{t('chat.thinkingLevel')}</span>
                   <select
                     aria-label={t('chat.thinkingLevel')}
-                    className="h-6 rounded-md border border-border bg-surface px-1 text-[11px] text-ink"
+                    className="h-7 rounded-md border border-border bg-surface px-1 text-[11px] text-ink"
                     value={thinkingLevel}
                     disabled={!modeImplemented}
                     onChange={(event) => {
@@ -940,28 +1025,6 @@ export function ChatPage() {
                     ))}
                   </select>
                 </label>
-                {thinkingAdjusted && (
-                  <span className="text-[11px] text-warning">
-                    {t('chat.thinkingAdjusted')}
-                  </span>
-                )}
-                {activeMode === 'web_search' && enabledSearchProviders.length > 0 && (
-                  <label className="inline-flex items-center gap-1 text-[11px] text-ink-muted">
-                    <span>{t('chat.searchProvider')}</span>
-                    <select
-                      aria-label={t('chat.searchProvider')}
-                      className="h-6 max-w-40 rounded-md border border-border bg-surface px-1 text-[11px] text-ink"
-                      value={searchProviderId}
-                      onChange={(event) => setSearchProviderId(event.target.value)}
-                    >
-                      {enabledSearchProviders.map((provider) => (
-                        <option key={provider.id} value={provider.id}>
-                          {provider.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
               </>
             }
             attachments={attachments}

@@ -4,15 +4,13 @@ import {
   BookOpen,
   Bot,
   Brain,
-  ClipboardList,
+  ChevronDown,
   Database,
-  FileText,
   Github,
   FlaskConical,
   FolderOpen,
   Image as ImageIcon,
   LayoutDashboard,
-  ListChecks,
   Megaphone,
   Menu,
   MessageSquare,
@@ -24,8 +22,6 @@ import {
   Settings,
   Shield,
   Sun,
-  Swords,
-  Telescope,
   Blocks,
   Users,
   Workflow,
@@ -43,70 +39,89 @@ import { cn } from '../lib/utils'
 import { getActiveWorkspaceId, setActiveWorkspaceId } from '../lib/workspace'
 import { useAuthStore } from '../store/auth'
 
+const overviewNav = [
+  { to: '/dashboard', labelKey: 'nav.dashboard', icon: LayoutDashboard },
+]
+
 const workNav = [
   { to: '/chat', labelKey: 'nav.chat', icon: MessageSquare },
   { to: '/media', labelKey: 'nav.multimodal', icon: ImageIcon },
-  { to: '/arena', labelKey: 'nav.arena', icon: Swords },
-  { to: '/prompt-lab', labelKey: 'nav.promptLab', icon: FlaskConical },
-  { to: '/model-eval', labelKey: 'nav.modelEval', icon: ClipboardList },
-  { to: '/agents', labelKey: 'nav.agents', icon: Bot },
-  { to: '/studio', labelKey: 'nav.studio', icon: Workflow },
-  { to: '/settings/prompts', labelKey: 'nav.prompts', icon: FileText },
-  { to: '/files', labelKey: 'nav.files', icon: FolderOpen },
+]
+
+const knowledgeNav = [
   { to: '/knowledge', labelKey: 'nav.knowledge', icon: BookOpen },
+  { to: '/files', labelKey: 'nav.files', icon: FolderOpen },
+  { to: '/memory', labelKey: 'nav.memory', icon: Brain },
 ]
 
 const buildNav = [
-  { to: '/research', labelKey: 'nav.research', icon: Telescope },
-  { to: '/skills', labelKey: 'nav.skills', icon: Blocks },
-  { to: '/connectors', labelKey: 'nav.connectors', icon: Github },
-  { to: '/tasks', labelKey: 'nav.agentTasks', icon: ListChecks },
+  { to: '/agents', labelKey: 'nav.agents', icon: Bot },
+  { to: '/studio', labelKey: 'nav.studio', icon: Workflow },
   { to: '/workflows', labelKey: 'nav.workflows', icon: Workflow },
   { to: '/collaborations', labelKey: 'nav.collaborations', icon: Users },
   { to: '/evaluation', labelKey: 'nav.evaluation', icon: FlaskConical },
 ]
 
-const bottomNav = [
-  { to: '/dashboard', labelKey: 'nav.dashboard', icon: LayoutDashboard },
-  { to: '/usage', labelKey: 'nav.usage', icon: BarChart3 },
-  { to: '/memory', labelKey: 'nav.memory', icon: Brain },
+const extensionNav = [
+  { to: '/skills', labelKey: 'nav.skills', icon: Blocks },
+  { to: '/connectors', labelKey: 'nav.connectors', icon: Github },
   { to: '/plugins', labelKey: 'nav.plugins', icon: Plug },
+]
+
+const accountNav = [
+  { to: '/usage', labelKey: 'nav.usage', icon: BarChart3 },
   { to: '/settings', labelKey: 'nav.settings', icon: Settings },
 ]
 
 function NavGroup({
   label,
   items,
+  collapsible = false,
 }: {
   label: string
   items: { to: string; labelKey: string; icon: typeof MessageSquare }[]
+  collapsible?: boolean
 }) {
   const { t } = useI18n()
+  const links = (
+    <div className="space-y-1">
+      {items.map(({ to, labelKey, icon: Icon }) => (
+        <NavLink
+          key={to}
+          to={to}
+          end={to === '/settings' || to === '/admin' || to === '/settings/prompts'}
+          className={({ isActive }) =>
+            cn(
+              'flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm',
+              isActive
+                ? 'bg-accent-soft font-medium text-accent'
+                : 'text-ink-muted hover:bg-surface-muted hover:text-ink',
+            )
+          }
+        >
+          <Icon className="h-4 w-4" />
+          {t(labelKey)}
+        </NavLink>
+      ))}
+    </div>
+  )
+  if (collapsible) {
+    return (
+      <details className="group">
+        <summary className="flex cursor-pointer list-none items-center justify-between px-3 pb-1 text-[10px] font-medium uppercase tracking-wider text-ink-muted/70 [&::-webkit-details-marker]:hidden">
+          {label}
+          <span className="text-[9px] transition-transform group-open:rotate-180">▾</span>
+        </summary>
+        <div className="mt-1">{links}</div>
+      </details>
+    )
+  }
   return (
     <div>
       <p className="px-3 pb-1 text-[10px] font-medium uppercase tracking-wider text-ink-muted/70">
         {label}
       </p>
-      <div className="space-y-1">
-        {items.map(({ to, labelKey, icon: Icon }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={to === '/settings' || to === '/admin' || to === '/settings/prompts'}
-            className={({ isActive }) =>
-              cn(
-                'flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm',
-                isActive
-                  ? 'bg-accent-soft font-medium text-accent'
-                  : 'text-ink-muted hover:bg-surface-muted hover:text-ink',
-              )
-            }
-          >
-            <Icon className="h-4 w-4" />
-            {t(labelKey)}
-          </NavLink>
-        ))}
-      </div>
+      {links}
     </div>
   )
 }
@@ -131,6 +146,9 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
     queryKey: ['workspaces'],
     queryFn: () => apiRequest<WorkspaceItem[]>('/workspaces'),
   })
+  const activeWorkspace = (workspaces.data ?? []).find(
+    (workspace) => workspace.id === activeWorkspaceId,
+  )
 
   useEffect(() => {
     if (workspaces.data === undefined || workspaces.data.length === 0) return
@@ -184,22 +202,41 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
         </button>
       </div>
 
-      <div className="mx-2 mb-2 rounded-lg border border-border p-2">
-        <p className="mb-1 text-[11px] uppercase tracking-wide text-ink-muted">
-          {t('workspace.current')}
-        </p>
-        <select
-          className="h-8 w-full rounded-md border border-border bg-surface px-2 text-xs text-ink focus:border-accent focus:outline-none"
-          value={activeWorkspaceId ?? ''}
-          onChange={(event) => switchWorkspace(event.target.value)}
-        >
-          {(workspaces.data ?? []).map((workspace) => (
-            <option key={workspace.id} value={workspace.id}>
-              {workspace.is_personal ? t('workspace.personal') : workspace.name}
-            </option>
-          ))}
-        </select>
-        <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-ink-muted">
+      <div className="mx-3 mb-3 rounded-xl border border-border bg-surface-muted/40 p-2.5">
+        <div className="relative flex items-center gap-2.5">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-xs font-semibold text-accent">
+            {(activeWorkspace?.name ?? 'AI').slice(0, 2).toUpperCase()}
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium text-ink">
+              {activeWorkspace === undefined
+                ? t('workspace.current')
+                : activeWorkspace.is_personal
+                  ? t('workspace.personal')
+                  : activeWorkspace.name}
+            </p>
+            <p className="mt-0.5 flex items-center gap-1.5 text-[10px] text-ink-muted">
+              <span className="rounded bg-surface px-1 py-0.5 uppercase">
+                {activeWorkspace?.plan ?? 'free'}
+              </span>
+              <span>{activeWorkspace?.role ?? 'owner'}</span>
+            </p>
+          </div>
+          <ChevronDown className="h-4 w-4 shrink-0 text-ink-muted" />
+          <select
+            aria-label={t('workspace.current')}
+            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+            value={activeWorkspaceId ?? ''}
+            onChange={(event) => switchWorkspace(event.target.value)}
+          >
+            {(workspaces.data ?? []).map((workspace) => (
+              <option key={workspace.id} value={workspace.id}>
+                {workspace.is_personal ? t('workspace.personal') : workspace.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1 text-[11px] text-ink-muted">
           <NavLink to="/settings/workspace" className="hover:text-ink">
             {t('workspace.members')}
           </NavLink>
@@ -216,10 +253,16 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
         </div>
       </div>
 
-      <nav className="space-y-4 px-2">
+      <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto px-2 pb-3">
+        <NavGroup label={t('nav.groupOverview')} items={overviewNav} />
         <NavGroup label={t('nav.groupWork')} items={workNav} />
+        <NavGroup label={t('nav.groupKnowledge')} items={knowledgeNav} />
         <NavGroup label={t('nav.groupBuild')} items={buildNav} />
-        <NavGroup label={t('nav.groupAccount')} items={[...bottomNav, ...adminNav]} />
+        <NavGroup label={t('nav.groupExtensions')} items={extensionNav} />
+        <NavGroup label={t('nav.groupAccount')} items={accountNav} />
+        {adminNav.length > 0 && (
+          <NavGroup label={t('nav.admin')} items={adminNav} collapsible />
+        )}
       </nav>
 
       <div className="mt-auto space-y-2 border-t border-border p-3">

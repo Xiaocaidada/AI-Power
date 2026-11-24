@@ -1,5 +1,14 @@
 import { useQuery } from '@tanstack/react-query'
-import { Bell, Bot, BookOpen, FolderKanban, MessageSquare, Plug, Search } from 'lucide-react'
+import {
+  Bell,
+  Bot,
+  BookOpen,
+  FolderKanban,
+  MessageSquare,
+  Plug,
+  Search,
+  Server,
+} from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { Spinner } from '../../components/ui/spinner'
@@ -39,6 +48,12 @@ export function DashboardPage() {
     maximumFractionDigits: 4,
   })
   const cards = [
+    {
+      to: '/settings/providers',
+      icon: Server,
+      label: t('dashboard.modelServices'),
+      value: counts.models,
+    },
     {
       to: '/chat',
       icon: MessageSquare,

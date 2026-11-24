@@ -538,8 +538,9 @@ export function NewChatPage() {
           />
 
           <ModeSelector
-            value={effectiveMode}
+            value={effectiveMode === 'web_search' ? 'chat' : effectiveMode}
             catalog={chatModesQuery.data}
+            hiddenModes={['web_search']}
             disabled={modeLockedByAgent}
             onChange={(next) => {
               setMode(next)

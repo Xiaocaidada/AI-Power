@@ -2,14 +2,20 @@ import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-quer
 import {
   Archive,
   ArrowLeft,
+  Blocks,
+  BookOpen,
+  Brain,
   Check,
+  ChevronDown,
   FolderInput,
   FolderOpen,
+  Github,
   ListChecks,
   MoreHorizontal,
   Moon,
   Pencil,
   Pin,
+  Plug,
   Plus,
   Search,
   Sun,
@@ -98,6 +104,9 @@ export function ChatSidebar({ open, onClose }: ChatSidebarProps) {
     queryKey: ['workspaces'],
     queryFn: () => apiRequest<WorkspaceItem[]>('/workspaces'),
   })
+  const activeWorkspace = (workspaces.data ?? []).find(
+    (workspace) => workspace.id === activeWorkspaceId,
+  )
   const projects = useQuery({
     queryKey: ['projects'],
     queryFn: () => apiRequest<Project[]>('/projects'),
@@ -391,21 +400,38 @@ export function ChatSidebar({ open, onClose }: ChatSidebarProps) {
         </button>
       </div>
 
-      <div className="mx-2 mb-2 rounded-lg border border-border p-2">
-        <p className="mb-1 text-[11px] uppercase tracking-wide text-ink-muted">
-          {t('workspace.current')}
-        </p>
-        <select
-          className="h-8 w-full rounded-md border border-border bg-surface px-2 text-xs text-ink focus:border-accent focus:outline-none"
-          value={activeWorkspaceId ?? ''}
-          onChange={(event) => switchWorkspace(event.target.value)}
-        >
-          {(workspaces.data ?? []).map((workspace) => (
-            <option key={workspace.id} value={workspace.id}>
-              {workspace.is_personal ? t('workspace.personal') : workspace.name}
-            </option>
-          ))}
-        </select>
+      <div className="mx-2 mb-2 rounded-lg border border-border bg-surface-muted/40 p-2">
+        <div className="relative flex items-center gap-2">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-accent-soft text-[11px] font-semibold text-accent">
+            {(activeWorkspace?.name ?? 'AI').slice(0, 2).toUpperCase()}
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs font-medium text-ink">
+              {activeWorkspace === undefined
+                ? t('workspace.current')
+                : activeWorkspace.is_personal
+                  ? t('workspace.personal')
+                  : activeWorkspace.name}
+            </p>
+            <p className="text-[10px] text-ink-muted">
+              {(activeWorkspace?.plan ?? 'free').toUpperCase()} ·{' '}
+              {activeWorkspace?.role ?? 'owner'}
+            </p>
+          </div>
+          <ChevronDown className="h-3.5 w-3.5 text-ink-muted" />
+          <select
+            aria-label={t('workspace.current')}
+            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+            value={activeWorkspaceId ?? ''}
+            onChange={(event) => switchWorkspace(event.target.value)}
+          >
+            {(workspaces.data ?? []).map((workspace) => (
+              <option key={workspace.id} value={workspace.id}>
+                {workspace.is_personal ? t('workspace.personal') : workspace.name}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       <div className="space-y-2 px-3 pb-2">
@@ -551,7 +577,31 @@ export function ChatSidebar({ open, onClose }: ChatSidebarProps) {
         </div>
       )}
 
-      <div className="mt-auto space-y-2 border-t border-border p-3">
+      <div className="border-t border-border px-3 py-2">
+        <p className="text-[10px] font-medium uppercase tracking-wider text-ink-muted/70">
+          {t('chat.tools')}
+        </p>
+        <div className="mt-1 grid grid-cols-2 gap-1">
+          {[
+            { to: '/knowledge', label: t('nav.knowledge'), icon: BookOpen },
+            { to: '/memory', label: t('nav.memory'), icon: Brain },
+            { to: '/skills', label: t('nav.skills'), icon: Blocks },
+            { to: '/connectors', label: t('nav.connectors'), icon: Github },
+            { to: '/plugins', label: t('nav.plugins'), icon: Plug },
+          ].map(({ to, label, icon: Icon }) => (
+            <NavLink
+              key={to}
+              to={to}
+              className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[11px] text-ink-muted hover:bg-surface-muted hover:text-ink"
+            >
+              <Icon className="h-3.5 w-3.5" />
+              <span className="truncate">{label}</span>
+            </NavLink>
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-2 border-t border-border p-3">
         <div className="flex items-center text-xs">
           <Link
             to="/archive"
