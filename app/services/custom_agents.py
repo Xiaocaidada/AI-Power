@@ -499,6 +499,7 @@ async def build_published_snapshot(
         ),
         "allow_copy": agent.allow_copy,
         "show_structure": agent.show_structure,
+        "attachments_enabled": agent.attachments_enabled,
     }
 
 
@@ -845,6 +846,9 @@ async def copy_published_agent(
         visibility="private",
         memory_enabled=source.memory_enabled,
         memory_permissions=dict(source.memory_permissions or {}),
+        attachments_enabled=bool(
+            values.get("attachments_enabled", source.attachments_enabled)
+        ),
         source_agent_id=source.id,
         allow_copy=True,
         show_structure=source.show_structure,

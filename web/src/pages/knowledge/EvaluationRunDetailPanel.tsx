@@ -152,6 +152,26 @@ export function EvaluationRunDetailPanel({ runId }: { runId: string }) {
             value={`$${fixed(metrics.cost, 6)}`}
           />
           <Metric
+            label={t('knowledgeEval.metric.citationPrecision')}
+            value={percent(metrics.citation_precision)}
+          />
+          <Metric
+            label={t('knowledgeEval.metric.citationRecall')}
+            value={percent(metrics.citation_recall)}
+          />
+          <Metric
+            label={t('knowledgeEval.metric.citationF1')}
+            value={percent(metrics.citation_f1)}
+          />
+          <Metric
+            label={t('knowledgeEval.metric.faithfulRate')}
+            value={percent(metrics.faithful_rate)}
+          />
+          <Metric
+            label={t('knowledgeEval.metric.judgeScore')}
+            value={fixed(metrics.judge_avg_score)}
+          />
+          <Metric
             label={t('knowledgeEval.metric.items')}
             value={String(run.items.length)}
           />

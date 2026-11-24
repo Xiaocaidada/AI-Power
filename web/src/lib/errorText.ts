@@ -17,6 +17,9 @@ export function errorTextKey(error: unknown): string {
   }
   if (error.code === 'parse_failed') return 'errors.parseFailed'
   if (error.code === 'unsupported_parse') return 'errors.parseUnsupported'
+  if (error.code === 'agent_attachments_disabled') {
+    return 'errors.agentAttachmentsDisabled'
+  }
   switch (error.status) {
     case 401:
       return 'errors.unauthorized'

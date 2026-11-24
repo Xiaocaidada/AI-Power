@@ -288,6 +288,7 @@ export function AgentStudioPage() {
           allow_copy: draft.allowCopy,
           show_structure: draft.showStructure,
           memory_enabled: draft.memoryEnabled,
+          attachments_enabled: draft.attachmentsEnabled,
           memory_read_global: draft.memoryReadGlobal,
           memory_read_project: draft.memoryReadProject,
           memory_read_agent: draft.memoryReadAgent,

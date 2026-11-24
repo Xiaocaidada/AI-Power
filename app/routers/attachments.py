@@ -13,7 +13,7 @@ from app.clients import RedisLike, get_redis
 from app.config import get_settings
 from app.db import get_session
 from app.deps import AuthContext, get_jwt_context
-from app.models import ChatAttachment, Conversation
+from app.models import ChatAttachment, Conversation, CustomAgent
 from app.schemas import AttachmentOut, ErrorOut
 from app.services.attachments import extract_text
 from app.services.parsing import UnsupportedDocumentType, detect_mime, parser_for_mime
@@ -63,6 +63,24 @@ async def upload_attachment(
         conversation = await session.get(Conversation, conversation_id)
         if conversation is None or conversation.workspace_id != context.workspace.id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
+        if conversation.custom_agent_id is not None:
+            agent = await session.get(CustomAgent, conversation.custom_agent_id)
+            if agent is not None and not agent.attachments_enabled:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    {
+                        "code": "agent_attachments_disabled",
+                        "message": "This Agent does not accept attachments",
+                    },
+                )
+            if mime in IMAGE_MIMES:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    {
+                        "code": "image_agent_unsupported",
+                        "message": "Image attachments are not supported in agent mode",
+                    },
+                )
 
     try:
         saved = await save_upload(file, settings.upload_dir, settings.max_upload_bytes)
