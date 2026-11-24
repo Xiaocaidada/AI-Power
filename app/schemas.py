@@ -1649,6 +1649,21 @@ class MemoryQualityOut(BaseModel):
     suggestions: list[MemoryOptimizationOut] = Field(default_factory=list)
 
 
+class MemorySemanticIn(BaseModel):
+    provider_id: str | None = Field(default=None, max_length=50)
+    model: str | None = Field(default=None, max_length=200)
+    limit: int = Field(default=12, ge=1, le=12)
+
+
+class MemorySemanticOut(BaseModel):
+    pairs_checked: int
+    contradictions: int
+    created: int
+    provider_id: str | None = None
+    model: str | None = None
+    suggestions: list[MemoryOptimizationOut] = Field(default_factory=list)
+
+
 class MemoryEvalCaseIn(BaseModel):
     name: str = Field(default="", max_length=120)
     query: str = Field(min_length=1, max_length=2000)

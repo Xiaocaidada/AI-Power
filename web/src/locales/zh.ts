@@ -1739,6 +1739,10 @@ export const zh = {
       analysis: '记忆质量分析',
       analysisHint: '检查重复、冲突、过期、长期未使用与不完整记忆。',
       analyze: '重新分析',
+      semanticAnalyze: '深度冲突分析',
+      semanticRunning: '分析中…',
+      semanticResult:
+        '检查 {checked} 对记忆，发现 {contradictions} 对矛盾，新增 {created} 条建议。',
       total: '有效记忆',
       duplicates: '重复组',
       conflicts: '冲突',

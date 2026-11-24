@@ -1751,6 +1751,10 @@ export const en: Dictionary = {
       analysisHint:
         'Check duplicates, conflicts, expired, unused and incomplete memories.',
       analyze: 'Re-analyze',
+      semanticAnalyze: 'Deep conflict scan',
+      semanticRunning: 'Analyzing…',
+      semanticResult:
+        'Checked {checked} pairs, found {contradictions} contradictions, created {created} suggestions.',
       total: 'Active memories',
       duplicates: 'Duplicate groups',
       conflicts: 'Conflicts',

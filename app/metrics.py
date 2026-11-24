@@ -180,6 +180,14 @@ metrics.describe(
     "ai_power_memory_eval_runs_total",
     "Memory evaluation runs by status",
 )
+metrics.describe(
+    "ai_power_memory_semantic_checks_total",
+    "LLM semantic contradiction checks by status",
+)
+metrics.describe(
+    "ai_power_memory_semantic_contradictions_total",
+    "Contradictions detected by LLM semantic analysis",
+)
 
 
 class MetricsMiddleware(BaseHTTPMiddleware):
