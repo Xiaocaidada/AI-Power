@@ -5,6 +5,16 @@ export function errorTextKey(error: unknown): string {
   if (error.code === 'retrieval_failed') return 'errors.retrievalFailed'
   if (error.code === 'queue_unavailable') return 'errors.queueUnavailable'
   if (error.code === 'question_in_use') return 'errors.questionInUse'
+  if (error.code === 'memory_disabled') return 'errors.memoryDisabled'
+  if (error.code === 'provider_not_configured') {
+    return 'errors.memoryProviderNotConfigured'
+  }
+  if (error.code === 'provider_unavailable') {
+    return 'errors.memoryProviderUnavailable'
+  }
+  if (error.code === 'semantic_analysis_failed') {
+    return 'errors.memorySemanticFailed'
+  }
   switch (error.status) {
     case 401:
       return 'errors.unauthorized'
