@@ -207,6 +207,36 @@ async def test_enhanced_parent_child_pipeline_and_metadata(
     assert hits
     assert any("unique omega content" in hit["text"] for hit in hits)
 
+    retrieval_definition = _definition(
+        [
+            ("start", "start", {}),
+            ("vector", "vector_search", {"top_k": 5}),
+            ("context", "context", {"max_chars": 4000}),
+            ("out", "output", {}),
+        ],
+        kind="knowledge_retrieval",
+    )
+    retrieval = await client.post(
+        "/workflows",
+        json={
+            "name": "Parent context retrieval",
+            "kind": "knowledge_retrieval",
+            "definition": retrieval_definition,
+        },
+        headers=headers,
+    )
+    assert retrieval.status_code == 201, retrieval.text
+    version_id = retrieval.json()["versions"][0]["id"]
+    tested = await client.post(
+        f"/knowledge-bases/{kb_id}/retrieval/test",
+        json={"query": "omega", "workflow_version_id": version_id},
+        headers=headers,
+    )
+    assert tested.status_code == 200, tested.text
+    assert any(
+        "unique omega content" in hit["text"] for hit in tested.json()["results"]
+    )
+
 
 async def test_custom_and_semantic_chunk_pipelines(client, api, fake_retrieval):
     headers = await api.headers("p11s5-semantic@example.com")
