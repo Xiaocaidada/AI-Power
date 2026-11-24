@@ -2791,6 +2791,7 @@ class DocumentOut(BaseModel):
     folder: str = ""
     doc_metadata: dict[str, str] = Field(default_factory=dict)
     source_url: str | None = None
+    index_mode: str = "hybrid"
     memory_extract_enabled: bool = False
     created_at: datetime
 

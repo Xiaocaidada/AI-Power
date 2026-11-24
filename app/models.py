@@ -1394,6 +1394,7 @@ class Document(Base):
     folder: Mapped[str] = mapped_column(String(255), default="", index=True)
     doc_metadata: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
     source_url: Mapped[str | None] = mapped_column(String(1000), default=None)
+    index_mode: Mapped[str] = mapped_column(String(20), default="hybrid", index=True)
     memory_extract_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     process_version_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("workflow_versions.id", ondelete="SET NULL"), default=None

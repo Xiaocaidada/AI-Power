@@ -1874,6 +1874,7 @@ export interface DocumentItem {
   folder?: string
   doc_metadata?: Record<string, string>
   source_url?: string | null
+  index_mode?: string
   memory_extract_enabled?: boolean
   created_at: string
 }

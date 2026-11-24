@@ -47,9 +47,16 @@ async def apply_knowledge_run(
         raise KnowledgeApplyError(
             "no_drafts", "This run has no staged chunks; add an index_knowledge node"
         )
-    if any(draft.embedding is None for draft in drafts):
+    output = dict(run.output_payload or {})
+    index_mode = str(output.get("index_mode") or "hybrid")
+    if index_mode not in {"vector", "fulltext", "hybrid"}:
+        raise KnowledgeApplyError("invalid_index_mode", "Unknown index mode")
+    if index_mode in {"vector", "hybrid"} and any(
+        draft.embedding is None for draft in drafts
+    ):
         raise KnowledgeApplyError(
-            "embeddings_required", "All staged chunks must be embedded before applying"
+            "embeddings_required",
+            "All staged chunks must be embedded for vector/hybrid indexing",
         )
 
     await session.execute(delete(Chunk).where(Chunk.document_id == document.id))
@@ -70,21 +77,25 @@ async def apply_knowledge_run(
         )
     session.add_all(chunk_rows)
     await session.flush()
-    session.add_all(
-        [
-            ChunkEmbedding(chunk_id=chunk.id, embedding=list(draft.embedding or []))
-            for chunk, draft in zip(chunk_rows, drafts, strict=True)
-        ]
-    )
+    if index_mode in {"vector", "hybrid"}:
+        session.add_all(
+            [
+                ChunkEmbedding(
+                    chunk_id=chunk.id, embedding=list(draft.embedding or [])
+                )
+                for chunk, draft in zip(chunk_rows, drafts, strict=True)
+            ]
+        )
 
-    output = dict(run.output_payload or {})
     document.status = "ready"
     document.error_code = None
     document.process_version_id = run.version_id
+    document.index_mode = index_mode
     document.page_count = int(output.get("page_count") or document.page_count or 0)
     run.applied_at = datetime.now(UTC)
     output["applied"] = True
     output["applied_chunks"] = len(chunk_rows)
+    output["index_mode"] = index_mode
     run.output_payload = output
     await session.execute(
         delete(KnowledgeChunkDraft).where(

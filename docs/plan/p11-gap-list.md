@@ -30,7 +30,8 @@
 - 2026-11-24：P11-S10 完成剩余 P0：A-P0-2 模板链路验证、A-P0-4 项目 Agent/文件关联与工具、K-P0-5 处理版本对比、M-P0-6 记忆过滤维度。见 [p11-s10-p0-closure.md](../tdd/p11-s10-p0-closure.md)。
 - 2026-11-24：P11-S11 完成三项 P1：A-P1-5 Agent 运行分析、K-P1-3 解析原文预览、M-P1-5 记忆反馈闭环。见 [p11-s11-p1.md](../tdd/p11-s11-p1.md)。
 - 2026-11-24：P11-S12 完成 A-P1-4 附件能力、K-P1-4 引用/忠实度指标、M-P1-4 记忆 A/B 回答评测。见 [p11-s12-p1-followups.md](../tdd/p11-s12-p1-followups.md)。
-- 2026-11-24：P11-S13 完成 M-P1-2 关系编辑、A-P1-3 Builder 阶段流、K-P1-2 意图/同义词节点；K-P1-1 仍为部分。见 [p11-s13-p1-remainder.md](../tdd/p11-s13-p1-remainder.md)。
+- 2026-11-24：P11-S13 完成 M-P1-2 关系编辑、A-P1-3 Builder 阶段流、K-P1-2 意图/同义词节点。见 [p11-s13-p1-remainder.md](../tdd/p11-s13-p1-remainder.md)。
+- 2026-11-24：P11-S14 补完 K-P1-1：OCR 节点、格式专用解析、vector/fulltext/hybrid 文档索引模式与检索过滤。见 [p11-s14-knowledge-complete.md](../tdd/p11-s14-knowledge-complete.md)。
 
 ## 2. P0：下一阶段必须补齐
 
@@ -89,7 +90,7 @@
 
 | ID | 缺口 | 现状 | 代码入口 | 改动范围 | 依赖 |
 |---|---|---|---|---|---|
-| K-P1-1 ◐ | 完整处理节点库 | P11-S5 已补文本过滤/增强节点；OCR 节点、格式专用解析、独立全文/混合索引模式仍缺 | `app/services/knowledge/catalog.py`、`pipeline.py` | OCR 节点、格式专用解析、文本处理、全文/混合索引 | K-P0-1/2 |
+| K-P1-1 ✅ | 完整处理节点库 | P11-S5/S14 已补增强节点、OCR 节点、格式解析与独立索引模式 | `app/services/knowledge/catalog.py`、`pipeline.py` | OCR 节点、格式专用解析、文本处理、全文/混合索引 | K-P0-1/2 |
 | K-P1-2 ✅ | 完整检索节点库 | P11-S6/S13 已补多查询、回退、意图分类路由与同义词扩展 | `app/services/knowledge/retrieval_catalog.py`、`retrieval_pipeline.py` | 新节点、条件分支或回退语义 | K-P0-3 |
 | K-P1-3 ✅ | 文档处理结果与解析原文预览 | P11-S11 已新增按页解析原文预览与截断/错误提示 | `web/src/pages/knowledge/KnowledgeChunksTab.tsx`、`app/services/parsing.py` | 解析文本/结构预览、失败定位 | 无 |
 | K-P1-4 ✅ | 评估指标补齐：引用准确性、答案忠实度 | P11-S12 已新增引用准确率/召回/F1，并展示忠实度与判分 | `app/services/knowledge/metrics.py`、`app/services/evaluation_runner.py` | 引用校验、答案指标 | 评测平台 |
@@ -132,6 +133,7 @@
 | P11-S11 ✅ | P1 体验闭环 | A-P1-5、K-P1-3、M-P1-5 | S10 |
 | P11-S12 ✅ | P1 能力与评测补齐 | A-P1-4、K-P1-4、M-P1-4 | S11 |
 | P11-S13 ✅ | 剩余 P1 | M-P1-2、A-P1-3、K-P1-2 | S12 |
+| P11-S14 ✅ | 知识处理节点补齐 | K-P1-1 | S13 |
 
 ## 6. 验收基线
 

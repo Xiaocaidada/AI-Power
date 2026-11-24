@@ -47,11 +47,20 @@ from app.services.knowledge.schema import (
     IndexKnowledgeConfig,
     KnowledgeNode,
     KnowledgeProcessDefinition,
+    OcrDocumentConfig,
     ParseDocumentConfig,
     SummarizeChunksConfig,
 )
 from app.services.knowledge_settings import KnowledgeBaseSettings, resolve_kb_settings
-from app.services.parsing import OcrParseError, ParsedPage, parser_for_mime
+from app.services.parsing import (
+    IMAGE_MIMES,
+    OcrParseError,
+    ParsedPage,
+    ocr_file_text,
+    ocr_pdf_pages,
+    ocr_ready,
+    parser_for_mime,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +70,17 @@ PREVIEW_PAGES = 40
 PREVIEW_CHUNKS = 300
 PREVIEW_CHUNK_CHARS = 4000
 MAX_DRAFTS = 5000
+FORMAT_MIME = {
+    "pdf": "application/pdf",
+    "text": "text/plain",
+    "markdown": "text/markdown",
+    "html": "text/html",
+    "csv": "text/csv",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "image": "image/png",
+}
 
 
 class KnowledgePipelineError(Exception):
@@ -88,6 +108,7 @@ class PipelineState:
     page_count: int = 0
     draft_count: int = 0
     embedded_count: int = 0
+    index_mode: str = "hybrid"
 
 
 class KnowledgeProcessRunner:
@@ -240,7 +261,7 @@ class KnowledgeProcessRunner:
             )
         if node.type == "parse_document":
             config = ParseDocumentConfig.model_validate(node.config)
-            pages = self._parse_pages()
+            pages = self._parse_pages(config.format)
             if not config.keep_blank_pages:
                 pages = [page for page in pages if page.text.strip()]
             if len(pages) > self._settings.max_document_pages:
@@ -252,12 +273,76 @@ class KnowledgeProcessRunner:
             state.pages = pages
             state.page_count = len(pages)
             state.text = "\n\n".join(page.text for page in pages)
-            if not state.text.strip():
-                raise KnowledgePipelineError("empty_document", "Document produced no text")
             return (
                 f"{len(pages)} pages / {len(state.text)} chars",
                 "parsed",
                 _preview_pages(pages, state.text),
+            )
+        if node.type == "ocr_document":
+            if not state.pages:
+                raise KnowledgePipelineError(
+                    "missing_pages", "Parse the document before OCR"
+                )
+            config = OcrDocumentConfig.model_validate(node.config)
+            if not ocr_ready():
+                raise KnowledgePipelineError(
+                    "ocr_not_configured", "OCR is not configured"
+                )
+            if config.mode == "always":
+                targets = list(state.pages)
+            elif config.mode == "short":
+                targets = [
+                    page
+                    for page in state.pages
+                    if len(page.text.strip()) < config.min_chars
+                ]
+            else:
+                targets = [page for page in state.pages if not page.text.strip()]
+            if not targets:
+                return "No pages need OCR", "ocr", {"ocr_pages": 0}
+            if len(targets) > config.max_pages:
+                raise KnowledgePipelineError(
+                    "too_many_ocr_pages",
+                    f"{len(targets)} pages need OCR (limit {config.max_pages})",
+                )
+            path = self._document_path()
+            if self._document.mime in IMAGE_MIMES:
+                try:
+                    text = ocr_file_text(path, self._document.mime)
+                except OcrParseError as exc:
+                    raise KnowledgePipelineError(exc.code, exc.message) from None
+                updated: dict[int | None, str] = {}
+                for page in targets:
+                    updated[page.page_no] = text
+            elif self._document.mime == "application/pdf":
+                page_numbers = [
+                    page.page_no for page in targets if page.page_no is not None
+                ]
+                if len(page_numbers) != len(targets):
+                    raise KnowledgePipelineError(
+                        "ocr_failed", "PDF pages are missing page numbers"
+                    )
+                try:
+                    updated = dict(ocr_pdf_pages(path, page_numbers))
+                except OcrParseError as exc:
+                    raise KnowledgePipelineError(exc.code, exc.message) from None
+            else:
+                raise KnowledgePipelineError(
+                    "ocr_unsupported_format",
+                    f"OCR node supports PDF and images, not {self._document.mime}",
+                )
+            state.pages = [
+                ParsedPage(
+                    page_no=page.page_no,
+                    text=updated.get(page.page_no, page.text),
+                )
+                for page in state.pages
+            ]
+            state.text = "\n\n".join(page.text for page in state.pages)
+            return (
+                f"{len(updated)} pages OCRed / {len(state.text)} chars",
+                "ocr",
+                _preview_pages(state.pages, state.text),
             )
         if node.type == "clean_text":
             config = CleanTextConfig.model_validate(node.config)
@@ -388,22 +473,24 @@ class KnowledgeProcessRunner:
             config = IndexKnowledgeConfig.model_validate(node.config)
             if not state.chunks:
                 raise KnowledgePipelineError("missing_chunks", "Chunk the document first")
-            if config.require_embeddings and any(
+            mode = config.resolved_mode
+            if mode in {"vector", "hybrid"} and any(
                 not chunk.get("embedding") for chunk in state.chunks
             ):
                 raise KnowledgePipelineError(
                     "embeddings_required",
-                    "All chunks must be embedded before indexing",
+                    "All chunks must be embedded for vector/hybrid indexing",
                 )
             if len(state.chunks) > MAX_DRAFTS:
                 raise KnowledgePipelineError(
                     "too_many_chunks", f"At most {MAX_DRAFTS} chunks are allowed"
                 )
+            state.index_mode = mode
             state.draft_count = await self._write_drafts(state.chunks)
             return (
-                f"{state.draft_count} drafts staged",
+                f"{state.draft_count} drafts staged ({mode})",
                 "index",
-                {"draft_count": state.draft_count},
+                {"draft_count": state.draft_count, "index_mode": mode},
             )
         if node.type == "output":
             return (
@@ -430,8 +517,25 @@ class KnowledgeProcessRunner:
             raise KnowledgePipelineError("file_missing", "Document file is missing")
         return path
 
-    def _parse_pages(self) -> list[ParsedPage]:
+    def _parse_pages(self, format: str = "auto") -> list[ParsedPage]:
         path = self._document_path()
+        if format != "auto":
+            expected = FORMAT_MIME.get(format)
+            if expected is None:
+                raise KnowledgePipelineError(
+                    "unsupported_format", f"Unknown parse format: {format}"
+                )
+            if format == "image":
+                if self._document.mime not in IMAGE_MIMES:
+                    raise KnowledgePipelineError(
+                        "format_mismatch",
+                        f"Document is {self._document.mime}, not an image",
+                    )
+            elif self._document.mime != expected:
+                raise KnowledgePipelineError(
+                    "format_mismatch",
+                    f"Document is {self._document.mime}, expected {expected}",
+                )
         try:
             parser = parser_for_mime(self._document.mime)
         except Exception:
@@ -718,6 +822,7 @@ class KnowledgeProcessRunner:
                         "chunk_count": len(state.chunks or []),
                         "draft_count": state.draft_count,
                         "embedded_count": state.embedded_count,
+                        "index_mode": state.index_mode,
                         "applied": False,
                     }
                 await session.commit()

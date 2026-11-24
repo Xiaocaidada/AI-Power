@@ -844,6 +844,7 @@ export const en: Dictionary = {
     metadataTitle: 'Document properties',
     metadataHint: 'Folder and tags drive filtering; metadata is a JSON object of string values.',
     parsePreview: 'Parsed preview',
+    indexMode: 'Index mode',
     parseSummary: '{pages} pages, previewing {chars} characters',
     parseTruncated: 'Truncated',
     parseNoPage: 'Full text',

@@ -269,6 +269,35 @@ def detect_mime(filename: str | None, content_type: str | None) -> str:
     return mime
 
 
+def ocr_file_text(path: Path, mime: str) -> str:
+    if mime not in IMAGE_MIMES:
+        raise OcrParseError(
+            "ocr_unsupported_format", f"OCR is not supported for {mime}"
+        )
+    return _ocr(path.read_bytes(), mime)
+
+
+def ocr_pdf_pages(path: Path, page_numbers: list[int]) -> dict[int, str]:
+    if not page_numbers:
+        return {}
+    import pymupdf
+
+    document = pymupdf.open(str(path))
+    try:
+        results: dict[int, str] = {}
+        for page_no in sorted(set(page_numbers)):
+            index = page_no - 1
+            if index < 0 or index >= document.page_count:
+                raise OcrParseError(
+                    "ocr_page_out_of_range", f"PDF page {page_no} is out of range"
+                )
+            pixmap = document.load_page(index).get_pixmap(dpi=144)
+            results[page_no] = _ocr(pixmap.tobytes("png"), "image/png")
+        return results
+    finally:
+        document.close()
+
+
 def parser_for_mime(mime: str) -> DocumentParser:
     if mime == "application/pdf":
         return PdfDocumentParser()

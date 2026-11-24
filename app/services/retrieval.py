@@ -437,7 +437,10 @@ async def _search_with_distance(
         select(Chunk, Document.filename, distance)
         .join(ChunkEmbedding, ChunkEmbedding.chunk_id == Chunk.id)
         .join(Document, Document.id == Chunk.document_id)
-        .where(*_filters(session, workspace_id, kb_ids, metadata_filter))
+        .where(
+            *_filters(session, workspace_id, kb_ids, metadata_filter),
+            Document.index_mode.in_(("vector", "hybrid")),
+        )
         .order_by(distance, Chunk.chunk_index, Chunk.id)
         .limit(limit)
     )
@@ -460,7 +463,10 @@ async def _search_in_python(
         select(Chunk, Document.filename, ChunkEmbedding.embedding)
         .join(ChunkEmbedding, ChunkEmbedding.chunk_id == Chunk.id)
         .join(Document, Document.id == Chunk.document_id)
-        .where(*_filters(session, workspace_id, kb_ids, metadata_filter))
+        .where(
+            *_filters(session, workspace_id, kb_ids, metadata_filter),
+            Document.index_mode.in_(("vector", "hybrid")),
+        )
     )
     rows = (await session.execute(statement)).all()
     scored = [
@@ -492,6 +498,7 @@ async def _lexical_search_postgres(
         .join(Document, Document.id == Chunk.document_id)
         .where(
             *_filters(session, workspace_id, kb_ids, metadata_filter),
+            Document.index_mode.in_(("fulltext", "hybrid")),
             or_(
                 contains,
                 word_score > LEXICAL_WORD_MIN,
@@ -520,7 +527,10 @@ async def _lexical_search_python(
     statement = (
         select(Chunk, Document.filename)
         .join(Document, Document.id == Chunk.document_id)
-        .where(*_filters(session, workspace_id, kb_ids, metadata_filter))
+        .where(
+            *_filters(session, workspace_id, kb_ids, metadata_filter),
+            Document.index_mode.in_(("fulltext", "hybrid")),
+        )
     )
     rows = (await session.execute(statement)).all()
     scored = [(chunk, filename, _lexical_score(query, chunk.text)) for chunk, filename in rows]

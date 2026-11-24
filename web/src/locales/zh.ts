@@ -839,6 +839,7 @@ export const zh = {
     metadataTitle: '文档属性',
     metadataHint: '文件夹与标签影响筛选；元数据为字符串键值对 JSON。',
     parsePreview: '解析预览',
+    indexMode: '索引模式',
     parseSummary: '共 {pages} 页，预览 {chars} 字符',
     parseTruncated: '内容已截断',
     parseNoPage: '全文',
