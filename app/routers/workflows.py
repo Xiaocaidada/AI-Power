@@ -29,6 +29,8 @@ from app.schemas import (
     RunAcceptedOut,
     RunCancelOut,
     WorkflowCreate,
+    WorkflowDraftIn,
+    WorkflowDraftOut,
     WorkflowNodeRunOut,
     WorkflowOut,
     WorkflowRunCreate,
@@ -163,6 +165,8 @@ def _workflow_out(workflow: Workflow, versions: list[WorkflowVersion]) -> Workfl
         kind=workflow.kind,
         created_at=workflow.created_at,
         versions=[WorkflowVersionOut.model_validate(version) for version in versions],
+        draft_definition=workflow.draft_definition,
+        draft_saved_at=workflow.draft_saved_at,
     )
 
 
@@ -280,6 +284,133 @@ async def get_workflow(
     return _workflow_out(workflow, await _versions(session, workflow.id))
 
 
+def _draft_definition(payload: dict[str, object]) -> dict[str, object]:
+    nodes = payload.get("nodes")
+    edges = payload.get("edges")
+    if not isinstance(nodes, list) or not isinstance(edges, list):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {"code": "invalid_draft", "message": "Draft needs nodes and edges lists"},
+        )
+    if len(nodes) > 200 or len(edges) > 400:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {"code": "invalid_draft", "message": "Draft is too large"},
+        )
+    return payload
+
+
+@router.get(
+    "/{workflow_id}/versions", response_model=list[WorkflowVersionOut]
+)
+async def list_workflow_versions(
+    workflow_id: UUID,
+    context: Annotated[AuthContext, Depends(get_jwt_context)],
+    session: SessionDep,
+) -> list[WorkflowVersionOut]:
+    workflow = await _get_owned_workflow(workflow_id, context.workspace.id, session)
+    return [
+        WorkflowVersionOut.model_validate(version)
+        for version in await _versions(session, workflow.id)
+    ]
+
+
+@router.post(
+    "/{workflow_id}/versions/{version}/restore",
+    response_model=WorkflowVersionOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def restore_workflow_version(
+    workflow_id: UUID,
+    version: int,
+    context: Annotated[AuthContext, Depends(get_jwt_context)],
+    session: SessionDep,
+) -> WorkflowVersionOut:
+    workflow = await _get_owned_workflow(workflow_id, context.workspace.id, session)
+    target = (
+        await session.execute(
+            select(WorkflowVersion).where(
+                WorkflowVersion.workflow_id == workflow.id,
+                WorkflowVersion.version == version,
+            )
+        )
+    ).scalar_one_or_none()
+    if target is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Workflow version not found")
+    latest = (
+        await session.execute(
+            select(func.max(WorkflowVersion.version)).where(
+                WorkflowVersion.workflow_id == workflow.id
+            )
+        )
+    ).scalar_one()
+    restored = WorkflowVersion(
+        workflow_id=workflow.id,
+        version=(latest or 0) + 1,
+        schema_version=target.schema_version,
+        definition=target.definition,
+    )
+    session.add(restored)
+    workflow.draft_definition = None
+    workflow.draft_saved_at = None
+    session.add(
+        AuditLog(
+            actor_user_id=context.user.id,
+            action="workflow.restore",
+            target_type="workflow",
+            target_id=str(workflow.id),
+            detail={"restored_version": version, "new_version": restored.version},
+        )
+    )
+    await session.commit()
+    await session.refresh(restored)
+    return WorkflowVersionOut.model_validate(restored)
+
+
+@router.get("/{workflow_id}/draft", response_model=WorkflowDraftOut)
+async def get_workflow_draft(
+    workflow_id: UUID,
+    context: Annotated[AuthContext, Depends(get_jwt_context)],
+    session: SessionDep,
+) -> WorkflowDraftOut:
+    workflow = await _get_owned_workflow(workflow_id, context.workspace.id, session)
+    return WorkflowDraftOut(
+        definition=workflow.draft_definition,
+        saved_at=workflow.draft_saved_at,
+    )
+
+
+@router.put("/{workflow_id}/draft", response_model=WorkflowDraftOut)
+async def save_workflow_draft(
+    workflow_id: UUID,
+    payload: WorkflowDraftIn,
+    context: Annotated[AuthContext, Depends(get_jwt_context)],
+    session: SessionDep,
+) -> WorkflowDraftOut:
+    workflow = await _get_owned_workflow(workflow_id, context.workspace.id, session)
+    workflow.draft_definition = _draft_definition(payload.definition)
+    workflow.draft_saved_at = datetime.now(UTC)
+    await session.commit()
+    await session.refresh(workflow)
+    return WorkflowDraftOut(
+        definition=workflow.draft_definition,
+        saved_at=workflow.draft_saved_at,
+    )
+
+
+@router.delete("/{workflow_id}/draft", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_workflow_draft(
+    workflow_id: UUID,
+    context: Annotated[AuthContext, Depends(get_jwt_context)],
+    session: SessionDep,
+) -> Response:
+    workflow = await _get_owned_workflow(workflow_id, context.workspace.id, session)
+    workflow.draft_definition = None
+    workflow.draft_saved_at = None
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.post(
     "/{workflow_id}/versions",
     response_model=WorkflowVersionOut,
@@ -306,6 +437,8 @@ async def create_workflow_version(
         definition=definition.model_dump(by_alias=True),
     )
     session.add(version)
+    workflow.draft_definition = None
+    workflow.draft_saved_at = None
     session.add(
         AuditLog(
             actor_user_id=context.user.id,

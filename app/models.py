@@ -151,6 +151,12 @@ class Workflow(Base):
     name: Mapped[str] = mapped_column(String(120))
     description: Mapped[str] = mapped_column(String(500), default="")
     kind: Mapped[str] = mapped_column(String(30), default="agent", index=True)
+    draft_definition: Mapped[dict[str, object] | None] = mapped_column(
+        JSON, default=None
+    )
+    draft_saved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
