@@ -629,14 +629,32 @@ function ArtifactCard({ artifact }: { artifact: KnowledgeProcessArtifact }) {
       )}
       {chunks.length > 0 && (
         <div className="mt-2 space-y-1">
-          {chunks.slice(0, 20).map((chunk, index) => (
-            <div
-              key={index}
-              className="rounded-lg bg-surface-muted px-3 py-1.5 text-[11px] text-ink"
-            >
-              {String((chunk as Record<string, unknown>).text ?? '')}
-            </div>
-          ))}
+          {chunks.slice(0, 20).map((chunk, index) => {
+            const raw = chunk as Record<string, unknown>
+            const meta =
+              raw.meta !== null && typeof raw.meta === 'object'
+                ? (raw.meta as Record<string, unknown>)
+                : {}
+            const keywords = Array.isArray(meta.keywords)
+              ? meta.keywords.join(', ')
+              : ''
+            return (
+              <div
+                key={index}
+                className="rounded-lg bg-surface-muted px-3 py-1.5 text-[11px] text-ink"
+              >
+                <p>{String(raw.text ?? '')}</p>
+                {(keywords !== '' || typeof meta.summary === 'string') && (
+                  <p className="mt-1 text-[10px] text-ink-muted">
+                    {keywords !== '' && <span>Keywords: {keywords}</span>}
+                    {typeof meta.summary === 'string' && meta.summary !== '' && (
+                      <span className="ml-2">Summary: {meta.summary}</span>
+                    )}
+                  </p>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
       {text === '' && chunks.length === 0 && (

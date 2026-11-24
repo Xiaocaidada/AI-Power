@@ -222,6 +222,7 @@ async def list_chunks(
             chunk_index=chunk.chunk_index,
             page_no=chunk.page_no,
             text=chunk.text,
+            chunk_meta=dict(chunk.chunk_meta or {}),
             token_count=chunk.token_count,
             char_count=len(chunk.text),
             created_at=chunk.created_at,

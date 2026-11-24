@@ -437,6 +437,10 @@ export const en: Dictionary = {
       pageNo: 'Page {page}',
       chars: '{count} chars',
       tokens: '{count} tokens',
+      metaTitle: 'Title',
+      metaKeywords: 'Keywords',
+      metaSummary: 'Summary',
+      metaParent: 'Parent',
     },
     retrieval: {
       query: 'Query',

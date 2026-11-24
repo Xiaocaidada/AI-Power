@@ -6,7 +6,12 @@ KnowledgeNodeType = Literal[
     "start",
     "parse_document",
     "clean_text",
+    "filter_text",
     "chunk_text",
+    "enrich_metadata",
+    "extract_keywords",
+    "summarize_chunks",
+    "dedupe_chunks",
     "embed_chunks",
     "index_knowledge",
     "output",
@@ -16,13 +21,25 @@ KNOWLEDGE_NODE_TYPES: frozenset[str] = frozenset(
         "start",
         "parse_document",
         "clean_text",
+        "filter_text",
         "chunk_text",
+        "enrich_metadata",
+        "extract_keywords",
+        "summarize_chunks",
+        "dedupe_chunks",
         "embed_chunks",
         "index_knowledge",
         "output",
     }
 )
-ChunkStrategy = Literal["fixed", "markdown", "recursive"]
+ChunkStrategy = Literal[
+    "fixed",
+    "markdown",
+    "recursive",
+    "custom",
+    "parent_child",
+    "semantic",
+]
 
 
 class EmptyKnowledgeConfig(BaseModel):
@@ -39,18 +56,56 @@ class CleanTextConfig(BaseModel):
     strip_control: bool = True
 
 
+class FilterTextConfig(BaseModel):
+    min_line_chars: int = Field(default=0, ge=0, le=2000)
+    drop_patterns: str = Field(default="", max_length=4000)
+    dedupe_lines: bool = True
+    normalize_width: bool = True
+    drop_boilerplate: bool = False
+
+
 class ChunkTextConfig(BaseModel):
     strategy: ChunkStrategy = "fixed"
     chunk_size: int = Field(default=800, ge=50, le=4000)
     chunk_overlap: int = Field(default=120, ge=0, le=1000)
     min_chars: int = Field(default=20, ge=0, le=2000)
     keep_heading: bool = True
+    separators: str = Field(default="\\n\\n|\\n|。|！|？|. |，|,| ", max_length=500)
+    parent_size: int = Field(default=2000, ge=200, le=8000)
+    child_size: int = Field(default=400, ge=50, le=4000)
+    semantic_threshold: float = Field(default=0.55, ge=0.0, le=1.0)
 
     @model_validator(mode="after")
     def _overlap_is_smaller(self) -> "ChunkTextConfig":
         if self.chunk_overlap >= self.chunk_size:
             raise ValueError("chunk_overlap must be smaller than chunk_size")
+        if self.strategy == "parent_child" and self.child_size >= self.parent_size:
+            raise ValueError("child_size must be smaller than parent_size")
         return self
+
+
+class EnrichMetadataConfig(BaseModel):
+    include_filename: bool = True
+    include_folder: bool = True
+    include_tags: bool = True
+    include_source: bool = True
+    prepend_title: bool = False
+
+
+class ExtractKeywordsConfig(BaseModel):
+    count: int = Field(default=8, ge=1, le=30)
+    prepend: bool = False
+
+
+class SummarizeChunksConfig(BaseModel):
+    max_chars: int = Field(default=200, ge=40, le=1000)
+    mode: Literal["extractive", "first_sentence"] = "extractive"
+    prepend: bool = False
+
+
+class DedupeChunksConfig(BaseModel):
+    threshold: float = Field(default=0.92, ge=0.5, le=1.0)
+    min_chars: int = Field(default=0, ge=0, le=2000)
 
 
 class EmbedChunksConfig(BaseModel):
@@ -65,7 +120,12 @@ KNOWLEDGE_CONFIGS: dict[str, type[BaseModel]] = {
     "start": EmptyKnowledgeConfig,
     "parse_document": ParseDocumentConfig,
     "clean_text": CleanTextConfig,
+    "filter_text": FilterTextConfig,
     "chunk_text": ChunkTextConfig,
+    "enrich_metadata": EnrichMetadataConfig,
+    "extract_keywords": ExtractKeywordsConfig,
+    "summarize_chunks": SummarizeChunksConfig,
+    "dedupe_chunks": DedupeChunksConfig,
     "embed_chunks": EmbedChunksConfig,
     "index_knowledge": IndexKnowledgeConfig,
     "output": EmptyKnowledgeConfig,

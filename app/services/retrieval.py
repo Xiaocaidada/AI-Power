@@ -1,7 +1,7 @@
 import logging
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from uuid import UUID
 
 from sqlalchemy import case, func, or_, select
@@ -45,6 +45,7 @@ class RetrievedChunk:
     lexical_rank: int | None = None
     fused_score: float | None = None
     rerank_score: float | None = None
+    chunk_meta: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -338,7 +339,7 @@ async def retrieve_with_diagnostics(
                 logger.exception("rerank failed unexpectedly; using fused order")
             timings["rerank_ms"] = _elapsed_ms(rerank_started)
 
-    results = results[: options.top_k]
+    results = _expand_parent_context(results)[: options.top_k]
     timings["total_ms"] = _elapsed_ms(total_started)
     metrics.inc_counter("ai_power_retrieval_requests_total", mode=mode)
     metrics.observe("ai_power_retrieval_duration_seconds", timings["total_ms"] / 1000, mode=mode)
@@ -587,7 +588,28 @@ def _to_chunk(chunk: Chunk, filename: str, distance: float | None) -> RetrievedC
         chunk_index=chunk.chunk_index,
         text=chunk.text,
         distance=distance,
+        chunk_meta=dict(chunk.chunk_meta or {}),
     )
+
+
+def _expand_parent_context(
+    chunks: Sequence[RetrievedChunk],
+) -> list[RetrievedChunk]:
+    """Return one parent block per parent id when parent-child chunking is used."""
+    result: list[RetrievedChunk] = []
+    seen_parents: set[tuple[UUID, str]] = set()
+    for chunk in chunks:
+        parent_id = chunk.chunk_meta.get("parent_id")
+        parent_text = chunk.chunk_meta.get("parent_text")
+        if isinstance(parent_id, str) and parent_id:
+            key = (chunk.document_id, parent_id)
+            if key in seen_parents:
+                continue
+            seen_parents.add(key)
+            if isinstance(parent_text, str) and parent_text.strip():
+                chunk = replace(chunk, text=parent_text)
+        result.append(chunk)
+    return result
 
 
 def _snippet(text: str) -> str:
