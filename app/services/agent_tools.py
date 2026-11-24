@@ -20,7 +20,12 @@ from app.tools.base import ToolContext, ToolError, ToolSpec
 from app.tools.mcp import MCP_TOOL_PREFIX, format_mcp_tool, parse_mcp_tool_ref
 from app.tools.registry import build_tool_registry
 
-SELECTABLE_BUILTIN_TOOLS = ("kb_search", "current_time", "calculator")
+SELECTABLE_BUILTIN_TOOLS = (
+    "kb_search",
+    "current_time",
+    "calculator",
+    "project_files",
+)
 MCP_TOOL_NAME_MAX = 120
 DISCOVERY_TTL_SECONDS = 120.0
 

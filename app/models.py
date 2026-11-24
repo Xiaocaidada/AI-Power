@@ -921,6 +921,46 @@ class Project(Base):
     __table_args__ = (Index("ix_projects_workspace_archived", "workspace_id", "archived_at"),)
 
 
+class ProjectAgent(Base):
+    __tablename__ = "project_agents"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    project_id: Mapped[UUID] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("custom_agents.id", ondelete="CASCADE"), index=True
+    )
+    added_by_user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), default=None
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("project_id", "agent_id", name="uq_project_agents_pair"),
+    )
+
+
+class ProjectDocument(Base):
+    __tablename__ = "project_documents"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    project_id: Mapped[UUID] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    document_id: Mapped[UUID] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), index=True
+    )
+    added_by_user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), default=None
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("project_id", "document_id", name="uq_project_documents_pair"),
+    )
+
+
 class Conversation(Base):
     __tablename__ = "conversations"
 

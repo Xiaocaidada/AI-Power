@@ -1,5 +1,14 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Brain, MessageSquare, Pencil, Plus, Trash2 } from 'lucide-react'
+import {
+  ArrowLeft,
+  Bot,
+  Brain,
+  FolderOpen,
+  MessageSquare,
+  Pencil,
+  Plus,
+  Trash2,
+} from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
@@ -13,8 +22,11 @@ import type {
   AgentMemory,
   Conversation,
   CustomAgent,
+  FileItem,
   KnowledgeBase,
   Project,
+  ProjectAgent,
+  ProjectFile,
 } from '../../lib/types'
 import { MemoryFormDialog } from '../memory/MemoryFormDialog'
 
@@ -24,6 +36,8 @@ export function ProjectDetailPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState<AgentMemory | null | undefined>()
+  const [agentToAdd, setAgentToAdd] = useState('')
+  const [fileToAdd, setFileToAdd] = useState('')
 
   const project = useQuery({
     queryKey: ['project', id],
@@ -57,6 +71,21 @@ export function ProjectDetailPage() {
     queryKey: ['agents', 'project-memory-options'],
     queryFn: () => apiRequest<CustomAgent[]>('/agents?scope=mine'),
     staleTime: 60_000,
+  })
+  const projectAgents = useQuery({
+    queryKey: ['project-agents', id],
+    queryFn: () => apiRequest<ProjectAgent[]>(`/projects/${id}/agents`),
+    enabled: id !== '',
+  })
+  const projectFiles = useQuery({
+    queryKey: ['project-files', id],
+    queryFn: () => apiRequest<ProjectFile[]>(`/projects/${id}/files`),
+    enabled: id !== '',
+  })
+  const allFiles = useQuery({
+    queryKey: ['files', 'project-attach-options'],
+    queryFn: () => apiRequest<FileItem[]>('/files?limit=100'),
+    enabled: id !== '' && (project.data?.owned ?? false),
   })
 
   if (project.isLoading) {
@@ -100,6 +129,55 @@ export function ProjectDetailPage() {
     await apiRequest(`/memories/${memory.id}`, { method: 'DELETE' })
     await refreshMemories()
   }
+  const refreshProjectResources = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['project-agents', detail.id] }),
+      queryClient.invalidateQueries({ queryKey: ['project-files', detail.id] }),
+      queryClient.invalidateQueries({ queryKey: ['project', detail.id] }),
+    ])
+  }
+  const addAgent = async () => {
+    if (agentToAdd === '') return
+    await apiRequest(`/projects/${detail.id}/agents`, {
+      method: 'POST',
+      body: { agent_id: agentToAdd },
+    })
+    setAgentToAdd('')
+    await refreshProjectResources()
+  }
+  const removeAgent = async (agentId: string) => {
+    await apiRequest(`/projects/${detail.id}/agents/${agentId}`, {
+      method: 'DELETE',
+    })
+    await refreshProjectResources()
+  }
+  const addFile = async () => {
+    if (fileToAdd === '') return
+    await apiRequest(`/projects/${detail.id}/files`, {
+      method: 'POST',
+      body: { document_id: fileToAdd },
+    })
+    setFileToAdd('')
+    await refreshProjectResources()
+  }
+  const removeFile = async (documentId: string) => {
+    await apiRequest(`/projects/${detail.id}/files/${documentId}`, {
+      method: 'DELETE',
+    })
+    await refreshProjectResources()
+  }
+  const linkedAgentIds = new Set(
+    (projectAgents.data ?? []).map((agent) => agent.agent_id),
+  )
+  const availableAgentOptions = agentOptions.filter(
+    (agent) => !linkedAgentIds.has(agent.id),
+  )
+  const attachedFileIds = new Set(
+    (projectFiles.data ?? []).map((file) => file.document_id),
+  )
+  const availableFileOptions = (allFiles.data ?? []).filter(
+    (file) => !attachedFileIds.has(file.id),
+  )
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -135,6 +213,140 @@ export function ProjectDetailPage() {
             <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-ink-muted">
               {detail.instructions || t('projects.noInstructions')}
             </p>
+          </div>
+
+          <div className="rounded-2xl border border-border bg-surface">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-3">
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-ink">
+                <Bot className="h-4 w-4 text-accent" />
+                {t('projects.agentsTitle')}
+              </h2>
+              {detail.owned && (
+                <div className="flex items-center gap-2">
+                  <select
+                    value={agentToAdd}
+                    onChange={(event) => setAgentToAdd(event.target.value)}
+                    className="h-8 rounded-lg border border-border bg-surface px-2 text-xs text-ink"
+                  >
+                    <option value="">{t('projects.addAgentPlaceholder')}</option>
+                    {availableAgentOptions.map((agent) => (
+                      <option key={agent.id} value={agent.id}>
+                        {agent.icon} {agent.name}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={agentToAdd === ''}
+                    onClick={() => void addAgent()}
+                  >
+                    <Plus className="h-3 w-3" />
+                    {t('projects.addAgent')}
+                  </Button>
+                </div>
+              )}
+            </div>
+            <div className="divide-y divide-border">
+              {(projectAgents.data ?? []).map((agent) => (
+                <div
+                  key={agent.agent_id}
+                  className="flex items-center gap-3 px-5 py-3"
+                >
+                  <span className="text-lg">{agent.icon}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="truncate text-sm text-ink">{agent.name}</span>
+                      {agent.is_default && (
+                        <Badge tone="accent">{t('projects.defaultAgentBadge')}</Badge>
+                      )}
+                    </div>
+                    <p className="truncate text-xs text-ink-muted">
+                      {agent.description || agent.mode}
+                    </p>
+                  </div>
+                  {detail.owned && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      aria-label={t('common.delete')}
+                      onClick={() => void removeAgent(agent.agent_id)}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+              {projectAgents.data !== undefined && projectAgents.data.length === 0 && (
+                <p className="px-5 py-8 text-center text-sm text-ink-muted">
+                  {t('projects.noAgents')}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-border bg-surface">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-3">
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-ink">
+                <FolderOpen className="h-4 w-4 text-accent" />
+                {t('projects.filesTitle')}
+              </h2>
+              {detail.owned && (
+                <div className="flex items-center gap-2">
+                  <select
+                    value={fileToAdd}
+                    onChange={(event) => setFileToAdd(event.target.value)}
+                    className="h-8 max-w-56 rounded-lg border border-border bg-surface px-2 text-xs text-ink"
+                  >
+                    <option value="">{t('projects.addFilePlaceholder')}</option>
+                    {availableFileOptions.map((file) => (
+                      <option key={file.id} value={file.id}>
+                        {file.filename}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={fileToAdd === ''}
+                    onClick={() => void addFile()}
+                  >
+                    <Plus className="h-3 w-3" />
+                    {t('projects.addFile')}
+                  </Button>
+                </div>
+              )}
+            </div>
+            <div className="divide-y divide-border">
+              {(projectFiles.data ?? []).map((file) => (
+                <div
+                  key={file.document_id}
+                  className="flex items-center gap-3 px-5 py-3"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm text-ink">{file.filename}</p>
+                    <p className="truncate text-xs text-ink-muted">
+                      {file.status} · {file.folder || t('projects.noFolder')}
+                    </p>
+                  </div>
+                  {detail.owned && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      aria-label={t('common.delete')}
+                      onClick={() => void removeFile(file.document_id)}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+              {projectFiles.data !== undefined && projectFiles.data.length === 0 && (
+                <p className="px-5 py-8 text-center text-sm text-ink-muted">
+                  {t('projects.noFiles')}
+                </p>
+              )}
+            </div>
           </div>
 
           <div className="rounded-2xl border border-border bg-surface">

@@ -603,6 +603,8 @@ class WorkflowRunner:
         generation_opts: dict[str, object] = {}
         mcp_tools = []
         extra_tools = list(config.tools)
+        if config.project_id is not None:
+            extra_tools.append("project_files")
         if config.agent_id is not None:
             async with SessionLocal() as session:
                 try:

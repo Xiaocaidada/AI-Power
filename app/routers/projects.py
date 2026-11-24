@@ -10,10 +10,27 @@ from app.deps import AuthContext, get_jwt_context, get_scoped_registry
 from app.models import AuditLog, CustomAgent, Project
 from app.providers.base import ProviderError
 from app.providers.registry import ProviderRegistry
-from app.schemas import ProjectCreate, ProjectOut, ProjectUpdate
+from app.schemas import (
+    ProjectAgentIn,
+    ProjectAgentOut,
+    ProjectCreate,
+    ProjectFileIn,
+    ProjectFileOut,
+    ProjectOut,
+    ProjectUpdate,
+)
 from app.services.access import get_owned_knowledge_base
 from app.services.memory_extraction import create_project_memory_candidate
 from app.services.memory_permissions import normalize_project_permissions
+from app.services.project_resources import (
+    ProjectResourceError,
+    add_project_agent,
+    add_project_document,
+    list_project_agents,
+    list_project_documents,
+    remove_project_agent,
+    remove_project_document,
+)
 from app.services.projects import (
     ProjectError,
     archive_project,
@@ -62,6 +79,15 @@ def _defaults_error(exc: ProviderConfigError) -> HTTPException:
     status_code = (
         status.HTTP_404_NOT_FOUND
         if exc.code in {"not_found", "model_not_found"}
+        else status.HTTP_422_UNPROCESSABLE_CONTENT
+    )
+    return HTTPException(status_code, {"code": exc.code, "message": exc.message})
+
+
+def _resource_error(exc: ProjectResourceError) -> HTTPException:
+    status_code = (
+        status.HTTP_404_NOT_FOUND
+        if exc.code.endswith("_not_found")
         else status.HTTP_422_UNPROCESSABLE_CONTENT
     )
     return HTTPException(status_code, {"code": exc.code, "message": exc.message})
@@ -178,6 +204,15 @@ async def create_workspace_project(
         owner_user_id=context.user.id,
         values=values,
     )
+    if project.default_custom_agent_id is not None:
+        await add_project_agent(
+            session,
+            project,
+            agent_id=project.default_custom_agent_id,
+            user_id=context.user.id,
+            workspace_role=context.role,
+            set_default=True,
+        )
     await session.commit()
     await session.refresh(project)
     try:
@@ -269,6 +304,15 @@ async def update_workspace_project(
     if "kb_ids" in data:
         data["kb_ids"] = [str(item) for item in kb_ids]
     project = await update_project(session, project, data)
+    if project.default_custom_agent_id is not None:
+        await add_project_agent(
+            session,
+            project,
+            agent_id=project.default_custom_agent_id,
+            user_id=context.user.id,
+            workspace_role=context.role,
+            set_default=True,
+        )
     session.add(
         AuditLog(
             actor_user_id=context.user.id,
@@ -312,5 +356,167 @@ async def archive_workspace_project(
             detail={},
         )
     )
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+async def _load_project(
+    project_id: UUID, context: AuthContext, session: AsyncSession
+) -> Project:
+    try:
+        return await get_project(
+            session, context.workspace.id, project_id, include_archived=True
+        )
+    except ProjectError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, exc.message) from None
+
+
+@router.get("/{project_id}/agents", response_model=list[ProjectAgentOut])
+async def list_workspace_project_agents(
+    project_id: UUID, context: JwtContext, session: SessionDep
+) -> list[ProjectAgentOut]:
+    project = await _load_project(project_id, context, session)
+    rows = await list_project_agents(session, project)
+    return [
+        ProjectAgentOut(
+            agent_id=agent.id,
+            name=agent.name,
+            description=agent.description,
+            icon=agent.icon,
+            category=agent.category,
+            mode=agent.mode,
+            is_default=is_default,
+        )
+        for agent, is_default in rows
+    ]
+
+
+@router.post(
+    "/{project_id}/agents",
+    response_model=ProjectAgentOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_workspace_project_agent(
+    project_id: UUID,
+    payload: ProjectAgentIn,
+    context: JwtContext,
+    session: SessionDep,
+) -> ProjectAgentOut:
+    project = await _load_project(project_id, context, session)
+    if not can_manage(project, context.user.id, context.role):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the project owner can edit")
+    try:
+        agent = await add_project_agent(
+            session,
+            project,
+            agent_id=payload.agent_id,
+            user_id=context.user.id,
+            workspace_role=context.role,
+            set_default=payload.set_default,
+        )
+    except ProjectResourceError as exc:
+        raise _resource_error(exc) from None
+    await session.commit()
+    return ProjectAgentOut(
+        agent_id=agent.id,
+        name=agent.name,
+        description=agent.description,
+        icon=agent.icon,
+        category=agent.category,
+        mode=agent.mode,
+        is_default=project.default_custom_agent_id == agent.id,
+    )
+
+
+@router.delete(
+    "/{project_id}/agents/{agent_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+async def remove_workspace_project_agent(
+    project_id: UUID, agent_id: UUID, context: JwtContext, session: SessionDep
+) -> Response:
+    project = await _load_project(project_id, context, session)
+    if not can_manage(project, context.user.id, context.role):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the project owner can edit")
+    try:
+        await remove_project_agent(session, project, agent_id)
+    except ProjectResourceError as exc:
+        raise _resource_error(exc) from None
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{project_id}/files", response_model=list[ProjectFileOut])
+async def list_workspace_project_files(
+    project_id: UUID, context: JwtContext, session: SessionDep
+) -> list[ProjectFileOut]:
+    project = await _load_project(project_id, context, session)
+    documents = await list_project_documents(session, project)
+    return [
+        ProjectFileOut(
+            document_id=document.id,
+            filename=document.filename,
+            status=document.status,
+            size_bytes=document.size_bytes,
+            mime=document.mime,
+            tags=list(document.tags or []),
+            folder=document.folder,
+            created_at=document.created_at,
+        )
+        for document in documents
+    ]
+
+
+@router.post(
+    "/{project_id}/files",
+    response_model=ProjectFileOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_workspace_project_file(
+    project_id: UUID,
+    payload: ProjectFileIn,
+    context: JwtContext,
+    session: SessionDep,
+) -> ProjectFileOut:
+    project = await _load_project(project_id, context, session)
+    if not can_manage(project, context.user.id, context.role):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the project owner can edit")
+    try:
+        document = await add_project_document(
+            session,
+            project,
+            document_id=payload.document_id,
+            user_id=context.user.id,
+        )
+    except ProjectResourceError as exc:
+        raise _resource_error(exc) from None
+    await session.commit()
+    return ProjectFileOut(
+        document_id=document.id,
+        filename=document.filename,
+        status=document.status,
+        size_bytes=document.size_bytes,
+        mime=document.mime,
+        tags=list(document.tags or []),
+        folder=document.folder,
+        created_at=document.created_at,
+    )
+
+
+@router.delete(
+    "/{project_id}/files/{document_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+async def remove_workspace_project_file(
+    project_id: UUID,
+    document_id: UUID,
+    context: JwtContext,
+    session: SessionDep,
+) -> Response:
+    project = await _load_project(project_id, context, session)
+    if not can_manage(project, context.user.id, context.role):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the project owner can edit")
+    try:
+        await remove_project_document(session, project, document_id)
+    except ProjectResourceError as exc:
+        raise _resource_error(exc) from None
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

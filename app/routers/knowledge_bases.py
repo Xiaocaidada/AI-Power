@@ -43,6 +43,8 @@ from app.schemas import (
     KnowledgeProcessBindingIn,
     KnowledgeProcessBindingOut,
     KnowledgeProcessPreviewOut,
+    KnowledgeProcessVersionCompareOut,
+    KnowledgeProcessVersionMetricOut,
     KnowledgeRetrievalTestIn,
     KnowledgeRetrievalTestOut,
     RetrievalHitOut,
@@ -507,6 +509,114 @@ async def get_processing_analytics(
         pending_apply=sum(1 for run in completed if run.applied_at is None),
         failure_codes=failure_codes,
         recent=recent,
+    )
+
+
+@router.get(
+    "/{kb_id}/processing/versions/compare",
+    response_model=KnowledgeProcessVersionCompareOut,
+)
+async def compare_processing_versions(
+    kb_id: UUID,
+    context: JwtContext,
+    session: SessionDep,
+    version_ids: Annotated[list[UUID] | None, Query()] = None,
+) -> KnowledgeProcessVersionCompareOut:
+    kb = await get_owned_knowledge_base(kb_id, context.workspace.id, session)
+    conditions = [
+        Document.kb_id == kb.id,
+        Document.workspace_id == context.workspace.id,
+        Document.deleted_at.is_(None),
+        Document.process_version_id.is_not(None),
+    ]
+    if version_ids:
+        conditions.append(Document.process_version_id.in_(version_ids))
+    documents = list(
+        (await session.execute(select(Document).where(*conditions))).scalars()
+    )
+    if not documents:
+        return KnowledgeProcessVersionCompareOut(sampled_chunks=0, versions=[])
+    selected_versions = {
+        document.process_version_id
+        for document in documents
+        if document.process_version_id is not None
+    }
+    rows = (
+        await session.execute(
+            select(WorkflowVersion, Workflow)
+            .join(Workflow, Workflow.id == WorkflowVersion.workflow_id)
+            .where(WorkflowVersion.id.in_(selected_versions))
+        )
+    ).all()
+    version_labels = {
+        version.id: (workflow.name, version.version, workflow.id)
+        for version, workflow in rows
+    }
+    document_version = {
+        document.id: document.process_version_id for document in documents
+    }
+    chunks = (
+        await session.execute(
+            select(Chunk.document_id, Chunk.text, Chunk.chunk_meta)
+            .where(Chunk.document_id.in_(document_version.keys()))
+            .limit(5000)
+        )
+    ).all()
+    grouped: dict[UUID, list[tuple[str, dict]]] = {}
+    texts_by_document: dict[UUID, list[str]] = {}
+    for document_id, text, meta in chunks:
+        texts_by_document.setdefault(document_id, []).append((text or "").strip())
+        version_id = document_version.get(document_id)
+        if version_id is None:
+            continue
+        grouped.setdefault(version_id, []).append((text or "", meta or {}))
+    versions: list[KnowledgeProcessVersionMetricOut] = []
+    for version_id in sorted(
+        grouped,
+        key=lambda item: (
+            version_labels.get(item, ("", 0, item))[0],
+            version_labels.get(item, ("", 0, item))[1],
+        ),
+    ):
+        label = version_labels.get(version_id)
+        if label is None:
+            continue
+        name, number, workflow_id = label
+        samples = grouped[version_id]
+        lengths = [len(text) for text, _ in samples]
+        total = len(samples)
+        metadata = sum(1 for _, meta in samples if meta)
+        parents = sum(1 for _, meta in samples if meta.get("parent_id"))
+        keywords = sum(1 for _, meta in samples if meta.get("keywords"))
+        summaries = sum(1 for _, meta in samples if meta.get("summary"))
+        duplicates = 0
+        for document_id, version in document_version.items():
+            if version != version_id:
+                continue
+            texts = texts_by_document.get(document_id, [])
+            duplicates += max(0, len(texts) - len(set(texts)))
+        versions.append(
+            KnowledgeProcessVersionMetricOut(
+                version_id=version_id,
+                workflow_id=workflow_id,
+                workflow_name=name,
+                version=number,
+                document_count=sum(
+                    1 for value in document_version.values() if value == version_id
+                ),
+                chunk_count=total,
+                avg_chunk_chars=round(sum(lengths) / total, 1) if total else 0.0,
+                min_chunk_chars=min(lengths) if lengths else 0,
+                max_chunk_chars=max(lengths) if lengths else 0,
+                metadata_coverage=round(metadata / total, 4) if total else 0.0,
+                parent_coverage=round(parents / total, 4) if total else 0.0,
+                keyword_coverage=round(keywords / total, 4) if total else 0.0,
+                summary_coverage=round(summaries / total, 4) if total else 0.0,
+                duplicate_ratio=round(duplicates / total, 4) if total else 0.0,
+            )
+        )
+    return KnowledgeProcessVersionCompareOut(
+        sampled_chunks=len(chunks), versions=versions
     )
 
 

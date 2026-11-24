@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -157,6 +158,14 @@ async def list_workspace_memories(
     tag: str | None = None,
     favorite: bool | None = None,
     pinned: bool | None = None,
+    source_type: str | None = None,
+    used_in: str | None = None,
+    has_relations: bool | None = None,
+    related_to: UUID | None = None,
+    created_after: datetime | None = None,
+    created_before: datetime | None = None,
+    updated_after: datetime | None = None,
+    updated_before: datetime | None = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[MemoryOut]:
@@ -175,6 +184,14 @@ async def list_workspace_memories(
             tag=tag,
             favorite=favorite,
             pinned=pinned,
+            source_type=source_type,
+            used_in=used_in,
+            has_relations=has_relations,
+            related_to=related_to,
+            created_after=created_after,
+            created_before=created_before,
+            updated_after=updated_after,
+            updated_before=updated_before,
             limit=limit,
             offset=offset,
         )

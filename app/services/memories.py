@@ -387,6 +387,14 @@ async def list_memories(
     tag: str | None = None,
     favorite: bool | None = None,
     pinned: bool | None = None,
+    source_type: str | None = None,
+    used_in: str | None = None,
+    has_relations: bool | None = None,
+    related_to: UUID | None = None,
+    created_after: datetime | None = None,
+    created_before: datetime | None = None,
+    updated_after: datetime | None = None,
+    updated_before: datetime | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[AgentMemory]:
@@ -416,6 +424,60 @@ async def list_memories(
         conditions.append(AgentMemory.favorite.is_(favorite))
     if pinned is not None:
         conditions.append(AgentMemory.pinned.is_(pinned))
+    if source_type is not None and source_type.strip():
+        conditions.append(AgentMemory.source_type == source_type.strip())
+    if used_in is not None and used_in.strip():
+        conditions.append(
+            AgentMemory.id.in_(
+                select(MemoryUsageEvent.memory_id).where(
+                    MemoryUsageEvent.workspace_id == workspace_id,
+                    MemoryUsageEvent.user_id == user_id,
+                    MemoryUsageEvent.context_type == used_in.strip(),
+                )
+            )
+        )
+    if created_after is not None:
+        conditions.append(AgentMemory.created_at >= created_after)
+    if created_before is not None:
+        conditions.append(AgentMemory.created_at <= created_before)
+    if updated_after is not None:
+        conditions.append(AgentMemory.updated_at >= updated_after)
+    if updated_before is not None:
+        conditions.append(AgentMemory.updated_at <= updated_before)
+    outgoing = select(MemoryRelation.id).where(
+        MemoryRelation.from_type == "memory",
+        MemoryRelation.from_id == AgentMemory.id,
+        MemoryRelation.to_type == "memory",
+    )
+    incoming = select(MemoryRelation.id).where(
+        MemoryRelation.to_type == "memory",
+        MemoryRelation.to_id == AgentMemory.id,
+        MemoryRelation.from_type == "memory",
+    )
+    if has_relations is not None:
+        relation_exists = or_(outgoing.exists(), incoming.exists())
+        conditions.append(
+            relation_exists if has_relations else ~relation_exists
+        )
+    if related_to is not None:
+        conditions.append(
+            or_(
+                AgentMemory.id.in_(
+                    select(MemoryRelation.to_id).where(
+                        MemoryRelation.from_type == "memory",
+                        MemoryRelation.from_id == related_to,
+                        MemoryRelation.to_type == "memory",
+                    )
+                ),
+                AgentMemory.id.in_(
+                    select(MemoryRelation.from_id).where(
+                        MemoryRelation.to_type == "memory",
+                        MemoryRelation.to_id == related_to,
+                        MemoryRelation.from_type == "memory",
+                    )
+                ),
+            )
+        )
     words = _words(query)
     if words:
         conditions.append(
@@ -1392,6 +1454,11 @@ async def select_memories(
     allowed_provider_ids: list[str] | None = None,
     allowed_models: list[str] | None = None,
     allowed_agent_ids: list[str] | None = None,
+    source_type: str | None = None,
+    used_in: str | None = None,
+    related_to: UUID | None = None,
+    created_after: datetime | None = None,
+    updated_after: datetime | None = None,
 ) -> MemorySelection:
     now = datetime.now(UTC)
     if allowed_scopes is not None and not allowed_scopes:
@@ -1443,6 +1510,41 @@ async def select_memories(
         conditions.append(AgentMemory.scope_type.in_(sorted(allowed_scopes)))
     if excluded_ids:
         conditions.append(AgentMemory.id.notin_(excluded_ids[:50]))
+    if source_type is not None and source_type.strip():
+        conditions.append(AgentMemory.source_type == source_type.strip())
+    if used_in is not None and used_in.strip():
+        conditions.append(
+            AgentMemory.id.in_(
+                select(MemoryUsageEvent.memory_id).where(
+                    MemoryUsageEvent.workspace_id == workspace_id,
+                    MemoryUsageEvent.user_id == user_id,
+                    MemoryUsageEvent.context_type == used_in.strip(),
+                )
+            )
+        )
+    if created_after is not None:
+        conditions.append(AgentMemory.created_at >= created_after)
+    if updated_after is not None:
+        conditions.append(AgentMemory.updated_at >= updated_after)
+    if related_to is not None:
+        conditions.append(
+            or_(
+                AgentMemory.id.in_(
+                    select(MemoryRelation.to_id).where(
+                        MemoryRelation.from_type == "memory",
+                        MemoryRelation.from_id == related_to,
+                        MemoryRelation.to_type == "memory",
+                    )
+                ),
+                AgentMemory.id.in_(
+                    select(MemoryRelation.from_id).where(
+                        MemoryRelation.to_type == "memory",
+                        MemoryRelation.to_id == related_to,
+                        MemoryRelation.from_type == "memory",
+                    )
+                ),
+            )
+        )
     settings = get_settings()
     words = _words(query)
     candidates = list(

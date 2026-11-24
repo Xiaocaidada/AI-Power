@@ -76,6 +76,10 @@ export function MemoryPage() {
   const [projectFilter, setProjectFilter] = useState('')
   const [agentFilter, setAgentFilter] = useState('')
   const [favoriteOnly, setFavoriteOnly] = useState(false)
+  const [sourceType, setSourceType] = useState('')
+  const [usedIn, setUsedIn] = useState('')
+  const [hasRelations, setHasRelations] = useState(false)
+  const [createdAfter, setCreatedAfter] = useState('')
   const [editing, setEditing] = useState<AgentMemory | null | undefined>()
   const [detail, setDetail] = useState<AgentMemory | null>(null)
 
@@ -118,6 +122,10 @@ export function MemoryPage() {
       projectFilter,
       agentFilter,
       favoriteOnly,
+      sourceType,
+      usedIn,
+      hasRelations,
+      createdAfter,
     ],
     queryFn: () =>
       apiRequest<AgentMemory[]>(
@@ -129,6 +137,10 @@ export function MemoryPage() {
           ...(projectFilter !== '' ? { project_id: projectFilter } : {}),
           ...(agentFilter !== '' ? { agent_id: agentFilter } : {}),
           ...(favoriteOnly ? { favorite: 'true' } : {}),
+          ...(sourceType !== '' ? { source_type: sourceType } : {}),
+          ...(usedIn !== '' ? { used_in: usedIn } : {}),
+          ...(hasRelations ? { has_relations: 'true' } : {}),
+          ...(createdAfter !== '' ? { created_after: createdAfter } : {}),
         }).toString()}`,
       ),
     enabled: tab === 'all',
@@ -300,6 +312,45 @@ export function MemoryPage() {
                   </option>
                 ))}
               </select>
+              <select
+                value={sourceType}
+                onChange={(event) => setSourceType(event.target.value)}
+                className="h-9 rounded-lg border border-border bg-surface px-2 text-sm text-ink"
+              >
+                <option value="">{t('memory.allSources')}</option>
+                <option value="manual">{t('memory.sourceType.manual')}</option>
+                <option value="chat">{t('memory.sourceType.chat')}</option>
+                <option value="project">{t('memory.sourceType.project')}</option>
+                <option value="workflow_run">
+                  {t('memory.sourceType.workflow_run')}
+                </option>
+                <option value="document">{t('memory.sourceType.document')}</option>
+              </select>
+              <select
+                value={usedIn}
+                onChange={(event) => setUsedIn(event.target.value)}
+                className="h-9 rounded-lg border border-border bg-surface px-2 text-sm text-ink"
+              >
+                <option value="">{t('memory.allUsageScenes')}</option>
+                <option value="chat">{t('memory.usageScene.chat')}</option>
+                <option value="agent">{t('memory.usageScene.agent')}</option>
+                <option value="workflow">{t('memory.usageScene.workflow')}</option>
+              </select>
+              <input
+                type="date"
+                value={createdAfter}
+                onChange={(event) => setCreatedAfter(event.target.value)}
+                aria-label={t('memory.createdAfter')}
+                className="h-9 rounded-lg border border-border bg-surface px-2 text-sm text-ink"
+              />
+              <label className="flex items-center gap-2 text-xs text-ink-muted">
+                <input
+                  type="checkbox"
+                  checked={hasRelations}
+                  onChange={(event) => setHasRelations(event.target.checked)}
+                />
+                {t('memory.hasRelations')}
+              </label>
               <label className="flex items-center gap-2 text-xs text-ink-muted">
                 <input
                   type="checkbox"
