@@ -20,6 +20,7 @@ from app.services.retrieval import (
     Citation,
     RetrievedChunk,
     build_citations,
+    expand_parent_context,
     hybrid_search_chunks,
     lexical_search_chunks,
     rerank_chunks,
@@ -161,7 +162,9 @@ async def run_retrieval_workflow(
                 chunks = chunks[: config.top_k]
             elif node.type == "context":
                 config = ContextConfig.model_validate(node.config)
-                state.selected = fit_context(chunks, config.max_chars)
+                state.selected = fit_context(
+                    expand_parent_context(chunks), config.max_chars
+                )
                 state.context = "\n\n".join(
                     f"[{index}] {chunk.text}"
                     for index, chunk in enumerate(state.selected, start=1)
@@ -169,7 +172,7 @@ async def run_retrieval_workflow(
                 state.citations = build_citations(state.selected)
             elif node.type == "output":
                 if not state.selected:
-                    state.selected = chunks
+                    state.selected = expand_parent_context(chunks)
                     state.citations = build_citations(state.selected)
                     if not state.context:
                         state.context = "\n\n".join(
@@ -218,7 +221,7 @@ async def run_retrieval_workflow(
             )
 
     if not state.selected:
-        state.selected = chunks
+        state.selected = expand_parent_context(chunks)
     if not state.context:
         state.context = "\n\n".join(
             f"[{index}] {chunk.text}"

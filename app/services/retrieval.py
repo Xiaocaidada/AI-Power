@@ -339,7 +339,7 @@ async def retrieve_with_diagnostics(
                 logger.exception("rerank failed unexpectedly; using fused order")
             timings["rerank_ms"] = _elapsed_ms(rerank_started)
 
-    results = _expand_parent_context(results)[: options.top_k]
+    results = expand_parent_context(results)[: options.top_k]
     timings["total_ms"] = _elapsed_ms(total_started)
     metrics.inc_counter("ai_power_retrieval_requests_total", mode=mode)
     metrics.observe("ai_power_retrieval_duration_seconds", timings["total_ms"] / 1000, mode=mode)
@@ -592,7 +592,7 @@ def _to_chunk(chunk: Chunk, filename: str, distance: float | None) -> RetrievedC
     )
 
 
-def _expand_parent_context(
+def expand_parent_context(
     chunks: Sequence[RetrievedChunk],
 ) -> list[RetrievedChunk]:
     """Return one parent block per parent id when parent-child chunking is used."""
