@@ -112,12 +112,18 @@ export interface ProviderConfig {
   updated_at: string
 }
 
+export interface ThinkingLevelSpec {
+  id: string
+  label: string
+}
+
 export interface ProviderModel {
   id: string
   model_id: string
   display_name: string
   capabilities: string[]
   reasoning_levels: string[]
+  thinking_config: ThinkingLevelSpec[]
   context_window: number
   max_output: number | null
   source: string
@@ -131,6 +137,7 @@ export interface PersonalModel {
   display_name: string
   capabilities: string[]
   reasoning_levels?: string[]
+  thinking_config?: ThinkingLevelSpec[]
   context_window?: number
   max_output?: number | null
 }
@@ -142,7 +149,7 @@ export type ChatMode =
   | 'study'
   | 'agent'
 
-export type ThinkingLevel = 'fast' | 'standard' | 'deep'
+export type ThinkingLevel = string
 
 export interface ChatModeMeta {
   thinking_level?: ThinkingLevel
@@ -1993,6 +2000,7 @@ export interface ModelEntry {
   output_price: number
   tags: string[]
   reasoning_levels?: string[]
+  thinking_config?: ThinkingLevelSpec[]
   priority: number
   available: boolean
 }

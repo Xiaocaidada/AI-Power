@@ -23,6 +23,7 @@ import { Spinner } from '../../components/ui/spinner'
 import { uploadChatAttachment } from '../../lib/attachments'
 import {
   modelReasoningLevels,
+  modelThinkingSpecs,
   modeLabelKey,
   normalizeThinkingLevel,
 } from '../../lib/chatModes'
@@ -177,6 +178,7 @@ export function ChatPage() {
     conversation.data?.provider_id === 'auto' || conversation.data === undefined
       ? ['standard']
       : modelReasoningLevels(personalModel ?? platformModel)
+  const supportedThinkingSpecs = modelThinkingSpecs(personalModel ?? platformModel)
   const supportedThinkingKey = supportedThinking.join(',')
   const isAgentConversation = conversation.data?.agent === true
   const customAgentLocked =
@@ -959,7 +961,12 @@ export function ChatPage() {
           )}
           {thinkingAdjusted && (
             <p role="status" className="mb-2 rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
-              {t('chat.thinkingAdjusted')}
+              {t('chat.thinkingAdjusted', {
+                level:
+                  supportedThinkingSpecs.find(
+                    (item) => item.id === thinkingLevel,
+                  )?.label || thinkingLevel,
+              })}
             </p>
           )}
           {activeMode === 'study' && conversation.data !== undefined && (
@@ -1081,6 +1088,7 @@ export function ChatPage() {
                 <ThinkingSelect
                   value={thinkingLevel}
                   supported={supportedThinking}
+                  specs={supportedThinkingSpecs}
                   disabled={!modeImplemented}
                   onChange={(next) => {
                     setThinkingLevel(next)

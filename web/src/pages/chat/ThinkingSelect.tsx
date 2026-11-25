@@ -4,16 +4,14 @@ import {
   PopoverSelect,
   type PopoverSelectOption,
 } from '../../components/ui/popover-select'
-import {
-  THINKING_LEVELS,
-  thinkingLabelKey,
-} from '../../lib/chatModes'
+import { thinkingLabelKey } from '../../lib/chatModes'
 import { useI18n } from '../../lib/i18n'
-import type { ThinkingLevel } from '../../lib/types'
+import type { ThinkingLevel, ThinkingLevelSpec } from '../../lib/types'
 
 interface ThinkingSelectProps {
   value: ThinkingLevel
   supported: ThinkingLevel[]
+  specs?: ThinkingLevelSpec[]
   disabled?: boolean
   onChange: (level: ThinkingLevel) => void
 }
@@ -21,16 +19,22 @@ interface ThinkingSelectProps {
 export function ThinkingSelect({
   value,
   supported,
+  specs = [],
   disabled = false,
   onChange,
 }: ThinkingSelectProps) {
   const { t } = useI18n()
-  const current = supported.includes(value) ? value : 'standard'
-  const options: PopoverSelectOption[] = THINKING_LEVELS.map((level) => ({
+  const levels = supported.length > 0 ? supported : ['standard']
+  const current = levels.includes(value) ? value : levels[0]
+  const labelFor = (level: string): string => {
+    const configured = specs.find((item) => item.id === level)?.label
+    if (configured !== undefined && configured !== '') return configured
+    const key = thinkingLabelKey(level)
+    return key === null ? level : t(key)
+  }
+  const options: PopoverSelectOption[] = levels.map((level) => ({
     value: level,
-    label: t(thinkingLabelKey(level)),
-    trailing: supported.includes(level) ? undefined : t('chat.thinkingUnsupported'),
-    disabled: !supported.includes(level),
+    label: labelFor(level),
   }))
 
   return (
@@ -39,7 +43,7 @@ export function ThinkingSelect({
       label={t('chat.thinkingLevel')}
       value={current}
       options={options}
-      onChange={(next) => onChange(next as ThinkingLevel)}
+      onChange={(next) => onChange(next)}
       disabled={disabled}
       variant="ghost"
       placement="top"

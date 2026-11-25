@@ -204,9 +204,10 @@ export const zh = {
     thinkingFast: '快速',
     thinkingStandard: '标准',
     thinkingDeep: '深度',
-    thinkingHint: '不支持的等级会展示但无法选择；服务端会再次校验。',
+    thinkingHint: '思考等级来自模型配置；服务端会再次校验。',
     thinkingUnsupported: '当前模型不支持',
-    thinkingAdjusted: '当前模型不支持原思考等级，已切换为标准；不会静默降级发送。',
+    thinkingAdjusted:
+      '当前模型不支持原思考等级，已切换为「{level}」；不会静默降级发送。',
     personalModels: '我的模型',
     knowledgeBase: '知识库',
     noKnowledgeBase: '不使用知识库',
@@ -1387,8 +1388,15 @@ export const zh = {
     contextWindowHint:
       '0 表示未知，沿用固定 12 条消息；填写后按该窗口裁剪历史消息与检索上下文。',
     maxOutput: '最大输出（tokens）',
-    tools: '支持工具调用（Agent）',
-    thinkingLevels: '思考等级',
+    capabilityTags: '标签类型',
+    thinkingConfig: '思考配置',
+    thinkingConfigHint:
+      '等级值会作为 reasoning_effort 发送给模型服务（如 low / medium / high）；显示名称仅用于界面。留空表示只支持默认标准思考。',
+    thinkingValuePlaceholder: '等级值，如 low / high',
+    thinkingLabelPlaceholder: '显示名称，如 高',
+    addThinkingLevel: '添加等级',
+    removeThinkingLevel: '删除等级',
+    thinkingEmpty: '未配置思考等级，默认只显示标准。',
   },
   apiKeys: {
     title: 'API Key',

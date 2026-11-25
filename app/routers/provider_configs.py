@@ -18,6 +18,7 @@ from app.schemas import (
     ProviderModelUpdate,
     ProviderSyncOut,
     ProviderTestOut,
+    ThinkingLevelSpec,
 )
 from app.services.model_capabilities import effective_capabilities
 from app.services.provider_configs import (
@@ -30,6 +31,7 @@ from app.services.provider_configs import (
     list_models,
     sync_models,
     test_config,
+    thinking_config_for,
     update_config,
     update_model,
 )
@@ -77,7 +79,14 @@ def _model_out(model: ProviderModel) -> ProviderModelOut:
     capabilities = effective_capabilities(
         model.model_id, list(model.capabilities or []), model.source
     )
-    return ProviderModelOut.model_validate(model).model_copy(update={"capabilities": capabilities})
+    return ProviderModelOut.model_validate(model).model_copy(
+        update={
+            "capabilities": capabilities,
+            "thinking_config": [
+                ThinkingLevelSpec(**item) for item in thinking_config_for(model)
+            ],
+        }
+    )
 
 
 @router.get("", response_model=list[ProviderConfigOut])
@@ -238,6 +247,7 @@ async def create_provider_model(
             display_name=payload.display_name,
             capabilities=payload.capabilities,
             reasoning_levels=payload.reasoning_levels,
+            thinking_config=payload.thinking_config,
             context_window=payload.context_window,
             max_output=payload.max_output,
         )
@@ -272,6 +282,7 @@ async def patch_provider_model(
         display_name=payload.display_name,
         capabilities=payload.capabilities,
         reasoning_levels=payload.reasoning_levels,
+        thinking_config=payload.thinking_config,
         context_window=payload.context_window,
         max_output=payload.max_output,
         enabled=payload.enabled,

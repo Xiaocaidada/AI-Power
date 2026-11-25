@@ -361,7 +361,13 @@ export function MessageItem({
               <span>{t(modeLabelKey(message.mode))}</span>
             )}
             {message.mode_meta?.thinking_level !== undefined && (
-              <span>{t(thinkingLabelKey(message.mode_meta.thinking_level))}</span>
+              <span>
+                {(() => {
+                  const level = message.mode_meta?.thinking_level ?? ''
+                  const key = thinkingLabelKey(level)
+                  return key === null ? level : t(key)
+                })()}
+              </span>
             )}
             {message.mode_meta?.research_task_id !== undefined && (
               <Link

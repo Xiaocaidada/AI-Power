@@ -16,6 +16,7 @@ import type {
   ProviderModel,
   ProviderSyncResult,
   ProviderTestResult,
+  ThinkingLevelSpec,
 } from '../../lib/types'
 
 const CAPABILITIES = [
@@ -31,11 +32,7 @@ const CAPABILITIES = [
   'rerank',
 ] as const
 
-const THINKING_OPTIONS = [
-  { value: 'fast', labelKey: 'chat.thinkingFast' },
-  { value: 'standard', labelKey: 'chat.thinkingStandard' },
-  { value: 'deep', labelKey: 'chat.thinkingDeep' },
-] as const
+const MAX_THINKING_LEVELS = 10
 
 interface FormState {
   name: string
@@ -70,8 +67,8 @@ function ProviderModelsPanel({ config }: { config: ProviderConfig }) {
   const [settingsTarget, setSettingsTarget] = useState<ProviderModel | null>(null)
   const [contextWindow, setContextWindow] = useState('')
   const [maxOutput, setMaxOutput] = useState('')
-  const [toolsEnabled, setToolsEnabled] = useState(false)
-  const [thinkingLevels, setThinkingLevels] = useState<string[]>([])
+  const [capabilities, setCapabilities] = useState<string[]>([])
+  const [thinkingConfig, setThinkingConfig] = useState<ThinkingLevelSpec[]>([])
   const [saving, setSaving] = useState(false)
   const models = useQuery({
     queryKey: ['provider-models', config.id],
@@ -120,9 +117,47 @@ function ProviderModelsPanel({ config }: { config: ProviderConfig }) {
     setMaxOutput(
       model.max_output !== null && model.max_output > 0 ? String(model.max_output) : '',
     )
-    setToolsEnabled(model.capabilities.includes('tools'))
-    setThinkingLevels(model.reasoning_levels ?? [])
+    setCapabilities(model.capabilities)
+    const configured = model.thinking_config ?? []
+    setThinkingConfig(
+      configured.length > 0
+        ? configured
+        : (model.reasoning_levels ?? []).map((id) => ({ id, label: '' })),
+    )
     setError(null)
+  }
+
+  const toggleCapability = (capability: string, checked: boolean) => {
+    setCapabilities((current) =>
+      checked
+        ? [...current.filter((item) => item !== capability), capability]
+        : current.filter((item) => item !== capability),
+    )
+  }
+
+  const addThinkingLevel = () => {
+    setThinkingConfig((current) =>
+      current.length >= MAX_THINKING_LEVELS
+        ? current
+        : [...current, { id: '', label: '' }],
+    )
+  }
+
+  const updateThinkingLevel = (
+    index: number,
+    patch: Partial<ThinkingLevelSpec>,
+  ) => {
+    setThinkingConfig((current) =>
+      current.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, ...patch } : item,
+      ),
+    )
+  }
+
+  const removeThinkingLevel = (index: number) => {
+    setThinkingConfig((current) =>
+      current.filter((_, itemIndex) => itemIndex !== index),
+    )
   }
 
   const saveSettings = async () => {
@@ -130,12 +165,11 @@ function ProviderModelsPanel({ config }: { config: ProviderConfig }) {
     setSaving(true)
     setError(null)
     try {
-      const others = settingsTarget.capabilities.filter((item) => item !== 'tools')
       await apiRequest(`/provider-configs/${config.id}/models/${settingsTarget.id}`, {
         method: 'PATCH',
         body: {
-          capabilities: toolsEnabled ? [...others, 'tools'] : others,
-          reasoning_levels: thinkingLevels,
+          capabilities,
+          thinking_config: thinkingConfig.filter((item) => item.id.trim() !== ''),
           context_window: Number(contextWindow) || 0,
           max_output: Number(maxOutput) || 0,
         },
@@ -260,35 +294,82 @@ function ProviderModelsPanel({ config }: { config: ProviderConfig }) {
               onChange={(event) => setMaxOutput(event.target.value)}
             />
           </label>
-          <label className="flex items-center gap-2 text-sm text-ink">
-            <input
-              type="checkbox"
-              className="h-4 w-4 accent-accent"
-              checked={toolsEnabled}
-              onChange={(event) => setToolsEnabled(event.target.checked)}
-            />
-            {t('providerHub.tools')}
-          </label>
           <div>
-            <p className="text-xs text-ink-muted">{t('providerHub.thinkingLevels')}</p>
-            <div className="mt-1 flex flex-wrap gap-3">
-              {THINKING_OPTIONS.map((option) => (
-                <label key={option.value} className="flex items-center gap-1.5 text-xs text-ink">
+            <p className="text-xs text-ink-muted">{t('providerHub.capabilityTags')}</p>
+            <div className="mt-1 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+              {CAPABILITIES.map((capability) => (
+                <label
+                  key={capability}
+                  className="flex items-center gap-1.5 text-xs text-ink"
+                >
                   <input
                     type="checkbox"
-                    checked={thinkingLevels.includes(option.value)}
+                    className="h-3.5 w-3.5 accent-accent"
+                    checked={capabilities.includes(capability)}
                     onChange={(event) =>
-                      setThinkingLevels((current) =>
-                        event.target.checked
-                          ? [...current, option.value]
-                          : current.filter((item) => item !== option.value),
-                      )
+                      toggleCapability(capability, event.target.checked)
                     }
                   />
-                  {t(option.labelKey)}
+                  {capability}
                 </label>
               ))}
             </div>
+          </div>
+          <div>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs text-ink-muted">
+                {t('providerHub.thinkingConfig')}
+              </p>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={thinkingConfig.length >= MAX_THINKING_LEVELS}
+                onClick={addThinkingLevel}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                {t('providerHub.addThinkingLevel')}
+              </Button>
+            </div>
+            <p className="mt-1 text-[11px] text-ink-muted">
+              {t('providerHub.thinkingConfigHint')}
+            </p>
+            {thinkingConfig.length === 0 ? (
+              <p className="mt-2 text-xs text-ink-muted">
+                {t('providerHub.thinkingEmpty')}
+              </p>
+            ) : (
+              <div className="mt-2 space-y-2">
+                {thinkingConfig.map((item, index) => (
+                  <div
+                    key={index}
+                    className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]"
+                  >
+                    <Input
+                      value={item.id}
+                      placeholder={t('providerHub.thinkingValuePlaceholder')}
+                      onChange={(event) =>
+                        updateThinkingLevel(index, { id: event.target.value })
+                      }
+                    />
+                    <Input
+                      value={item.label}
+                      placeholder={t('providerHub.thinkingLabelPlaceholder')}
+                      onChange={(event) =>
+                        updateThinkingLevel(index, { label: event.target.value })
+                      }
+                    />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-label={t('providerHub.removeThinkingLevel')}
+                      onClick={() => removeThinkingLevel(index)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           {error !== null && <p className="text-xs text-danger">{error}</p>}
         </div>

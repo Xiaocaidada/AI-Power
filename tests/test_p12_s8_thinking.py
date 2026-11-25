@@ -20,6 +20,11 @@ def test_thinking_levels_map_to_provider_parameters():
     assert thinking_provider_opts("deep") == {"reasoning_effort": "high"}
 
 
+def test_custom_thinking_level_is_sent_as_reasoning_effort():
+    assert thinking_provider_opts("minimal") == {"reasoning_effort": "minimal"}
+    assert thinking_provider_opts("high") == {"reasoning_effort": "high"}
+
+
 def test_unsupported_thinking_level_is_rejected_not_downgraded():
     with pytest.raises(ChatModeError) as exc:
         validate_turn_mode(
@@ -32,7 +37,9 @@ def test_unsupported_thinking_level_is_rejected_not_downgraded():
     assert exc.value.code == "thinking_level_unsupported"
 
 
-async def _reasoner(client, headers, levels: list[str]) -> str:
+async def _reasoner(
+    client, headers, levels: list[str], thinking_config: list[dict[str, str]] | None = None
+) -> str:
     me = await client.get("/auth/me", headers=headers)
     workspaces = await client.get("/workspaces", headers=headers)
     async with SessionLocal() as session:
@@ -52,6 +59,7 @@ async def _reasoner(client, headers, levels: list[str]) -> str:
                 display_name="Reasoner 1",
                 capabilities=["chat", "reasoning"],
                 reasoning_levels=levels,
+                thinking_config=thinking_config or [],
             )
         )
         await session.commit()
@@ -120,3 +128,58 @@ async def test_unsupported_fast_level_returns_422(client, api, fake_provider):
 
     assert response.status_code == 422
     assert response.json()["detail"]["code"] == "thinking_level_unsupported"
+
+
+async def test_configured_custom_level_is_accepted(client, api, fake_provider):
+    from app.providers.base import ChatChunk, Usage
+
+    headers = await api.headers("p12-s8-custom@example.com")
+    config_id = await _reasoner(
+        client,
+        headers,
+        ["low", "high"],
+        thinking_config=[
+            {"id": "low", "label": "轻量"},
+            {"id": "high", "label": "深度"},
+        ],
+    )
+    app_instance.dependency_overrides[get_scoped_registry] = lambda: ProviderRegistry(
+        {config_id: fake_provider}
+    )
+    try:
+        conversation = await client.post(
+            "/conversations",
+            json={"provider_id": config_id, "model": "reasoner-1"},
+            headers=headers,
+        )
+        assert conversation.status_code == 201
+        fake_provider.chunks = [
+            ChatChunk(delta="Custom"),
+            ChatChunk(usage=Usage(prompt_tokens=2, completion_tokens=3)),
+            ChatChunk(finish_reason="stop"),
+        ]
+        response = await client.post(
+            f"/conversations/{conversation.json()['id']}/messages",
+            json={
+                "content": "自定义等级",
+                "mode": "chat",
+                "mode_meta": {"thinking_level": "high"},
+            },
+            headers=headers,
+        )
+        rejected = await client.post(
+            f"/conversations/{conversation.json()['id']}/messages",
+            json={
+                "content": "未知等级",
+                "mode": "chat",
+                "mode_meta": {"thinking_level": "medium"},
+            },
+            headers=headers,
+        )
+    finally:
+        app_instance.dependency_overrides.pop(get_scoped_registry, None)
+
+    assert response.status_code == 200
+    assert fake_provider.opts_calls[-1]["reasoning_effort"] == "high"
+    assert rejected.status_code == 422
+    assert rejected.json()["detail"]["code"] == "thinking_level_unsupported"

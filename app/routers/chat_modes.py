@@ -41,11 +41,19 @@ async def get_chat_capabilities(
         model_id=model,
     )
     supported = set(resolved.reasoning_levels or reasoning_levels_for(resolved.capabilities, None))
+    specs = resolved.thinking_config or [
+        {"id": level, "label": ""} for level in THINKING_LEVELS
+    ]
     return ChatCapabilitiesOut(
         provider_id=provider_id,
         model_id=model,
         capabilities=resolved.capabilities or [],
         thinking_levels=[
-            {"id": level, "supported": level in supported} for level in THINKING_LEVELS
+            {
+                "id": spec["id"],
+                "label": spec.get("label", ""),
+                "supported": spec["id"] in supported,
+            }
+            for spec in specs
         ],
     )

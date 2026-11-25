@@ -209,10 +209,10 @@ export const en: Dictionary = {
     thinkingStandard: 'Standard',
     thinkingDeep: 'Deep',
     thinkingHint:
-      'Unsupported levels stay visible but cannot be selected; the server validates again.',
+      'Thinking levels come from the model configuration; the server validates again.',
     thinkingUnsupported: 'not supported by this model',
     thinkingAdjusted:
-      'This model does not support the previous level; switched to standard.',
+      'This model does not support the previous level; switched to "{level}".',
     personalModels: 'My models',
     knowledgeBase: 'Knowledge base',
     noKnowledgeBase: 'No knowledge base',
@@ -1400,8 +1400,15 @@ export const en: Dictionary = {
     contextWindowHint:
       '0 means unknown and keeps the fixed 12-message policy. When set, history and retrieval context are trimmed to this window.',
     maxOutput: 'Max output (tokens)',
-    tools: 'Tool calling (Agent)',
-    thinkingLevels: 'Thinking levels',
+    capabilityTags: 'Capability tags',
+    thinkingConfig: 'Thinking configuration',
+    thinkingConfigHint:
+      'Each level value is sent to the provider as reasoning_effort (e.g. low / medium / high); the display name is UI-only. Leave empty to support standard thinking only.',
+    thinkingValuePlaceholder: 'Level value, e.g. low / high',
+    thinkingLabelPlaceholder: 'Display name, e.g. High',
+    addThinkingLevel: 'Add level',
+    removeThinkingLevel: 'Remove level',
+    thinkingEmpty: 'No thinking levels configured; only standard is shown.',
   },
   apiKeys: {
     title: 'API keys',

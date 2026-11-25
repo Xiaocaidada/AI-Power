@@ -4,7 +4,8 @@ Modes are persisted and validated here, but only ``chat`` and ``agent`` are
 executable in this slice. Later slices add search, research and study runners.
 """
 
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
 
@@ -34,6 +35,7 @@ THINKING_DEEP = "deep"
 
 THINKING_LEVELS: tuple[str, ...] = (THINKING_FAST, THINKING_STANDARD, THINKING_DEEP)
 DEFAULT_THINKING_LEVEL = THINKING_STANDARD
+THINKING_LEVEL_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,39}$")
 
 _MODE_SPECS: dict[str, tuple[bool, tuple[str, ...]]] = {
     CHAT_MODE_CHAT: (True, ()),
@@ -69,6 +71,7 @@ class ModelCapabilities:
     # for this model; callers must not infer that a capability is unsupported.
     capabilities: list[str] | None
     reasoning_levels: list[str]
+    thinking_config: list[dict[str, str]] = field(default_factory=list)
     context_window: int = 0
     max_output: int | None = None
 
@@ -93,7 +96,7 @@ def normalize_mode(value: str | None, *, fallback: str = CHAT_MODE_CHAT) -> str:
 
 def normalize_mode_meta(raw: dict[str, Any] | None) -> dict[str, Any]:
     source = raw or {}
-    meta: dict[str, Any] = {"thinking_level": DEFAULT_THINKING_LEVEL}
+    meta: dict[str, Any] = {}
     for key, value in source.items():
         if key not in _MODE_META_KEYS or value is None:
             continue
@@ -109,10 +112,13 @@ def normalize_mode_meta(raw: dict[str, Any] | None) -> dict[str, Any]:
             continue
         if len(text) > _MAX_META_VALUE_LENGTH:
             raise ChatModeError("invalid_mode_meta", f"{key} is too long")
+        if key == "thinking_level":
+            text = text.lower()
+            if THINKING_LEVEL_PATTERN.fullmatch(text) is None:
+                raise ChatModeError(
+                    "invalid_thinking_level", f"Invalid thinking level: {text}"
+                )
         meta[key] = text
-    level = meta["thinking_level"]
-    if level not in THINKING_LEVELS:
-        raise ChatModeError("invalid_thinking_level", f"Unknown thinking level: {level}")
     return meta
 
 
@@ -120,20 +126,43 @@ def reasoning_levels_for(
     capabilities: list[str] | None,
     declared: list[str] | None = None,
 ) -> list[str]:
-    """Return supported levels in canonical order.
+    """Return supported levels in the order the model declares them.
 
-    A model that declares ``reasoning`` but no explicit levels supports standard
-    and deep. Everything else supports standard only; a level is never silently
-    downgraded after being accepted.
+    Declared levels are user-configured and may be any ``reasoning_effort``
+    value the provider accepts, not just the built-in names. When nothing is
+    declared, a model tagged ``reasoning`` supports standard and deep; every
+    other model supports standard only.
     """
-    if declared:
-        allowed = {item for item in declared if item in THINKING_LEVELS}
-        levels = [item for item in THINKING_LEVELS if item in allowed]
-        if levels:
-            return levels
+    ordered: list[str] = []
+    for item in declared or []:
+        level = str(item).strip().lower()
+        if level and level not in ordered:
+            ordered.append(level)
+    if ordered:
+        return ordered
     if capabilities is not None and "reasoning" in capabilities:
         return [THINKING_STANDARD, THINKING_DEEP]
     return [THINKING_STANDARD]
+
+
+def thinking_specs(
+    configured: list[object] | None,
+    declared: list[str] | None = None,
+) -> list[dict[str, str]]:
+    """Build display specs for configured levels, backfilling legacy rows."""
+    specs: list[dict[str, str]] = []
+    for entry in configured or []:
+        if isinstance(entry, dict):
+            level = str(entry.get("id") or "").strip().lower()
+            label = str(entry.get("label") or "").strip()
+        else:
+            level = str(entry).strip().lower()
+            label = ""
+        if level and all(item["id"] != level for item in specs):
+            specs.append({"id": level, "label": label})
+    if specs:
+        return specs
+    return [{"id": level, "label": ""} for level in reasoning_levels_for(None, declared)]
 
 
 # Real OpenAI-compatible parameter mapping. ``standard`` deliberately sends no
@@ -146,8 +175,18 @@ THINKING_PROVIDER_PARAMS: dict[str, dict[str, object]] = {
 
 
 def thinking_provider_opts(level: str) -> dict[str, object]:
-    """Map a validated level to provider request parameters."""
-    return dict(THINKING_PROVIDER_PARAMS.get(level, {}))
+    """Map a validated level to provider request parameters.
+
+    Built-in levels keep their curated mapping; any user-configured level is
+    forwarded verbatim as ``reasoning_effort`` so providers with other
+    vocabularies (``minimal``/``medium``/``xhigh``) work without code changes.
+    """
+    if level in THINKING_PROVIDER_PARAMS:
+        return dict(THINKING_PROVIDER_PARAMS[level])
+    effort = level.strip().lower()
+    if not effort:
+        return {}
+    return {"reasoning_effort": effort}
 
 
 def ensure_thinking_supported(
@@ -175,6 +214,13 @@ def validate_turn_mode(
 ) -> tuple[str, dict[str, Any]]:
     resolved_mode = normalize_mode(mode)
     meta = normalize_mode_meta(mode_meta)
+    supported_levels = reasoning_levels_for(capabilities, reasoning_levels)
+    if "thinking_level" not in meta:
+        meta["thinking_level"] = (
+            DEFAULT_THINKING_LEVEL
+            if DEFAULT_THINKING_LEVEL in supported_levels
+            else supported_levels[0]
+        )
     implemented, requires = _MODE_SPECS[resolved_mode]
     if not implemented:
         raise ChatModeError(
@@ -250,11 +296,13 @@ async def resolve_model_capabilities(
                 capabilities = effective_capabilities(
                     model.model_id, list(model.capabilities or []), model.source
                 )
+                levels = reasoning_levels_for(
+                    capabilities, list(model.reasoning_levels or [])
+                )
                 return ModelCapabilities(
                     capabilities=capabilities,
-                    reasoning_levels=reasoning_levels_for(
-                        capabilities, list(model.reasoning_levels or [])
-                    ),
+                    reasoning_levels=levels,
+                    thinking_config=thinking_specs(model.thinking_config, levels),
                     context_window=model.context_window or 0,
                     max_output=model.max_output,
                 )
@@ -272,11 +320,13 @@ async def resolve_model_capabilities(
         return ModelCapabilities(capabilities=None, reasoning_levels=[])
     tags = [tag for tag in (catalog.tags or "").split(",") if tag]
     declared = list(catalog.reasoning_levels or [])
+    levels = reasoning_levels_for(
+        ["reasoning"] if "reasoning" in tags else [],
+        declared or (["standard", "deep"] if "reasoning" in tags else []),
+    )
     return ModelCapabilities(
         capabilities=None,
-        reasoning_levels=reasoning_levels_for(
-            ["reasoning"] if "reasoning" in tags else [],
-            declared or (["standard", "deep"] if "reasoning" in tags else []),
-        ),
+        reasoning_levels=levels,
+        thinking_config=thinking_specs(None, levels),
         context_window=catalog.context_window or 0,
     )

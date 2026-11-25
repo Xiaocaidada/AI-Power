@@ -1147,6 +1147,7 @@ class ProviderModel(Base):
     display_name: Mapped[str] = mapped_column(String(200), default="")
     capabilities: Mapped[list[str]] = mapped_column(JSON, default=list)
     reasoning_levels: Mapped[list[str]] = mapped_column(JSON, default=list)
+    thinking_config: Mapped[list[dict[str, str]]] = mapped_column(JSON, default=list)
     context_window: Mapped[int] = mapped_column(Integer, default=0)
     max_output: Mapped[int | None] = mapped_column(Integer, default=None)
     source: Mapped[str] = mapped_column(String(20), default="manual")

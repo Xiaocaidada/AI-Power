@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlsplit
@@ -12,7 +13,6 @@ from app.models import ProviderConfig, ProviderModel
 from app.providers.base import ProviderError
 from app.providers.openai_compat import OpenAICompatProvider
 from app.providers.registry import ProviderRegistry, build_registry
-from app.services.chat_modes import THINKING_LEVELS
 from app.services.model_capabilities import (
     DEFAULT_CAPABILITIES,
     effective_capabilities,
@@ -61,11 +61,69 @@ def _normalize_capabilities(capabilities: list[str] | None) -> list[str]:
     return unique or list(DEFAULT_CAPABILITIES)
 
 
+THINKING_LEVEL_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,39}$")
+MAX_THINKING_LEVELS = 10
+
+
+def _normalize_thinking_level_id(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    item = value.strip().lower()
+    if not item or THINKING_LEVEL_PATTERN.fullmatch(item) is None:
+        return None
+    return item
+
+
 def _normalize_reasoning_levels(levels: list[str] | None) -> list[str]:
-    if not levels:
-        return []
-    allowed = {item for item in levels if item in THINKING_LEVELS}
-    return [item for item in THINKING_LEVELS if item in allowed]
+    ordered: list[str] = []
+    for raw in levels or []:
+        item = _normalize_thinking_level_id(raw)
+        if item is None or item in ordered:
+            continue
+        ordered.append(item)
+        if len(ordered) >= MAX_THINKING_LEVELS:
+            break
+    return ordered
+
+
+def _thinking_entry_parts(entry: object) -> tuple[str | None, str]:
+    if isinstance(entry, dict):
+        raw_id = entry.get("id")
+        raw_label = entry.get("label")
+    else:
+        raw_id = getattr(entry, "id", None)
+        raw_label = getattr(entry, "label", None)
+    level = _normalize_thinking_level_id(raw_id)
+    label = raw_label.strip()[:40] if isinstance(raw_label, str) else ""
+    return level, label
+
+
+def _normalize_thinking_config(entries: list[object] | None) -> list[dict[str, str]]:
+    normalized: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for entry in entries or []:
+        level, label = _thinking_entry_parts(entry)
+        if level is None or level in seen:
+            continue
+        seen.add(level)
+        normalized.append({"id": level, "label": label})
+        if len(normalized) >= MAX_THINKING_LEVELS:
+            break
+    return normalized
+
+
+def _config_from_levels(
+    levels: list[str], labels: dict[str, str] | None = None
+) -> list[dict[str, str]]:
+    return [{"id": level, "label": (labels or {}).get(level, "")} for level in levels]
+
+
+def thinking_config_for(model: ProviderModel) -> list[dict[str, str]]:
+    """Return the effective thinking levels, backfilling legacy rows."""
+    config = _normalize_thinking_config(model.thinking_config)
+    if config:
+        return config
+    return _config_from_levels(_normalize_reasoning_levels(model.reasoning_levels))
 
 
 def _config_query(config_id: UUID, workspace_id: UUID, user_id: UUID, *, owner_only: bool):
@@ -306,6 +364,7 @@ async def add_model(
     display_name: str,
     capabilities: list[str] | None,
     reasoning_levels: list[str] | None = None,
+    thinking_config: list[object] | None = None,
     context_window: int = 0,
     max_output: int | None = None,
 ) -> ProviderModel:
@@ -322,12 +381,19 @@ async def add_model(
     normalized = _normalize_capabilities(capabilities)
     if capabilities is None or normalized == sorted(DEFAULT_CAPABILITIES):
         normalized = effective_capabilities(model_id.strip(), normalized, "synced")
+    if thinking_config is not None:
+        thinking = _normalize_thinking_config(thinking_config)
+        levels = [item["id"] for item in thinking]
+    else:
+        levels = _normalize_reasoning_levels(reasoning_levels)
+        thinking = _config_from_levels(levels)
     model = ProviderModel(
         config_id=config.id,
         model_id=model_id.strip(),
         display_name=display_name.strip() or model_id.strip(),
         capabilities=normalized,
-        reasoning_levels=_normalize_reasoning_levels(reasoning_levels),
+        reasoning_levels=levels,
+        thinking_config=thinking,
         context_window=max(0, context_window),
         max_output=None if max_output is None else max(0, max_output),
         source="manual",
@@ -344,6 +410,7 @@ async def update_model(
     display_name: str | None = None,
     capabilities: list[str] | None = None,
     reasoning_levels: list[str] | None = None,
+    thinking_config: list[object] | None = None,
     context_window: int | None = None,
     max_output: int | None = None,
     enabled: bool | None = None,
@@ -353,8 +420,19 @@ async def update_model(
     if capabilities is not None:
         model.capabilities = _normalize_capabilities(capabilities)
         model.source = "manual"
-    if reasoning_levels is not None:
-        model.reasoning_levels = _normalize_reasoning_levels(reasoning_levels)
+    if thinking_config is not None:
+        config = _normalize_thinking_config(thinking_config)
+        model.thinking_config = config
+        model.reasoning_levels = [item["id"] for item in config]
+    elif reasoning_levels is not None:
+        labels = {
+            str(item.get("id")): str(item.get("label") or "")
+            for item in model.thinking_config or []
+            if isinstance(item, dict) and item.get("id")
+        }
+        levels = _normalize_reasoning_levels(reasoning_levels)
+        model.reasoning_levels = levels
+        model.thinking_config = _config_from_levels(levels, labels)
     if context_window is not None:
         model.context_window = max(0, context_window)
     if max_output is not None:
@@ -394,6 +472,7 @@ async def accessible_models(
                 model.model_id, list(model.capabilities), model.source
             ),
             "reasoning_levels": list(model.reasoning_levels or []),
+            "thinking_config": thinking_config_for(model),
             "context_window": model.context_window,
             "max_output": model.max_output,
         }

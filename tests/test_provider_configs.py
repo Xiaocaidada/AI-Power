@@ -250,6 +250,36 @@ async def test_manual_model_capabilities_and_toggle(client, api):
     assert deleted.status_code == 204
 
 
+async def test_manual_model_thinking_config_labels(client, api):
+    headers = await api.headers("provider-thinking@example.com")
+    config_id = (await _create_config(client, headers)).json()["id"]
+
+    created = await client.post(
+        f"/provider-configs/{config_id}/models",
+        json={
+            "model_id": "custom-thinking",
+            "display_name": "Custom Thinking",
+            "capabilities": ["chat", "reasoning"],
+            "thinking_config": [
+                {"id": "low", "label": "轻量"},
+                {"id": "high", "label": "深度"},
+            ],
+        },
+        headers=headers,
+    )
+
+    assert created.status_code == 201
+    body = created.json()
+    assert body["reasoning_levels"] == ["low", "high"]
+    assert body["thinking_config"] == [
+        {"id": "low", "label": "轻量"},
+        {"id": "high", "label": "深度"},
+    ]
+    personal = await client.get("/provider-configs/models", headers=headers)
+    assert personal.json()[0]["thinking_config"] == body["thinking_config"]
+    assert personal.json()[0]["reasoning_levels"] == ["low", "high"]
+
+
 async def test_invalid_provider_endpoint_is_rejected(client, api):
     headers = await api.headers("provider-invalid@example.com")
     response = await _create_config(client, headers, base_url="ftp://example.com")

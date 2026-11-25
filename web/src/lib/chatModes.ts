@@ -1,4 +1,10 @@
-import type { ChatMode, ModelEntry, PersonalModel, ThinkingLevel } from './types'
+import type {
+  ChatMode,
+  ModelEntry,
+  PersonalModel,
+  ThinkingLevel,
+  ThinkingLevelSpec,
+} from './types'
 
 export const CHAT_MODES: ChatMode[] = [
   'chat',
@@ -9,8 +15,6 @@ export const CHAT_MODES: ChatMode[] = [
 ]
 
 export const THINKING_LEVELS: ThinkingLevel[] = ['fast', 'standard', 'deep']
-
-const VALID_LEVELS = new Set<string>(THINKING_LEVELS)
 
 const MODE_LABEL_KEYS: Record<ChatMode, string> = {
   chat: 'chat.modeChat',
@@ -28,7 +32,7 @@ const MODE_HINT_KEYS: Record<ChatMode, string> = {
   agent: 'chat.modeAgentHint',
 }
 
-const THINKING_LABEL_KEYS: Record<ThinkingLevel, string> = {
+const THINKING_LABEL_KEYS: Record<string, string> = {
   fast: 'chat.thinkingFast',
   standard: 'chat.thinkingStandard',
   deep: 'chat.thinkingDeep',
@@ -42,22 +46,30 @@ export function modeHintKey(mode: ChatMode): string {
   return MODE_HINT_KEYS[mode]
 }
 
-export function thinkingLabelKey(level: ThinkingLevel): string {
-  return THINKING_LABEL_KEYS[level]
+export function thinkingLabelKey(level: ThinkingLevel): string | null {
+  return THINKING_LABEL_KEYS[level] ?? null
 }
 
 export function reasoningLevelsFor(
   capabilities: string[] | undefined,
   declared: string[] | undefined,
 ): ThinkingLevel[] {
-  const explicit = (declared ?? []).filter((item): item is ThinkingLevel =>
-    VALID_LEVELS.has(item),
-  )
-  if (explicit.length > 0) {
-    return THINKING_LEVELS.filter((level) => explicit.includes(level))
+  const explicit: string[] = []
+  for (const item of declared ?? []) {
+    const level = item.trim().toLowerCase()
+    if (level !== '' && !explicit.includes(level)) explicit.push(level)
   }
+  if (explicit.length > 0) return explicit
   if (capabilities?.includes('reasoning')) return ['standard', 'deep']
   return ['standard']
+}
+
+function declaredThinkingLevels(
+  model: ModelEntry | PersonalModel,
+): string[] | undefined {
+  const configured = model.thinking_config ?? []
+  if (configured.length > 0) return configured.map((item) => item.id)
+  return model.reasoning_levels
 }
 
 export function modelReasoningLevels(
@@ -66,12 +78,22 @@ export function modelReasoningLevels(
   if (model === undefined) return ['standard']
   const capabilities =
     'capabilities' in model ? model.capabilities : undefined
-  return reasoningLevelsFor(capabilities, model.reasoning_levels)
+  return reasoningLevelsFor(capabilities, declaredThinkingLevels(model))
+}
+
+export function modelThinkingSpecs(
+  model: ModelEntry | PersonalModel | undefined,
+): ThinkingLevelSpec[] {
+  if (model === undefined) return []
+  const configured = model.thinking_config ?? []
+  if (configured.length > 0) return configured
+  return (model.reasoning_levels ?? []).map((id) => ({ id, label: '' }))
 }
 
 export function normalizeThinkingLevel(
   current: ThinkingLevel,
   supported: ThinkingLevel[],
 ): ThinkingLevel {
-  return supported.includes(current) ? current : 'standard'
+  if (supported.includes(current)) return current
+  return supported[0] ?? 'standard'
 }

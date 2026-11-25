@@ -5,6 +5,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
 import {
   modelReasoningLevels,
+  modelThinkingSpecs,
   modeLabelKey,
   normalizeThinkingLevel,
 } from '../../lib/chatModes'
@@ -192,6 +193,7 @@ export function NewChatPage() {
     modelId === 'auto' || modelId === 'project' || modelId === 'agent'
       ? (['standard'] as ThinkingLevel[])
       : modelReasoningLevels(personalSelected ?? selected)
+  const supportedThinkingSpecs = modelThinkingSpecs(personalSelected ?? selected)
 
   useEffect(() => {
     const next = normalizeThinkingLevel(thinkingLevel, supportedThinking)
@@ -587,6 +589,7 @@ export function NewChatPage() {
                 <ThinkingSelect
                   value={thinkingLevel}
                   supported={supportedThinking}
+                  specs={supportedThinkingSpecs}
                   disabled={!modeImplemented}
                   onChange={(next) => {
                     setThinkingLevel(next)
@@ -666,7 +669,12 @@ export function NewChatPage() {
         )}
         {thinkingAdjusted && (
           <p className="mt-3 rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
-            {t('chat.thinkingAdjusted')}
+            {t('chat.thinkingAdjusted', {
+              level:
+                supportedThinkingSpecs.find(
+                  (item) => item.id === thinkingLevel,
+                )?.label || thinkingLevel,
+            })}
           </p>
         )}
         {searchProviderMissing && (
