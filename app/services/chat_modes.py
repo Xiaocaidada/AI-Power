@@ -69,6 +69,8 @@ class ModelCapabilities:
     # for this model; callers must not infer that a capability is unsupported.
     capabilities: list[str] | None
     reasoning_levels: list[str]
+    context_window: int = 0
+    max_output: int | None = None
 
 
 def mode_catalog() -> list[dict[str, Any]]:
@@ -253,6 +255,8 @@ async def resolve_model_capabilities(
                     reasoning_levels=reasoning_levels_for(
                         capabilities, list(model.reasoning_levels or [])
                     ),
+                    context_window=model.context_window or 0,
+                    max_output=model.max_output,
                 )
         return ModelCapabilities(capabilities=None, reasoning_levels=[])
 
@@ -274,4 +278,5 @@ async def resolve_model_capabilities(
             ["reasoning"] if "reasoning" in tags else [],
             declared or (["standard", "deep"] if "reasoning" in tags else []),
         ),
+        context_window=catalog.context_window or 0,
     )

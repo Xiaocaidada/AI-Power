@@ -1382,6 +1382,13 @@ export const zh = {
     deleteTitle: '删除模型提供商',
     deleteConfirm: '删除「{name}」？已保存的 Key 将一并移除。',
     capabilitiesHint: '能力标签',
+    modelSettings: '模型能力配置',
+    contextWindow: '上下文窗口（tokens）',
+    contextWindowHint:
+      '0 表示未知，沿用固定 12 条消息；填写后按该窗口裁剪历史消息与检索上下文。',
+    maxOutput: '最大输出（tokens）',
+    tools: '支持工具调用（Agent）',
+    thinkingLevels: '思考等级',
   },
   apiKeys: {
     title: 'API Key',

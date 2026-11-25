@@ -117,6 +117,9 @@ export interface ProviderModel {
   model_id: string
   display_name: string
   capabilities: string[]
+  reasoning_levels: string[]
+  context_window: number
+  max_output: number | null
   source: string
   enabled: boolean
 }
@@ -128,6 +131,8 @@ export interface PersonalModel {
   display_name: string
   capabilities: string[]
   reasoning_levels?: string[]
+  context_window?: number
+  max_output?: number | null
 }
 
 export type ChatMode =

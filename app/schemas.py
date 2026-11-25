@@ -2519,6 +2519,8 @@ class ProviderModelCreate(BaseModel):
     display_name: str = Field(default="", max_length=200)
     capabilities: list[str] | None = None
     reasoning_levels: list[str] | None = None
+    context_window: int = Field(default=0, ge=0, le=10_000_000)
+    max_output: int | None = Field(default=None, ge=0, le=1_000_000)
 
     @field_validator("model_id", "display_name", mode="before")
     @classmethod
@@ -2530,6 +2532,8 @@ class ProviderModelUpdate(BaseModel):
     display_name: str | None = Field(default=None, max_length=200)
     capabilities: list[str] | None = None
     reasoning_levels: list[str] | None = None
+    context_window: int | None = Field(default=None, ge=0, le=10_000_000)
+    max_output: int | None = Field(default=None, ge=0, le=1_000_000)
     enabled: bool | None = None
 
 
@@ -2541,6 +2545,8 @@ class ProviderModelOut(BaseModel):
     display_name: str
     capabilities: list[str]
     reasoning_levels: list[str] = Field(default_factory=list)
+    context_window: int = 0
+    max_output: int | None = None
     source: str
     enabled: bool
 
@@ -2564,6 +2570,8 @@ class PersonalModelOut(BaseModel):
     display_name: str
     capabilities: list[str]
     reasoning_levels: list[str] = Field(default_factory=list)
+    context_window: int = 0
+    max_output: int | None = None
 
 
 class ChatModeOptionOut(BaseModel):

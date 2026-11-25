@@ -92,6 +92,11 @@ from app.services.chat_modes import (
     validate_turn_mode,
 )
 from app.services.chat_tasks import ChatTaskError
+from app.services.context_budget import (
+    message_tokens,
+    rag_char_limit,
+    trim_history,
+)
 from app.services.custom_agents import (
     CustomAgentError,
     build_agent_spec,
@@ -159,7 +164,6 @@ RedisDep = Annotated[RedisLike, Depends(get_redis)]
 ToolRegistryDep = Annotated[ToolRegistry, Depends(get_tool_registry)]
 AgentRegistryDep = Annotated[AgentRegistry, Depends(get_agent_registry)]
 
-HISTORY_MESSAGE_LIMIT = 12
 TITLE_MAX_LENGTH = 30
 
 
@@ -2344,13 +2348,27 @@ async def _start_chat_turn(
             ),
         )
     )
-    chat_history = chat_history[-HISTORY_MESSAGE_LIMIT:]
+    configured_max_tokens = opts.get("max_tokens")
+    chat_history = trim_history(
+        chat_history,
+        capabilities.context_window,
+        capabilities.max_output,
+        configured_max_tokens=configured_max_tokens,
+    )
+    history_tokens = sum(message_tokens(message) for message in chat_history)
 
     citations: list[Citation] = []
     conversation_kbs = await _conversation_kb_ids(session, conversation)
     if turn_mode == CHAT_MODE_STUDY and study_kb_ids:
         conversation_kbs = list(dict.fromkeys(study_kb_ids))
     if conversation_kbs and not conversation.agent and turn_mode != CHAT_MODE_WEB_SEARCH:
+        rag_limit = rag_char_limit(
+            capabilities.context_window,
+            capabilities.max_output,
+            history_tokens,
+            get_settings().retrieval_max_context_chars,
+            configured_max_tokens=configured_max_tokens,
+        )
         retrieval_started = time.perf_counter()
         try:
             retrieved = await retrieve_chunks(
@@ -2366,7 +2384,7 @@ async def _start_chat_turn(
                 {"code": "retrieval_failed", "message": "Retrieval failed"},
             ) from None
         retrieval_ms = round((time.perf_counter() - retrieval_started) * 1000, 1)
-        used_chunks = fit_context(retrieved, get_settings().retrieval_max_context_chars)
+        used_chunks = fit_context(retrieved, rag_limit)
         citations = build_citations(used_chunks)
         chat_history = build_rag_messages(
             used_chunks, chat_history, base_prompt=effective_system_prompt

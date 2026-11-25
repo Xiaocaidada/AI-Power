@@ -306,6 +306,8 @@ async def add_model(
     display_name: str,
     capabilities: list[str] | None,
     reasoning_levels: list[str] | None = None,
+    context_window: int = 0,
+    max_output: int | None = None,
 ) -> ProviderModel:
     existing = (
         await session.execute(
@@ -326,6 +328,8 @@ async def add_model(
         display_name=display_name.strip() or model_id.strip(),
         capabilities=normalized,
         reasoning_levels=_normalize_reasoning_levels(reasoning_levels),
+        context_window=max(0, context_window),
+        max_output=None if max_output is None else max(0, max_output),
         source="manual",
     )
     session.add(model)
@@ -340,6 +344,8 @@ async def update_model(
     display_name: str | None = None,
     capabilities: list[str] | None = None,
     reasoning_levels: list[str] | None = None,
+    context_window: int | None = None,
+    max_output: int | None = None,
     enabled: bool | None = None,
 ) -> ProviderModel:
     if display_name is not None:
@@ -349,6 +355,10 @@ async def update_model(
         model.source = "manual"
     if reasoning_levels is not None:
         model.reasoning_levels = _normalize_reasoning_levels(reasoning_levels)
+    if context_window is not None:
+        model.context_window = max(0, context_window)
+    if max_output is not None:
+        model.max_output = max(0, max_output)
     if enabled is not None:
         model.enabled = enabled
     await session.flush()
@@ -384,6 +394,8 @@ async def accessible_models(
                 model.model_id, list(model.capabilities), model.source
             ),
             "reasoning_levels": list(model.reasoning_levels or []),
+            "context_window": model.context_window,
+            "max_output": model.max_output,
         }
         for model, config in rows
     ]

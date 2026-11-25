@@ -31,6 +31,12 @@ const CAPABILITIES = [
   'rerank',
 ] as const
 
+const THINKING_OPTIONS = [
+  { value: 'fast', labelKey: 'chat.thinkingFast' },
+  { value: 'standard', labelKey: 'chat.thinkingStandard' },
+  { value: 'deep', labelKey: 'chat.thinkingDeep' },
+] as const
+
 interface FormState {
   name: string
   provider_type: string
@@ -61,6 +67,12 @@ function ProviderModelsPanel({ config }: { config: ProviderConfig }) {
   const [modelId, setModelId] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [settingsTarget, setSettingsTarget] = useState<ProviderModel | null>(null)
+  const [contextWindow, setContextWindow] = useState('')
+  const [maxOutput, setMaxOutput] = useState('')
+  const [toolsEnabled, setToolsEnabled] = useState(false)
+  const [thinkingLevels, setThinkingLevels] = useState<string[]>([])
+  const [saving, setSaving] = useState(false)
   const models = useQuery({
     queryKey: ['provider-models', config.id],
     queryFn: () => apiRequest<ProviderModel[]>(`/provider-configs/${config.id}/models`),
@@ -102,6 +114,43 @@ function ProviderModelsPanel({ config }: { config: ProviderConfig }) {
     await queryClient.invalidateQueries({ queryKey: ['provider-configs'] })
   }
 
+  const openSettings = (model: ProviderModel) => {
+    setSettingsTarget(model)
+    setContextWindow(model.context_window > 0 ? String(model.context_window) : '')
+    setMaxOutput(
+      model.max_output !== null && model.max_output > 0 ? String(model.max_output) : '',
+    )
+    setToolsEnabled(model.capabilities.includes('tools'))
+    setThinkingLevels(model.reasoning_levels ?? [])
+    setError(null)
+  }
+
+  const saveSettings = async () => {
+    if (settingsTarget === null) return
+    setSaving(true)
+    setError(null)
+    try {
+      const others = settingsTarget.capabilities.filter((item) => item !== 'tools')
+      await apiRequest(`/provider-configs/${config.id}/models/${settingsTarget.id}`, {
+        method: 'PATCH',
+        body: {
+          capabilities: toolsEnabled ? [...others, 'tools'] : others,
+          reasoning_levels: thinkingLevels,
+          context_window: Number(contextWindow) || 0,
+          max_output: Number(maxOutput) || 0,
+        },
+      })
+      setSettingsTarget(null)
+      await queryClient.invalidateQueries({ queryKey: ['provider-models', config.id] })
+      await queryClient.invalidateQueries({ queryKey: ['provider-configs'] })
+      await queryClient.invalidateQueries({ queryKey: ['provider-configs', 'models'] })
+    } catch (caught) {
+      setError(t(errorTextKey(caught)))
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <div className="mt-3 border-t border-border pt-3">
       {models.isLoading && (
@@ -134,6 +183,9 @@ function ProviderModelsPanel({ config }: { config: ProviderConfig }) {
                   <>
                     <Button variant="ghost" size="sm" onClick={() => void toggle(model)}>
                       {model.enabled ? t('providerHub.disable') : t('providerHub.enable')}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => openSettings(model)}>
+                      {t('providerHub.modelSettings')}
                     </Button>
                     <Button
                       variant="ghost"
@@ -169,6 +221,78 @@ function ProviderModelsPanel({ config }: { config: ProviderConfig }) {
         </div>
       )}
       {error !== null && <p className="mt-2 text-xs text-danger">{error}</p>}
+      <Dialog
+        open={settingsTarget !== null}
+        onClose={() => setSettingsTarget(null)}
+        title={t('providerHub.modelSettings')}
+        footer={
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setSettingsTarget(null)}>
+              {t('common.cancel')}
+            </Button>
+            <Button size="sm" disabled={saving} onClick={() => void saveSettings()}>
+              {t('common.save')}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <label className="block text-xs text-ink-muted">
+            {t('providerHub.contextWindow')}
+            <Input
+              className="mt-1"
+              type="number"
+              min="0"
+              value={contextWindow}
+              onChange={(event) => setContextWindow(event.target.value)}
+            />
+            <span className="mt-1 block text-[11px] text-ink-muted">
+              {t('providerHub.contextWindowHint')}
+            </span>
+          </label>
+          <label className="block text-xs text-ink-muted">
+            {t('providerHub.maxOutput')}
+            <Input
+              className="mt-1"
+              type="number"
+              min="0"
+              value={maxOutput}
+              onChange={(event) => setMaxOutput(event.target.value)}
+            />
+          </label>
+          <label className="flex items-center gap-2 text-sm text-ink">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-accent"
+              checked={toolsEnabled}
+              onChange={(event) => setToolsEnabled(event.target.checked)}
+            />
+            {t('providerHub.tools')}
+          </label>
+          <div>
+            <p className="text-xs text-ink-muted">{t('providerHub.thinkingLevels')}</p>
+            <div className="mt-1 flex flex-wrap gap-3">
+              {THINKING_OPTIONS.map((option) => (
+                <label key={option.value} className="flex items-center gap-1.5 text-xs text-ink">
+                  <input
+                    type="checkbox"
+                    checked={thinkingLevels.includes(option.value)}
+                    onChange={(event) =>
+                      setThinkingLevels((current) =>
+                        event.target.checked
+                          ? [...current, option.value]
+                          : current.filter((item) => item !== option.value),
+                      )
+                    }
+                  />
+                  {t(option.labelKey)}
+                </label>
+              ))}
+            </div>
+          </div>
+          {error !== null && <p className="text-xs text-danger">{error}</p>}
+        </div>
+      </Dialog>
     </div>
   )
 }

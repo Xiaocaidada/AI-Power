@@ -213,20 +213,35 @@ async def test_manual_model_capabilities_and_toggle(client, api):
             "model_id": "custom-chat",
             "display_name": "Custom",
             "capabilities": ["chat", "tools"],
+            "reasoning_levels": ["fast", "deep"],
+            "context_window": 128000,
+            "max_output": 4096,
         },
         headers=headers,
     )
     assert created.status_code == 201
     model_id = created.json()["id"]
     assert created.json()["capabilities"] == ["chat", "tools"]
+    assert created.json()["context_window"] == 128000
+    assert created.json()["max_output"] == 4096
+    assert created.json()["reasoning_levels"] == ["fast", "deep"]
 
     edited = await client.patch(
         f"/provider-configs/{config_id}/models/{model_id}",
-        json={"enabled": False, "capabilities": ["chat", "vision"]},
+        json={
+            "enabled": False,
+            "capabilities": ["chat", "vision"],
+            "reasoning_levels": ["standard"],
+            "context_window": 8192,
+            "max_output": 1024,
+        },
         headers=headers,
     )
     assert edited.status_code == 200
     assert edited.json()["enabled"] is False
+    assert edited.json()["context_window"] == 8192
+    assert edited.json()["max_output"] == 1024
+    assert edited.json()["reasoning_levels"] == ["standard"]
     assert (await client.get("/provider-configs/models", headers=headers)).json() == []
 
     deleted = await client.delete(

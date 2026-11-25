@@ -238,6 +238,8 @@ async def create_provider_model(
             display_name=payload.display_name,
             capabilities=payload.capabilities,
             reasoning_levels=payload.reasoning_levels,
+            context_window=payload.context_window,
+            max_output=payload.max_output,
         )
     except ProviderConfigError as exc:
         raise _error(exc) from None
@@ -270,6 +272,8 @@ async def patch_provider_model(
         display_name=payload.display_name,
         capabilities=payload.capabilities,
         reasoning_levels=payload.reasoning_levels,
+        context_window=payload.context_window,
+        max_output=payload.max_output,
         enabled=payload.enabled,
     )
     await session.commit()

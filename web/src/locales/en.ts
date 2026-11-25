@@ -1395,6 +1395,13 @@ export const en: Dictionary = {
     deleteTitle: 'Delete provider',
     deleteConfirm: 'Delete “{name}”? The stored key will be removed.',
     capabilitiesHint: 'Capability tags',
+    modelSettings: 'Model settings',
+    contextWindow: 'Context window (tokens)',
+    contextWindowHint:
+      '0 means unknown and keeps the fixed 12-message policy. When set, history and retrieval context are trimmed to this window.',
+    maxOutput: 'Max output (tokens)',
+    tools: 'Tool calling (Agent)',
+    thinkingLevels: 'Thinking levels',
   },
   apiKeys: {
     title: 'API keys',

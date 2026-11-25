@@ -1147,6 +1147,8 @@ class ProviderModel(Base):
     display_name: Mapped[str] = mapped_column(String(200), default="")
     capabilities: Mapped[list[str]] = mapped_column(JSON, default=list)
     reasoning_levels: Mapped[list[str]] = mapped_column(JSON, default=list)
+    context_window: Mapped[int] = mapped_column(Integer, default=0)
+    max_output: Mapped[int | None] = mapped_column(Integer, default=None)
     source: Mapped[str] = mapped_column(String(20), default="manual")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -1379,9 +1381,7 @@ class IntegrationConfig(Base):
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[str] = mapped_column(String(20), default="unknown")
     last_error: Mapped[str | None] = mapped_column(String(50), default=None)
-    last_tested_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), default=None
-    )
+    last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
@@ -1438,9 +1438,7 @@ class ExternalCall(Base):
     units: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
-    __table_args__ = (
-        Index("ix_external_calls_workspace_created", "workspace_id", "created_at"),
-    )
+    __table_args__ = (Index("ix_external_calls_workspace_created", "workspace_id", "created_at"),)
 
 
 class Skill(Base):
@@ -1477,9 +1475,7 @@ class SkillRun(Base):
         ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
     )
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    skill_id: Mapped[UUID] = mapped_column(
-        ForeignKey("skills.id", ondelete="CASCADE"), index=True
-    )
+    skill_id: Mapped[UUID] = mapped_column(ForeignKey("skills.id", ondelete="CASCADE"), index=True)
     status: Mapped[str] = mapped_column(String(20), default="completed")
     input: Mapped[str] = mapped_column(Text, default="")
     output: Mapped[str] = mapped_column(Text, default="")
