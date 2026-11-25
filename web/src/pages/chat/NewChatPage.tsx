@@ -565,6 +565,20 @@ export function NewChatPage() {
                       {t('chat.webSearchQuick')}
                     </button>
                   )}
+                {effectiveMode === 'web_search' &&
+                  enabledSearchProviders.length > 0 && (
+                    <PopoverSelect
+                      label={t('chat.searchProvider')}
+                      value={searchProviderId}
+                      options={enabledSearchProviders.map((provider) => ({
+                        value: provider.id,
+                        label: provider.name,
+                      }))}
+                      onChange={setSearchProviderId}
+                      variant="ghost"
+                      triggerClassName="max-w-40"
+                    />
+                  )}
               </>
             }
             footerEnd={
@@ -642,36 +656,6 @@ export function NewChatPage() {
             </button>
           )}
         </div>
-
-        {effectiveMode === 'web_search' && enabledSearchProviders.length > 0 && (
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <PopoverSelect
-              label={t('chat.searchProvider')}
-              value={searchProviderId}
-              options={enabledSearchProviders.map((provider) => ({
-                value: provider.id,
-                label: provider.name,
-              }))}
-              onChange={setSearchProviderId}
-            />
-          </div>
-        )}
-
-        {(selectedVersion?.variables ?? []).length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {selectedVersion?.variables.map((variable) => (
-              <Input
-                key={variable}
-                className="h-8 max-w-56"
-                value={variables[variable] ?? ''}
-                onChange={(event) =>
-                  setVariables((prev) => ({ ...prev, [variable]: event.target.value }))
-                }
-                placeholder={`{{${variable}}}`}
-              />
-            ))}
-          </div>
-        )}
 
         {!modeImplemented && (
           <p className="mt-3 rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
