@@ -3,8 +3,11 @@ from uuid import UUID
 from sqlalchemy import select
 
 from app.db import SessionLocal
+from app.deps import get_scoped_registry
+from app.main import app as app_instance
 from app.models import ProviderConfig
 from app.providers.base import ChatChunk, ModelInfo, ProviderError, Usage
+from app.providers.registry import ProviderRegistry
 from app.services.provider_secrets import decrypt_api_key
 
 
@@ -132,6 +135,50 @@ async def test_provider_test_and_sync_models(client, api, monkeypatch):
     personal = await client.get("/provider-configs/models", headers=headers)
     assert [model["model_id"] for model in personal.json()] == ["m1", "m2"]
     assert personal.json()[0]["provider_id"] == config_id
+
+
+class _GlmProvider(_FakeProvider):
+    async def list_models(self):
+        return [ModelInfo(id="glm-4.5-air", provider_id=self.id)]
+
+
+async def test_sync_infers_glm_tool_capability_and_enables_agent(client, api, monkeypatch):
+    from app.services import provider_configs
+
+    provider = _GlmProvider()
+    monkeypatch.setattr(provider_configs, "build_provider", lambda _config: provider)
+    headers = await api.headers("provider-glm-tools@example.com")
+    config_id = (await _create_config(client, headers)).json()["id"]
+
+    synced = await client.post(f"/provider-configs/{config_id}/sync", headers=headers)
+    models = await client.get(f"/provider-configs/{config_id}/models", headers=headers)
+    personal = await client.get("/provider-configs/models", headers=headers)
+
+    assert synced.status_code == 200
+    assert "tools" in models.json()[0]["capabilities"]
+    assert "tools" in personal.json()[0]["capabilities"]
+
+    app_instance.dependency_overrides[get_scoped_registry] = lambda: ProviderRegistry(
+        {config_id: provider}
+    )
+    try:
+        created = await client.post(
+            "/conversations",
+            json={"provider_id": config_id, "model": "glm-4.5-air"},
+            headers=headers,
+        )
+        switched = await client.patch(
+            f"/conversations/{created.json()['id']}",
+            json={"default_mode": "agent"},
+            headers=headers,
+        )
+    finally:
+        app_instance.dependency_overrides.pop(get_scoped_registry, None)
+
+    assert created.status_code == 201
+    assert switched.status_code == 200
+    assert switched.json()["default_mode"] == "agent"
+    assert switched.json()["agent"] is True
 
 
 async def test_provider_test_failure_marks_status(client, api, monkeypatch):

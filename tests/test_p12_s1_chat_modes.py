@@ -280,3 +280,57 @@ async def test_patch_to_agent_mode_rejects_model_without_tools(client, api, fake
     assert response.json()["detail"]["code"] == "capability_unsupported"
     assert detail.json()["default_mode"] == "chat"
     assert detail.json()["agent"] is False
+
+
+async def _synced_glm_provider(client, headers) -> str:
+    me = await client.get("/auth/me", headers=headers)
+    workspaces = await client.get("/workspaces", headers=headers)
+    async with SessionLocal() as session:
+        config = ProviderConfig(
+            workspace_id=UUID(workspaces.json()[0]["id"]),
+            owner_user_id=UUID(me.json()["id"]),
+            name="Zhipu",
+            base_url="https://open.bigmodel.cn/api/paas/v4",
+            api_key_encrypted="test-only",
+        )
+        session.add(config)
+        await session.flush()
+        session.add(
+            ProviderModel(
+                config_id=config.id,
+                model_id="glm-4.5-air",
+                display_name="GLM-4.5-Air",
+                capabilities=["chat", "stream"],
+                source="synced",
+            )
+        )
+        await session.commit()
+        return str(config.id)
+
+
+async def test_patch_to_agent_mode_infers_tools_for_synced_glm(client, api, fake_provider):
+    headers = await api.headers("p12-glm-agent@example.com")
+    config_id = await _synced_glm_provider(client, headers)
+    app_instance.dependency_overrides[get_scoped_registry] = lambda: ProviderRegistry(
+        {config_id: fake_provider}
+    )
+    try:
+        created = await client.post(
+            "/conversations",
+            json={"provider_id": config_id, "model": "glm-4.5-air"},
+            headers=headers,
+        )
+        assert created.status_code == 201
+        response = await client.patch(
+            f"/conversations/{created.json()['id']}",
+            json={"default_mode": "agent"},
+            headers=headers,
+        )
+        personal = await client.get("/provider-configs/models", headers=headers)
+    finally:
+        app_instance.dependency_overrides.pop(get_scoped_registry, None)
+
+    assert response.status_code == 200
+    assert response.json()["default_mode"] == "agent"
+    assert response.json()["agent"] is True
+    assert "tools" in personal.json()[0]["capabilities"]

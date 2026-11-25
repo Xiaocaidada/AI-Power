@@ -13,12 +13,15 @@ from app.providers.base import ProviderError
 from app.providers.openai_compat import OpenAICompatProvider
 from app.providers.registry import ProviderRegistry, build_registry
 from app.services.chat_modes import THINKING_LEVELS
+from app.services.model_capabilities import (
+    DEFAULT_CAPABILITIES,
+    effective_capabilities,
+)
 from app.services.provider_secrets import api_key_hint, decrypt_api_key, encrypt_api_key
 
 logger = logging.getLogger(__name__)
 
 PROVIDER_TYPES = frozenset({"openai_compatible", "custom"})
-DEFAULT_CAPABILITIES = ["chat", "stream"]
 ALLOWED_CAPABILITIES = frozenset(
     {
         "chat",
@@ -262,7 +265,7 @@ async def sync_models(session: AsyncSession, config: ProviderConfig) -> dict[str
                     config_id=config.id,
                     model_id=info.id,
                     display_name=info.id,
-                    capabilities=list(DEFAULT_CAPABILITIES),
+                    capabilities=effective_capabilities(info.id, None, "synced"),
                     source="synced",
                 )
             )
@@ -270,7 +273,11 @@ async def sync_models(session: AsyncSession, config: ProviderConfig) -> dict[str
         else:
             if model.display_name == "":
                 model.display_name = info.id
-            model.source = "synced"
+            if model.source != "manual":
+                model.capabilities = effective_capabilities(
+                    model.model_id, model.capabilities, "synced"
+                )
+                model.source = "synced"
             updated += 1
     config.status = "ok"
     config.last_error = None
@@ -310,11 +317,14 @@ async def add_model(
     ).scalar_one_or_none()
     if existing is not None:
         raise ProviderConfigError("model_exists", "Model already exists for this provider")
+    normalized = _normalize_capabilities(capabilities)
+    if capabilities is None or normalized == sorted(DEFAULT_CAPABILITIES):
+        normalized = effective_capabilities(model_id.strip(), normalized, "synced")
     model = ProviderModel(
         config_id=config.id,
         model_id=model_id.strip(),
         display_name=display_name.strip() or model_id.strip(),
-        capabilities=_normalize_capabilities(capabilities),
+        capabilities=normalized,
         reasoning_levels=_normalize_reasoning_levels(reasoning_levels),
         source="manual",
     )
@@ -336,6 +346,7 @@ async def update_model(
         model.display_name = display_name.strip() or model.model_id
     if capabilities is not None:
         model.capabilities = _normalize_capabilities(capabilities)
+        model.source = "manual"
     if reasoning_levels is not None:
         model.reasoning_levels = _normalize_reasoning_levels(reasoning_levels)
     if enabled is not None:
@@ -369,7 +380,9 @@ async def accessible_models(
             "provider_name": config.name,
             "model_id": model.model_id,
             "display_name": model.display_name or model.model_id,
-            "capabilities": list(model.capabilities),
+            "capabilities": effective_capabilities(
+                model.model_id, list(model.capabilities), model.source
+            ),
             "reasoning_levels": list(model.reasoning_levels or []),
         }
         for model, config in rows
@@ -434,7 +447,8 @@ async def ensure_model_capability(
     ).scalar_one_or_none()
     if model is None or not model.enabled:
         raise ProviderConfigError("model_not_found", "Provider model not found")
-    if capability not in model.capabilities:
+    capabilities = effective_capabilities(model.model_id, list(model.capabilities), model.source)
+    if capability not in capabilities:
         raise ProviderConfigError(
             "capability_unsupported",
             f"Model does not support {capability}",

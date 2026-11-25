@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
 from app.deps import AuthContext, get_jwt_context
-from app.models import ProviderConfig
+from app.models import ProviderConfig, ProviderModel
 from app.schemas import (
     PersonalModelOut,
     ProviderConfigCreate,
@@ -19,6 +19,7 @@ from app.schemas import (
     ProviderSyncOut,
     ProviderTestOut,
 )
+from app.services.model_capabilities import effective_capabilities
 from app.services.provider_configs import (
     ProviderConfigError,
     accessible_models,
@@ -70,6 +71,13 @@ def _out(config: ProviderConfig, model_count: int, user_id: UUID) -> ProviderCon
         created_at=config.created_at,
         updated_at=config.updated_at,
     )
+
+
+def _model_out(model: ProviderModel) -> ProviderModelOut:
+    capabilities = effective_capabilities(
+        model.model_id, list(model.capabilities or []), model.source
+    )
+    return ProviderModelOut.model_validate(model).model_copy(update={"capabilities": capabilities})
 
 
 @router.get("", response_model=list[ProviderConfigOut])
@@ -205,9 +213,7 @@ async def list_provider_models(
         config = await get_config(session, config_id, context.workspace.id, context.user.id)
     except ProviderConfigError as exc:
         raise _error(exc) from None
-    return [
-        ProviderModelOut.model_validate(model) for model in await list_models(session, config.id)
-    ]
+    return [_model_out(model) for model in await list_models(session, config.id)]
 
 
 @router.post(
@@ -237,7 +243,7 @@ async def create_provider_model(
         raise _error(exc) from None
     await session.commit()
     await session.refresh(model)
-    return ProviderModelOut.model_validate(model)
+    return _model_out(model)
 
 
 @router.patch("/{config_id}/models/{model_id}", response_model=ProviderModelOut)
@@ -268,7 +274,7 @@ async def patch_provider_model(
     )
     await session.commit()
     await session.refresh(model)
-    return ProviderModelOut.model_validate(model)
+    return _model_out(model)
 
 
 @router.delete("/{config_id}/models/{model_id}", status_code=status.HTTP_204_NO_CONTENT)

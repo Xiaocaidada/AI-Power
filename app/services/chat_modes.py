@@ -12,6 +12,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import ModelCatalog, ProviderConfig, ProviderModel
+from app.services.model_capabilities import effective_capabilities
 
 CHAT_MODE_CHAT = "chat"
 CHAT_MODE_WEB_SEARCH = "web_search"
@@ -244,7 +245,9 @@ async def resolve_model_capabilities(
                 )
             ).scalar_one_or_none()
             if model is not None:
-                capabilities = list(model.capabilities or [])
+                capabilities = effective_capabilities(
+                    model.model_id, list(model.capabilities or []), model.source
+                )
                 return ModelCapabilities(
                     capabilities=capabilities,
                     reasoning_levels=reasoning_levels_for(
