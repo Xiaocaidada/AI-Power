@@ -149,6 +149,21 @@ cd web && npx playwright install chromium && npm run test:e2e
 
 pgvector / pg_trgm 集成测试需要设置 `TEST_POSTGRES_URL`；默认测试使用 SQLite。
 
+## CI 状态
+
+> 记录时间：2026-11-26。运行记录：[Actions](https://github.com/Xiaocaidada/AI-Power/actions/runs/45776930312)
+
+| Job | 状态 | 说明 |
+|---|---|---|
+| docker | ✅ 通过 | 镜像构建成功 |
+| backend | ❌ 失败 | `ruff format --check .` 未通过：仓库中存在历史未格式化文件（本次改动文件已通过格式检查）；后续测试步骤因此被跳过 |
+| frontend | ❌ 失败 | 单元测试与构建通过；E2E 步骤失败。本地完整套件复现为 23 通过 / 2 失败，失败项位于 `web/e2e/p8.spec.ts` 的 Agent Builder「变更预览」「需要澄清」用例；单独运行登录冒烟用例可通过 |
+
+已知修复方向：
+
+- **后端格式检查**：执行 `ruff format .` 后提交（会产生较大的机械性 diff），再运行 `ruff check .` 与 `pytest`
+- **前端 E2E**：对照 `web/e2e/p8.spec.ts` 中 Builder 交互与当前 UI/接口行为，修复后重跑 `npm run test:e2e`
+
 ## 检索评测
 
 项目内置 20 文档 / 50 题中文检索评测集，指标为项目内评测结果，不代表生产流量：
