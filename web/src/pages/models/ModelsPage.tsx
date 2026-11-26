@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, ExternalLink, Search, Server, Sparkles } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
@@ -27,6 +27,16 @@ const MAX_COMPARE = 3
 const PAGE_SIZE = 24
 const CATEGORIES = ['general', 'reasoning', 'coding', 'multimodal', 'embedding', 'reranker']
 const CAPABILITIES = ['chat', 'stream', 'tools', 'vision', 'embedding', 'rerank']
+const CAPABILITY_CLASSES: Record<string, string> = {
+  chat: 'bg-accent-soft text-accent',
+  stream: 'bg-sky-500/10 text-sky-600 dark:text-sky-300',
+  tools: 'bg-warning/10 text-warning',
+  vision: 'bg-violet-500/10 text-violet-600 dark:text-violet-300',
+  reasoning: 'bg-success/10 text-success',
+  embedding: 'bg-teal-500/10 text-teal-600 dark:text-teal-300',
+  rerank: 'bg-rose-500/10 text-rose-600 dark:text-rose-300',
+}
+const CAPABILITY_FALLBACK = 'bg-surface-muted text-ink-muted'
 
 function experienceHref(providerId: string, modelId: string): string {
   return `/chat?provider=${encodeURIComponent(providerId)}&model=${encodeURIComponent(modelId)}`
@@ -142,43 +152,61 @@ export function ModelsPage() {
     })
   }
 
-  const tabs: { id: Tab; label: string }[] = authenticated
-    ? [
-        { id: 'public', label: t('models.publicTab') },
-        { id: 'mine', label: t('models.myTab') },
-        { id: 'platform', label: t('models.platformTab') },
-      ]
-    : [{ id: 'public', label: t('models.publicTab') }]
+  const tabs: { id: Tab; label: string }[] = [
+    { id: 'public', label: t('models.publicTab') },
+    { id: 'mine', label: t('models.myTab') },
+    { id: 'platform', label: t('models.platformTab') },
+  ]
+
+  const selectTab = (next: Tab) => {
+    if (next !== 'public' && !authenticated) {
+      navigate('/login', { state: { from: '/models' } })
+      return
+    }
+    setTab(next)
+  }
+
+  useEffect(() => {
+    if (!authenticated && tab !== 'public') setTab('public')
+  }, [authenticated, tab])
 
   return (
-    <div className="flex-1 overflow-y-auto">
-      <header className="border-b border-border bg-surface px-6 py-4">
-        <h1 className="text-lg font-semibold">{t('models.title')}</h1>
-        <p className="mt-1 text-sm text-ink-muted">{t('models.lead')}</p>
-        <nav className="mt-3 flex gap-1">
-          {tabs.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => setTab(item.id)}
-              className={cn(
-                '-mb-px border-b-2 px-3 py-2 text-sm',
-                tab === item.id
-                  ? 'border-accent text-accent'
-                  : 'border-transparent text-ink-muted hover:text-ink',
-              )}
-            >
-              {item.label}
-            </button>
-          ))}
-        </nav>
+    <div className="flex-1">
+      <header className="border-b border-border bg-surface px-6 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
+          <div className="min-w-0">
+            <h1 className="text-lg font-semibold leading-6">{t('models.title')}</h1>
+            <p className="text-xs text-ink-muted">{t('models.lead')}</p>
+          </div>
+          <nav
+            className="flex items-center gap-0.5 rounded-lg bg-surface-muted p-0.5"
+            aria-label={t('models.title')}
+          >
+            {tabs.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => selectTab(item.id)}
+                aria-current={tab === item.id ? 'page' : undefined}
+                className={cn(
+                  'rounded-md px-3 py-1.5 text-sm transition-colors',
+                  tab === item.id
+                    ? 'bg-surface font-medium text-ink shadow-sm'
+                    : 'text-ink-muted hover:text-ink',
+                )}
+              >
+                {item.label}
+              </button>
+            ))}
+          </nav>
+        </div>
       </header>
 
       <div className="space-y-5 px-6 py-6">
         {tab === 'public' && (
-          <>
-            <div className="flex flex-wrap items-end gap-2">
-              <label className="relative min-w-[220px] flex-1 text-xs text-ink-muted">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-start">
+            <div className="order-2 min-w-0 flex-1 space-y-5 lg:order-1">
+              <label className="relative block w-full text-xs text-ink-muted">
                 <span className="mb-1 block">{t('models.search')}</span>
                 <Search className="absolute bottom-3 left-2.5 h-4 w-4 text-ink-muted" />
                 <Input
@@ -188,64 +216,6 @@ export function ModelsPage() {
                   placeholder={t('models.searchPlaceholder')}
                 />
               </label>
-              <label className="text-xs text-ink-muted">
-                <span className="mb-1 block">{t('models.category')}</span>
-                <select
-                  className="h-10 rounded-lg border border-border bg-surface px-2 text-sm"
-                  value={category}
-                  onChange={(event) => setCategory(event.target.value)}
-                >
-                  <option value="">{t('models.allCategories')}</option>
-                  {CATEGORIES.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="text-xs text-ink-muted">
-                <span className="mb-1 block">{t('models.provider')}</span>
-                <select
-                  className="h-10 rounded-lg border border-border bg-surface px-2 text-sm"
-                  value={providerFilter}
-                  onChange={(event) => setProviderFilter(event.target.value)}
-                >
-                  <option value="">{t('models.allProviders')}</option>
-                  {marketProviders.data?.map((item) => (
-                    <option key={item.provider_id} value={item.provider_id}>
-                      {item.name} ({item.model_count})
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="text-xs text-ink-muted">
-                <span className="mb-1 block">{t('models.capabilities')}</span>
-                <select
-                  className="h-10 rounded-lg border border-border bg-surface px-2 text-sm"
-                  value={capability}
-                  onChange={(event) => setCapability(event.target.value)}
-                >
-                  <option value="">{t('models.allCapabilities')}</option>
-                  {CAPABILITIES.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="text-xs text-ink-muted">
-                <span className="mb-1 block">{t('models.sort')}</span>
-                <select
-                  className="h-10 rounded-lg border border-border bg-surface px-2 text-sm"
-                  value={sort}
-                  onChange={(event) => setSort(event.target.value)}
-                >
-                  <option value="featured">{t('models.sortFeatured')}</option>
-                  <option value="new">{t('models.sortNew')}</option>
-                  <option value="name">{t('models.sortName')}</option>
-                </select>
-              </label>
-            </div>
 
             {market.isLoading && (
               <div className="flex items-center gap-2 text-sm text-ink-muted">
@@ -256,14 +226,19 @@ export function ModelsPage() {
             {market.data !== undefined && market.data.total === 0 && (
               <EmptyState title={t('models.publicEmpty')} description={t('models.publicEmptyLead')} />
             )}
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
               {market.data?.items.map((model) => {
                 const mine = personalFor(model)
                 return (
                 <article
                   key={model.id}
-                  className="flex flex-col rounded-card border border-border bg-surface p-4"
+                  className="group relative flex aspect-[5/6] flex-col rounded-card border border-border bg-surface p-4 transition duration-200 hover:-translate-y-1 hover:border-accent/50 hover:shadow-floating"
                 >
+                  <Link
+                    to={`/models/${model.slug}`}
+                    aria-label={model.name}
+                    className="absolute inset-0 z-0 rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  />
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <h2 className="truncate text-sm font-semibold text-ink">{model.name}</h2>
@@ -282,21 +257,70 @@ export function ModelsPage() {
                   <p className="mt-2 line-clamp-2 text-xs text-ink-muted">{model.description}</p>
                   <div className="mt-2 flex flex-wrap gap-1">
                     {model.capabilities.slice(0, 5).map((item) => (
-                      <Badge key={item} tone="neutral">
+                      <span
+                        key={item}
+                        className={cn(
+                          'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
+                          CAPABILITY_CLASSES[item] ?? CAPABILITY_FALLBACK,
+                        )}
+                      >
                         {item}
-                      </Badge>
+                      </span>
                     ))}
                   </div>
-                  <div className="mt-3 flex items-center justify-between text-xs text-ink-muted">
+                  <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-[11px] text-ink-muted">
+                    <div>
+                      <dt>{t('models.context')}</dt>
+                      <dd className="font-mono text-ink">
+                        {model.context_window > 0
+                          ? numberFormat.format(model.context_window)
+                          : '—'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{t('models.maxOutput')}</dt>
+                      <dd className="font-mono text-ink">
+                        {model.max_output !== null ? numberFormat.format(model.max_output) : '—'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{t('models.inputTypes')}</dt>
+                      <dd className="truncate text-ink">
+                        {model.input_types.length > 0 ? model.input_types.join(', ') : '—'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{t('models.outputTypes')}</dt>
+                      <dd className="truncate text-ink">
+                        {model.output_types.length > 0 ? model.output_types.join(', ') : '—'}
+                      </dd>
+                    </div>
+                    {model.thinking_supported && (
+                      <div className="col-span-2">
+                        <dt>{t('models.thinkingLevels')}</dt>
+                        <dd className="truncate text-ink">
+                          {model.thinking_levels.length > 0
+                            ? model.thinking_levels.join(' / ')
+                            : t('models.thinkingDefault')}
+                        </dd>
+                      </div>
+                    )}
+                  </dl>
+                  <div className="relative z-10 mt-auto flex items-center justify-between gap-2 pt-3 text-xs text-ink-muted">
                     <span>{model.category}</span>
-                    <span className="font-mono">
-                      {model.context_window > 0
-                        ? numberFormat.format(model.context_window)
-                        : '—'}{' '}
-                      ctx
-                    </span>
+                    {model.docs_url !== '' && (
+                      <a
+                        href={model.docs_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-accent hover:underline"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        {t('models.docs')}
+                      </a>
+                    )}
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
+                  <div className="relative z-10 mt-3 flex flex-wrap gap-2">
                     <Button size="sm" variant="secondary" onClick={() => setDetailTarget(model)}>
                       {t('models.details')}
                     </Button>
@@ -363,7 +387,69 @@ export function ModelsPage() {
                 </div>
               </div>
             )}
-          </>
+              </div>
+              <aside className="order-1 w-full shrink-0 rounded-card border border-border bg-surface p-4 lg:order-2 lg:sticky lg:top-20 lg:w-56">
+                <div className="space-y-3">
+                  <label className="block text-xs text-ink-muted">
+                    <span className="mb-1 block">{t('models.category')}</span>
+                    <select
+                      className="h-10 w-full rounded-lg border border-border bg-surface px-2 text-sm"
+                      value={category}
+                      onChange={(event) => setCategory(event.target.value)}
+                    >
+                      <option value="">{t('models.allCategories')}</option>
+                      {CATEGORIES.map((item) => (
+                        <option key={item} value={item}>
+                          {item}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block text-xs text-ink-muted">
+                    <span className="mb-1 block">{t('models.provider')}</span>
+                    <select
+                      className="h-10 w-full rounded-lg border border-border bg-surface px-2 text-sm"
+                      value={providerFilter}
+                      onChange={(event) => setProviderFilter(event.target.value)}
+                    >
+                      <option value="">{t('models.allProviders')}</option>
+                      {marketProviders.data?.map((item) => (
+                        <option key={item.provider_id} value={item.provider_id}>
+                          {item.name} ({item.model_count})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block text-xs text-ink-muted">
+                    <span className="mb-1 block">{t('models.capabilities')}</span>
+                    <select
+                      className="h-10 w-full rounded-lg border border-border bg-surface px-2 text-sm"
+                      value={capability}
+                      onChange={(event) => setCapability(event.target.value)}
+                    >
+                      <option value="">{t('models.allCapabilities')}</option>
+                      {CAPABILITIES.map((item) => (
+                        <option key={item} value={item}>
+                          {item}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block text-xs text-ink-muted">
+                    <span className="mb-1 block">{t('models.sort')}</span>
+                    <select
+                      className="h-10 w-full rounded-lg border border-border bg-surface px-2 text-sm"
+                      value={sort}
+                      onChange={(event) => setSort(event.target.value)}
+                    >
+                      <option value="featured">{t('models.sortFeatured')}</option>
+                      <option value="new">{t('models.sortNew')}</option>
+                      <option value="name">{t('models.sortName')}</option>
+                    </select>
+                  </label>
+                </div>
+              </aside>
+            </div>
         )}
 
         {tab === 'mine' && (
@@ -409,11 +495,11 @@ export function ModelsPage() {
                 </Button>
               </EmptyState>
             )}
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
               {myModels.map((model) => (
                 <article
                   key={`${model.provider_id}:${model.model_id}`}
-                  className="flex flex-col rounded-card border border-border bg-surface p-4"
+                  className="flex aspect-[5/6] flex-col rounded-card border border-border bg-surface p-4"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
@@ -428,12 +514,42 @@ export function ModelsPage() {
                   </div>
                   <div className="mt-2 flex flex-wrap gap-1">
                     {model.capabilities.map((item) => (
-                      <Badge key={item} tone="accent">
+                      <span
+                        key={item}
+                        className={cn(
+                          'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
+                          CAPABILITY_CLASSES[item] ?? CAPABILITY_FALLBACK,
+                        )}
+                      >
                         {item}
-                      </Badge>
+                      </span>
                     ))}
                   </div>
-                  <div className="mt-3 flex gap-2">
+                  <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-[11px] text-ink-muted">
+                    <div>
+                      <dt>{t('models.context')}</dt>
+                      <dd className="font-mono text-ink">
+                        {model.context_window !== undefined && model.context_window > 0
+                          ? numberFormat.format(model.context_window)
+                          : '—'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{t('models.maxOutput')}</dt>
+                      <dd className="font-mono text-ink">
+                        {model.max_output !== undefined && model.max_output !== null
+                          ? numberFormat.format(model.max_output)
+                          : '—'}
+                      </dd>
+                    </div>
+                    {model.reasoning_levels !== undefined && model.reasoning_levels.length > 0 && (
+                      <div className="col-span-2">
+                        <dt>{t('models.thinkingLevels')}</dt>
+                        <dd className="truncate text-ink">{model.reasoning_levels.join(' / ')}</dd>
+                      </div>
+                    )}
+                  </dl>
+                  <div className="mt-auto flex gap-2 pt-3">
                     <Button
                       size="sm"
                       onClick={() => navigate(experienceHref(model.provider_id, model.model_id))}

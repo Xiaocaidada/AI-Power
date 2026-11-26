@@ -14,7 +14,13 @@ import { ActivateModelDialog } from './ActivateModelDialog'
 
 type CodeTab = 'platform' | 'sdk' | 'compatible'
 
+function providerBaseUrl(model: MarketModel): string {
+  const base = model.provider_base_url.trim().replace(/\/+$/, '')
+  return base !== '' ? base : '$PROVIDER_BASE_URL'
+}
+
 function examples(model: MarketModel): Record<CodeTab, string> {
+  const providerBase = providerBaseUrl(model)
   return {
     platform: `# 1. 创建会话
 curl -X POST "$BASE/conversations" \\
@@ -37,7 +43,7 @@ with AIPowerClient("http://your-host:8080/api", api_key="ap_...") as client:
     for event in client.chat_stream(conversation["id"], "你好，介绍一下你自己"):
         if event.event == "delta":
             print(event.json().get("text", ""), end="")`,
-    compatible: `curl -N -X POST "$PROVIDER_BASE_URL/chat/completions" \\
+    compatible: `curl -N -X POST "${providerBase}/chat/completions" \\
   -H "Authorization: Bearer $PROVIDER_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
