@@ -8,8 +8,9 @@ import { Button } from '../../components/ui/button'
 import { Spinner } from '../../components/ui/spinner'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
-import type { MarketModel } from '../../lib/types'
+import type { MarketModel, PersonalModel } from '../../lib/types'
 import { useAuthStore } from '../../store/auth'
+import { ActivateModelDialog } from './ActivateModelDialog'
 
 type CodeTab = 'platform' | 'sdk' | 'compatible'
 
@@ -54,6 +55,7 @@ export function ModelDetailPage() {
   const status = useAuthStore((state) => state.status)
   const [codeTab, setCodeTab] = useState<CodeTab>('platform')
   const [copied, setCopied] = useState(false)
+  const [activateOpen, setActivateOpen] = useState(false)
   const numberFormat = new Intl.NumberFormat(language === 'zh' ? 'zh-CN' : 'en')
 
   const model = useQuery({
@@ -61,6 +63,23 @@ export function ModelDetailPage() {
     queryFn: () => apiRequest<MarketModel>(`/market/models/${slug}`, { auth: false }),
     enabled: slug !== '',
   })
+  const personal = useQuery({
+    queryKey: ['provider-configs', 'models'],
+    queryFn: () => apiRequest<PersonalModel[]>('/provider-configs/models'),
+    enabled: status === 'authenticated',
+    staleTime: 60_000,
+  })
+  const mine = model.data
+    ? personal.data?.find(
+        (item) =>
+          item.model_id === model.data?.model_id &&
+          item.provider_name.toLowerCase() === model.data?.provider_name.toLowerCase(),
+      )
+    : undefined
+  const openChat = (providerId: string, modelId: string) =>
+    navigate(
+      `/chat?provider=${encodeURIComponent(providerId)}&model=${encodeURIComponent(modelId)}`,
+    )
 
   if (model.isLoading) {
     return (
@@ -142,10 +161,20 @@ export function ModelDetailPage() {
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
-              {detail.available ? (
+              {mine !== undefined ? (
+                <Button onClick={() => openChat(mine.provider_id, mine.model_id)}>
+                  <Play className="h-4 w-4" />
+                  {t('models.experience')}
+                </Button>
+              ) : detail.available ? (
                 <Button onClick={experience}>
                   <Play className="h-4 w-4" />
                   {t('models.experience')}
+                </Button>
+              ) : detail.catalog ? (
+                <Button onClick={() => setActivateOpen(true)}>
+                  <Play className="h-4 w-4" />
+                  {t('models.activate')}
                 </Button>
               ) : (
                 <Button variant="secondary" onClick={() => navigate('/settings/providers')}>
@@ -173,6 +202,16 @@ export function ModelDetailPage() {
               />
               <Spec label={t('models.inputTypes')} value={detail.input_types.join(', ')} />
               <Spec label={t('models.outputTypes')} value={detail.output_types.join(', ')} />
+              {detail.thinking_supported && (
+                <Spec
+                  label={t('models.thinkingLevels')}
+                  value={
+                    detail.thinking_levels.length > 0
+                      ? detail.thinking_levels.join(' / ')
+                      : t('models.thinkingDefault')
+                  }
+                />
+              )}
             </div>
             {detail.docs_url !== '' && (
               <a
@@ -240,18 +279,34 @@ export function ModelDetailPage() {
           <section className="rounded-2xl border border-border bg-surface p-5">
             <h2 className="text-sm font-semibold text-ink">{t('models.detailQuick')}</h2>
             <p className="mt-2 text-xs leading-5 text-ink-muted">{t('models.detailQuickLead')}</p>
-            <Button className="mt-4 w-full" onClick={experience} disabled={!detail.available}>
-              <Play className="h-4 w-4" />
-              {t('models.experience')}
-            </Button>
-            <Button
-              variant="secondary"
-              className="mt-2 w-full"
-              onClick={() => navigate('/settings/providers')}
-            >
-              <Server className="h-4 w-4" />
-              {t('models.configure')}
-            </Button>
+            {mine !== undefined ? (
+              <Button
+                className="mt-4 w-full"
+                onClick={() => openChat(mine.provider_id, mine.model_id)}
+              >
+                <Play className="h-4 w-4" />
+                {t('models.experience')}
+              </Button>
+            ) : detail.available ? (
+              <Button className="mt-4 w-full" onClick={experience}>
+                <Play className="h-4 w-4" />
+                {t('models.experience')}
+              </Button>
+            ) : detail.catalog ? (
+              <Button className="mt-4 w-full" onClick={() => setActivateOpen(true)}>
+                <Play className="h-4 w-4" />
+                {t('models.activate')}
+              </Button>
+            ) : (
+              <Button
+                variant="secondary"
+                className="mt-4 w-full"
+                onClick={() => navigate('/settings/providers')}
+              >
+                <Server className="h-4 w-4" />
+                {t('models.configure')}
+              </Button>
+            )}
           </section>
           <section className="rounded-2xl border border-border bg-surface p-5">
             <h2 className="text-sm font-semibold text-ink">{t('models.detailSpecs')}</h2>
@@ -263,6 +318,18 @@ export function ModelDetailPage() {
           </section>
         </aside>
       </div>
+      {activateOpen && (
+        <ActivateModelDialog
+          model={detail}
+          onClose={() => setActivateOpen(false)}
+          onActivated={(providerId, modelId) => {
+            setActivateOpen(false)
+            navigate(
+              `/chat?provider=${encodeURIComponent(providerId)}&model=${encodeURIComponent(modelId)}`,
+            )
+          }}
+        />
+      )}
     </div>
   )
 }

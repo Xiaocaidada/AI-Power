@@ -6,6 +6,8 @@ import {
   Boxes,
   Brain,
   CalendarDays,
+  ChevronLeft,
+  ChevronRight,
   Layers,
   MessageSquare,
   Pin,
@@ -33,6 +35,7 @@ import type {
   HomeFeed,
   HomePlacement,
   MarketModel,
+  MarketProvider,
   ModelEntry,
   ProviderConfig,
 } from '../../lib/types'
@@ -49,15 +52,31 @@ export function HomePage() {
   const [answerConversationId, setAnswerConversationId] = useState<string | null>(null)
   const [streaming, setStreaming] = useState(false)
   const [homeError, setHomeError] = useState<string | null>(null)
+  const [carouselPaused, setCarouselPaused] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
+  const carouselRef = useRef<HTMLDivElement | null>(null)
 
-  const featured = useQuery({
-    queryKey: ['home-featured-models'],
-    queryFn: () => apiRequest<MarketModel[]>('/market/models?sort=featured', { auth: false }),
+  const marketProviders = useQuery({
+    queryKey: ['market-providers'],
+    queryFn: () => apiRequest<MarketProvider[]>('/market/providers', { auth: false }),
+    staleTime: 60_000,
   })
-  const newest = useQuery({
-    queryKey: ['home-new-models'],
-    queryFn: () => apiRequest<MarketModel[]>('/market/models?sort=new', { auth: false }),
+  const providerIds = (marketProviders.data ?? []).map((item) => item.provider_id)
+  const builtinModels = useQuery({
+    queryKey: ['home-builtin-models', providerIds.join(',')],
+    queryFn: async () => {
+      const groups = await Promise.all(
+        providerIds.map((providerId) =>
+          apiRequest<MarketModel[]>(
+            `/market/models?catalog=true&provider_id=${encodeURIComponent(providerId)}&sort=new&limit=2`,
+            { auth: false },
+          ),
+        ),
+      )
+      return groups.flat()
+    },
+    enabled: providerIds.length > 0,
+    staleTime: 60_000,
   })
   const home = useQuery({
     queryKey: ['home-feed'],
@@ -131,8 +150,31 @@ export function HomePage() {
     }
   }
 
-  const featureCards = (featured.data ?? []).slice(0, 4)
-  const newCards = (newest.data ?? []).slice(0, 4)
+  const providerCards = marketProviders.data ?? []
+  const builtinCards = builtinModels.data ?? []
+
+  const scrollCarousel = (direction: number) => {
+    const track = carouselRef.current
+    if (track === null) return
+    const item = track.querySelector<HTMLElement>('[data-carousel-item]')
+    const step = item === null ? track.clientWidth : item.offsetWidth + 16
+    track.scrollBy({ left: direction * step })
+  }
+
+  useEffect(() => {
+    if (carouselPaused || builtinCards.length <= 1) return
+    const timer = window.setInterval(() => {
+      const track = carouselRef.current
+      if (track === null) return
+      const item = track.querySelector<HTMLElement>('[data-carousel-item]')
+      const step = item === null ? track.clientWidth : item.offsetWidth + 16
+      const atEnd = track.scrollLeft + track.clientWidth >= track.scrollWidth - 8
+      track.scrollTo({
+        left: atEnd ? 0 : track.scrollLeft + step,
+      })
+    }, 5000)
+    return () => window.clearInterval(timer)
+  }, [carouselPaused, builtinCards.length])
   const modelOptions: PopoverSelectOption[] = [
     { value: 'auto::auto', label: t('portal.autoModel') },
     ...(models.data ?? [])
@@ -243,6 +285,106 @@ export function HomePage() {
         </div>
       </section>
 
+      {providerCards.length > 0 && (
+        <section className="border-y border-border bg-surface">
+          <div className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6">
+            <div className="flex flex-wrap items-end justify-between gap-2">
+              <div>
+                <h2 className="text-lg font-semibold text-ink">
+                  {t('portal.builtinProvidersTitle')}
+                </h2>
+                <p className="mt-1 text-sm text-ink-muted">
+                  {t('portal.builtinProvidersLead')}
+                </p>
+              </div>
+              <Link
+                to="/models"
+                className="inline-flex items-center gap-1 text-sm text-accent"
+              >
+                {t('portal.allModels')}
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            </div>
+            <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {providerCards.map((provider) => (
+                <Link
+                  key={provider.provider_id}
+                  to={`/models?provider=${encodeURIComponent(provider.provider_id)}`}
+                  className="group rounded-card border border-border bg-canvas p-4 transition hover:border-accent"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-soft text-sm font-semibold text-accent">
+                      {provider.name.slice(0, 2).toUpperCase()}
+                    </span>
+                    <Badge tone="neutral">
+                      {t('portal.providerModels', { count: provider.model_count })}
+                    </Badge>
+                  </div>
+                  <h3 className="mt-3 text-sm font-semibold text-ink">{provider.name}</h3>
+                  <p className="mt-1 truncate font-mono text-[11px] text-ink-muted">
+                    {provider.base_url || '—'}
+                  </p>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {builtinCards.length > 0 && (
+        <section className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6">
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <h2 className="text-lg font-semibold text-ink">
+                {t('portal.builtinTitle')}
+              </h2>
+              <p className="mt-1 text-sm text-ink-muted">{t('portal.builtinLead')}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                aria-label={t('portal.carouselPrev')}
+                onClick={() => scrollCarousel(-1)}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                aria-label={t('portal.carouselNext')}
+                onClick={() => scrollCarousel(1)}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+              <Link
+                to="/models"
+                className="inline-flex items-center gap-1 text-sm text-accent"
+              >
+                {t('portal.builtinAll')}
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            </div>
+          </div>
+          <div
+            ref={carouselRef}
+            onMouseEnter={() => setCarouselPaused(true)}
+            onMouseLeave={() => setCarouselPaused(false)}
+            className="mt-5 flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {builtinCards.map((model) => (
+              <div
+                key={model.slug}
+                data-carousel-item
+                className="w-full shrink-0 snap-start sm:w-[calc(50%-0.5rem)] lg:w-[calc(25%-0.75rem)]"
+              >
+                <ModelCard model={model} />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       <section className="border-y border-border bg-surface">
         <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-5 px-4 py-8 sm:px-6">
           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-accent-soft text-accent">
@@ -264,30 +406,6 @@ export function HomePage() {
         </div>
       </section>
 
-      <section className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6">
-        <div className="flex flex-wrap items-end justify-between gap-2">
-          <div>
-            <h2 className="text-lg font-semibold text-ink">{t('portal.featuredTitle')}</h2>
-            <p className="mt-1 text-sm text-ink-muted">{t('portal.featuredLead')}</p>
-          </div>
-          <Link to="/models" className="inline-flex items-center gap-1 text-sm text-accent">
-            {t('portal.allModels')}
-            <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
-        </div>
-        {featured.isLoading && (
-          <div className="mt-6 flex items-center gap-2 text-sm text-ink-muted">
-            <Spinner />
-            {t('common.loading')}
-          </div>
-        )}
-        <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {featureCards.map((model) => (
-            <ModelCard key={model.slug} model={model} />
-          ))}
-        </div>
-      </section>
-
       {placements.length > 0 && (
         <section className="border-t border-border bg-surface-muted/40">
           <div className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6">
@@ -301,25 +419,6 @@ export function HomePage() {
           </div>
         </section>
       )}
-
-      <section className="border-y border-border bg-surface">
-        <div className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6">
-          <div className="flex flex-wrap items-end justify-between gap-2">
-            <div>
-              <h2 className="text-lg font-semibold text-ink">{t('portal.newTitle')}</h2>
-              <p className="mt-1 text-sm text-ink-muted">{t('portal.newLead')}</p>
-            </div>
-          </div>
-          <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {newCards.map((model) => (
-              <ModelCard key={model.slug} model={model} />
-            ))}
-            {newCards.length === 0 && !newest.isLoading && (
-              <p className="text-sm text-ink-muted">{t('portal.newEmpty')}</p>
-            )}
-          </div>
-        </div>
-      </section>
 
       {announcements.length > 0 && (
         <section className="border-t border-border bg-surface">

@@ -33,6 +33,7 @@ RUN pip install --no-cache-dir --no-index --find-links=/wheels /wheels/ai_power-
 
 COPY alembic.ini ./
 COPY alembic ./alembic
+COPY inner_models ./inner_models
 
 USER appuser
 EXPOSE 8000

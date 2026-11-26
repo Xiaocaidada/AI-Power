@@ -1,7 +1,7 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, ExternalLink, Search, Server, Sparkles } from 'lucide-react'
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
@@ -11,29 +11,44 @@ import { Input } from '../../components/ui/input'
 import { Spinner } from '../../components/ui/spinner'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
-import type { MarketModel, ModelEntry, PersonalModel } from '../../lib/types'
+import type {
+  MarketModel,
+  MarketModelPage,
+  MarketProvider,
+  ModelEntry,
+  PersonalModel,
+} from '../../lib/types'
 import { cn } from '../../lib/utils'
 import { useAuthStore } from '../../store/auth'
+import { ActivateModelDialog } from './ActivateModelDialog'
 
 type Tab = 'public' | 'mine' | 'platform'
 const MAX_COMPARE = 3
+const PAGE_SIZE = 24
 const CATEGORIES = ['general', 'reasoning', 'coding', 'multimodal', 'embedding', 'reranker']
 const CAPABILITIES = ['chat', 'stream', 'tools', 'vision', 'embedding', 'rerank']
 
 function experienceHref(providerId: string, modelId: string): string {
-  return `/chat/new?provider=${encodeURIComponent(providerId)}&model=${encodeURIComponent(modelId)}`
+  return `/chat?provider=${encodeURIComponent(providerId)}&model=${encodeURIComponent(modelId)}`
 }
 
 export function ModelsPage() {
   const { t, language } = useI18n()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const authStatus = useAuthStore((state) => state.status)
   const authenticated = authStatus === 'authenticated'
   const [tab, setTab] = useState<Tab>('public')
+  const [activateTarget, setActivateTarget] = useState<MarketModel | null>(null)
+  const [searchParams] = useSearchParams()
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('')
   const [capability, setCapability] = useState('')
+  const [providerFilter, setProviderFilter] = useState(
+    () => searchParams.get('provider') ?? '',
+  )
   const [sort, setSort] = useState('featured')
+  const [page, setPage] = useState(1)
   const [mineSearch, setMineSearch] = useState('')
   const [mineCapability, setMineCapability] = useState('')
   const [detailTarget, setDetailTarget] = useState<MarketModel | null>(null)
@@ -41,15 +56,35 @@ export function ModelsPage() {
   const numberFormat = new Intl.NumberFormat(language === 'zh' ? 'zh-CN' : 'en')
 
   const market = useQuery({
-    queryKey: ['market-models', search, category, capability, sort],
+    queryKey: ['market-models', search, category, capability, providerFilter, sort, page],
     queryFn: () => {
       const params = new URLSearchParams()
       if (search.trim() !== '') params.set('search', search.trim())
       if (category !== '') params.set('category', category)
       if (capability !== '') params.set('capability', capability)
+      if (providerFilter !== '') params.set('provider_id', providerFilter)
       params.set('sort', sort)
-      return apiRequest<MarketModel[]>(`/market/models?${params.toString()}`, { auth: false })
+      params.set('page', String(page))
+      params.set('per_page', String(PAGE_SIZE))
+      return apiRequest<MarketModelPage>(`/market/models/page?${params.toString()}`, {
+        auth: false,
+      })
     },
+    placeholderData: (previous) => previous,
+  })
+  useEffect(() => {
+    setPage(1)
+  }, [search, category, capability, providerFilter, sort])
+  const total = market.data?.total
+  const totalPages =
+    total === undefined ? Math.max(page, 1) : Math.max(1, Math.ceil(total / PAGE_SIZE))
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages)
+  }, [page, totalPages])
+  const marketProviders = useQuery({
+    queryKey: ['market-providers'],
+    queryFn: () => apiRequest<MarketProvider[]>('/market/providers', { auth: false }),
+    staleTime: 60_000,
   })
   const personal = useQuery({
     queryKey: ['provider-configs', 'models'],
@@ -80,6 +115,24 @@ export function ModelsPage() {
       mineCapability === '' || model.capabilities.includes(mineCapability)
     return matchesTerm && matchesCapability
   })
+
+  const personalFor = (model: MarketModel): PersonalModel | undefined =>
+    personal.data?.find(
+      (item) =>
+        item.model_id === model.model_id &&
+        item.provider_name.toLowerCase() === model.provider_name.toLowerCase(),
+    )
+
+  const detailMine =
+    detailTarget === null ? undefined : personalFor(detailTarget)
+
+  const startActivate = (model: MarketModel) => {
+    if (!authenticated) {
+      navigate('/login', { state: { from: '/models' } })
+      return
+    }
+    setActivateTarget(model)
+  }
 
   const toggle = (id: string) => {
     setSelected((previous) => {
@@ -151,6 +204,21 @@ export function ModelsPage() {
                 </select>
               </label>
               <label className="text-xs text-ink-muted">
+                <span className="mb-1 block">{t('models.provider')}</span>
+                <select
+                  className="h-10 rounded-lg border border-border bg-surface px-2 text-sm"
+                  value={providerFilter}
+                  onChange={(event) => setProviderFilter(event.target.value)}
+                >
+                  <option value="">{t('models.allProviders')}</option>
+                  {marketProviders.data?.map((item) => (
+                    <option key={item.provider_id} value={item.provider_id}>
+                      {item.name} ({item.model_count})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-xs text-ink-muted">
                 <span className="mb-1 block">{t('models.capabilities')}</span>
                 <select
                   className="h-10 rounded-lg border border-border bg-surface px-2 text-sm"
@@ -185,11 +253,13 @@ export function ModelsPage() {
                 {t('common.loading')}
               </div>
             )}
-            {market.data !== undefined && market.data.length === 0 && (
+            {market.data !== undefined && market.data.total === 0 && (
               <EmptyState title={t('models.publicEmpty')} description={t('models.publicEmptyLead')} />
             )}
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {market.data?.map((model) => (
+              {market.data?.items.map((model) => {
+                const mine = personalFor(model)
+                return (
                 <article
                   key={model.id}
                   className="flex flex-col rounded-card border border-border bg-surface p-4"
@@ -204,6 +274,9 @@ export function ModelsPage() {
                     <div className="flex flex-col items-end gap-1">
                       {model.featured && <Badge tone="accent">{t('models.featured')}</Badge>}
                       {model.is_new && <Badge tone="success">{t('models.new')}</Badge>}
+                      {mine !== undefined && (
+                        <Badge tone="success">{t('models.mineConfigured')}</Badge>
+                      )}
                     </div>
                   </div>
                   <p className="mt-2 line-clamp-2 text-xs text-ink-muted">{model.description}</p>
@@ -227,12 +300,25 @@ export function ModelsPage() {
                     <Button size="sm" variant="secondary" onClick={() => setDetailTarget(model)}>
                       {t('models.details')}
                     </Button>
-                    {model.available ? (
+                    {mine !== undefined ? (
+                      <Button
+                        size="sm"
+                        onClick={() =>
+                          navigate(experienceHref(mine.provider_id, mine.model_id))
+                        }
+                      >
+                        {t('models.experience')}
+                      </Button>
+                    ) : model.available ? (
                       <Button
                         size="sm"
                         onClick={() => navigate(experienceHref(model.provider_id, model.model_id))}
                       >
                         {t('models.experience')}
+                      </Button>
+                    ) : model.catalog ? (
+                      <Button size="sm" onClick={() => startActivate(model)}>
+                        {t('models.activate')}
                       </Button>
                     ) : (
                       <Button
@@ -245,8 +331,38 @@ export function ModelsPage() {
                     )}
                   </div>
                 </article>
-              ))}
+                )
+              })}
             </div>
+            {(market.data?.total ?? 0) > PAGE_SIZE && (
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs text-ink-muted">
+                  {t('models.pageInfo', {
+                    page,
+                    pages: totalPages,
+                    total: market.data?.total ?? 0,
+                  })}
+                </span>
+                <div className="flex gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={page <= 1}
+                    onClick={() => setPage((current) => Math.max(1, current - 1))}
+                  >
+                    {t('models.pagePrev')}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={page >= totalPages}
+                    onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                  >
+                    {t('models.pageNext')}
+                  </Button>
+                </div>
+              </div>
+            )}
           </>
         )}
 
@@ -453,18 +569,45 @@ export function ModelsPage() {
             <Button variant="secondary" size="sm" onClick={() => setDetailTarget(null)}>
               {t('models.close')}
             </Button>
-            {detailTarget?.available && (
+            {detailTarget !== null && detailMine !== undefined && (
               <Button
                 size="sm"
-                onClick={() => {
-                  if (detailTarget !== null) {
-                    navigate(experienceHref(detailTarget.provider_id, detailTarget.model_id))
-                  }
-                }}
+                onClick={() =>
+                  navigate(experienceHref(detailMine.provider_id, detailMine.model_id))
+                }
               >
                 {t('models.experience')}
               </Button>
             )}
+            {detailTarget !== null &&
+              detailMine === undefined &&
+              detailTarget.available && (
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    navigate(
+                      experienceHref(detailTarget.provider_id, detailTarget.model_id),
+                    )
+                  }
+                >
+                  {t('models.experience')}
+                </Button>
+              )}
+            {detailTarget !== null &&
+              detailMine === undefined &&
+              !detailTarget.available &&
+              detailTarget.catalog && (
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    const target = detailTarget
+                    setDetailTarget(null)
+                    startActivate(target)
+                  }}
+                >
+                  {t('models.activate')}
+                </Button>
+              )}
           </>
         }
       >
@@ -500,6 +643,21 @@ export function ModelsPage() {
                 <dt>{t('models.outputTypes')}</dt>
                 <dd>{detailTarget.output_types.join(', ')}</dd>
               </div>
+              {detailTarget.thinking_supported && (
+                <div>
+                  <dt>{t('models.thinkingLevels')}</dt>
+                  <dd>
+                    {detailTarget.thinking_levels.length > 0
+                      ? detailTarget.thinking_levels.join(' / ')
+                      : t('models.thinkingDefault')}
+                    {detailTarget.thinking_required && (
+                      <span className="ml-1 text-warning">
+                        {t('models.thinkingRequired')}
+                      </span>
+                    )}
+                  </dd>
+                </div>
+              )}
             </dl>
             {detailTarget.docs_url !== '' && (
               <a
@@ -520,6 +678,18 @@ export function ModelsPage() {
           </div>
         )}
       </Dialog>
+      {activateTarget !== null && (
+        <ActivateModelDialog
+          key={activateTarget.slug}
+          model={activateTarget}
+          onClose={() => setActivateTarget(null)}
+          onActivated={(providerId, modelId) => {
+            setActivateTarget(null)
+            queryClient.invalidateQueries({ queryKey: ['market-models'] })
+            navigate(experienceHref(providerId, modelId))
+          }}
+        />
+      )}
     </div>
   )
 }

@@ -1,0 +1,237 @@
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "glm-4.5",
+      "object": "model",
+      "created": 1753632000,
+      "owned_by": "z-ai",
+      "context_window": 128000,
+      "max_output_tokens": 96000,
+      "tool_calling": true,
+      "type": "text",
+      "thinking": {
+        "supported": true,
+        "required": false,
+        "configurable": true,
+        "levels": []
+      }
+    },
+    {
+      "id": "glm-4.5-air",
+      "object": "model",
+      "created": 1753632000,
+      "owned_by": "z-ai",
+      "context_window": 128000,
+      "max_output_tokens": 96000,
+      "tool_calling": true,
+      "type": "text",
+      "thinking": {
+        "supported": true,
+        "required": false,
+        "configurable": true,
+        "levels": []
+      }
+    },
+    {
+      "id": "glm-4.6",
+      "object": "model",
+      "created": 1759276800,
+      "owned_by": "z-ai",
+      "context_window": 200000,
+      "max_output_tokens": 128000,
+      "tool_calling": true,
+      "type": "text",
+      "thinking": {
+        "supported": true,
+        "required": false,
+        "configurable": true,
+        "levels": []
+      }
+    },
+    {
+      "id": "glm-4.7",
+      "object": "model",
+      "created": 1766332800,
+      "owned_by": "z-ai",
+      "context_window": 200000,
+      "max_output_tokens": 128000,
+      "tool_calling": true,
+      "type": "text",
+      "thinking": {
+        "supported": true,
+        "required": false,
+        "configurable": true,
+        "levels": []
+      }
+    },
+    {
+      "id": "glm-5",
+      "object": "model",
+      "created": 1770739200,
+      "owned_by": "z-ai",
+      "context_window": 200000,
+      "max_output_tokens": 128000,
+      "tool_calling": true,
+      "type": "text",
+      "thinking": {
+        "supported": true,
+        "required": false,
+        "configurable": true,
+        "levels": []
+      }
+    },
+    {
+      "id": "glm-5-turbo",
+      "object": "model",
+      "created": 1773504000,
+      "owned_by": "z-ai",
+      "context_window": 200000,
+      "max_output_tokens": 128000,
+      "tool_calling": true,
+      "type": "text",
+      "thinking": {
+        "supported": true,
+        "required": false,
+        "configurable": true,
+        "levels": []
+      }
+    },
+    {
+      "id": "glm-5.1",
+      "object": "model",
+      "created": 1774620000,
+      "owned_by": "z-ai",
+      "context_window": 200000,
+      "max_output_tokens": 128000,
+      "tool_calling": true,
+      "type": "text",
+      "thinking": {
+        "supported": true,
+        "required": false,
+        "configurable": true,
+        "levels": []
+      }
+    },
+    {
+      "id": "glm-5.2",
+      "object": "model",
+      "created": 1781625600,
+      "owned_by": "z-ai",
+      "context_window": 1000000,
+      "max_output_tokens": 128000,
+      "tool_calling": true,
+      "type": "text",
+      "thinking": {
+        "supported": true,
+        "required": false,
+        "configurable": true,
+        "levels": [
+          "low",
+          "high",
+          "max"
+        ]
+      }
+    },
+    {
+      "id": "glm-5.3",
+      "object": "model",
+      "created": 1786636800,
+      "owned_by": "z-ai",
+      "context_window": 1000000,
+      "max_output_tokens": 128000,
+      "tool_calling": true,
+      "type": "text",
+      "thinking": {
+        "supported": true,
+        "required": true,
+        "configurable": true,
+        "levels": [
+          "low",
+          "high",
+          "max"
+        ]
+      }
+    },
+    {
+      "id": "glm-5.3-flash",
+      "object": "model",
+      "created": 1786636800,
+      "owned_by": "z-ai",
+      "context_window": 1000000,
+      "max_output_tokens": 128000,
+      "tool_calling": true,
+      "type": "multimodal",
+      "thinking": {
+        "supported": true,
+        "required": true,
+        "configurable": true,
+        "levels": [
+          "low",
+          "high",
+          "max"
+        ]
+      }
+    },
+    {
+      "id": "glm-5.3-flashx",
+      "object": "model",
+      "created": 1786636800,
+      "owned_by": "z-ai",
+      "context_window": 1000000,
+      "max_output_tokens": 128000,
+      "tool_calling": true,
+      "type": "multimodal",
+      "thinking": {
+        "supported": true,
+        "required": true,
+        "configurable": true,
+        "levels": [
+          "low",
+          "high",
+          "max"
+        ]
+      }
+    },
+    {
+      "id": "glm-5.3-flashx-legal",
+      "object": "model",
+      "created": 1793620800,
+      "owned_by": "z-ai",
+      "context_window": 1000000,
+      "max_output_tokens": 128000,
+      "tool_calling": true,
+      "type": "text",
+      "thinking": {
+        "supported": true,
+        "required": true,
+        "configurable": true,
+        "levels": [
+          "low",
+          "high",
+          "max"
+        ]
+      }
+    },
+    {
+      "id": "glm-5.4",
+      "object": "model",
+      "created": 1795406400,
+      "owned_by": "z-ai",
+      "context_window": 1000000,
+      "max_output_tokens": 128000,
+      "tool_calling": true,
+      "type": "multimodal",
+      "thinking": {
+        "supported": true,
+        "required": true,
+        "configurable": true,
+        "levels": [
+          "low",
+          "high",
+          "max"
+        ]
+      }
+    }
+  ]
+}

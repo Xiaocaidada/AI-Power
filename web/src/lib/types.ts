@@ -40,6 +40,33 @@ export interface MarketModel {
   sort_order: number
   enabled: boolean
   available: boolean
+  catalog: boolean
+  provider_base_url: string
+  thinking_supported: boolean
+  thinking_required: boolean
+  thinking_levels: string[]
+}
+
+export interface MarketModelPage {
+  items: MarketModel[]
+  total: number
+  page: number
+  per_page: number
+}
+
+export interface MarketProvider {
+  provider_id: string
+  name: string
+  model_count: number
+  base_url: string
+  docs_url: string
+}
+
+export interface MarketModelActivateResult {
+  provider_id: string
+  model_id: string
+  name: string
+  provider_name: string
 }
 
 export type PlacementKind = 'banner' | 'featured' | 'activity'

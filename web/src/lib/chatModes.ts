@@ -36,6 +36,12 @@ const THINKING_LABEL_KEYS: Record<string, string> = {
   fast: 'chat.thinkingFast',
   standard: 'chat.thinkingStandard',
   deep: 'chat.thinkingDeep',
+  minimal: 'chat.thinkingMinimal',
+  low: 'chat.thinkingLow',
+  medium: 'chat.thinkingMedium',
+  high: 'chat.thinkingHigh',
+  xhigh: 'chat.thinkingXhigh',
+  max: 'chat.thinkingMax',
 }
 
 export function modeLabelKey(mode: ChatMode): string {

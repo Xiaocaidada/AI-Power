@@ -63,6 +63,8 @@ class Settings(BaseSettings):
     )
     provider_timeout_seconds: float = 60.0
 
+    inner_models_dir: str = "inner_models"
+    inner_models_providers: str = "*"
     upload_dir: str = "./uploads"
     max_upload_bytes: int = 20 * 1024 * 1024
     max_document_pages: int = 200

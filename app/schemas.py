@@ -3241,6 +3241,44 @@ class MarketModelOut(BaseModel):
     sort_order: int
     enabled: bool
     available: bool
+    catalog: bool = False
+    provider_base_url: str = ""
+    thinking_supported: bool = False
+    thinking_required: bool = False
+    thinking_levels: list[str] = Field(default_factory=list)
+
+
+class MarketModelPageOut(BaseModel):
+    items: list[MarketModelOut]
+    total: int
+    page: int
+    per_page: int
+
+
+class MarketProviderOut(BaseModel):
+    provider_id: str
+    name: str
+    model_count: int
+    base_url: str
+    docs_url: str
+
+
+class MarketModelActivateIn(BaseModel):
+    base_url: str = Field(min_length=1, max_length=500)
+    api_key: str = Field(min_length=1, max_length=500)
+    provider_name: str | None = Field(default=None, max_length=100)
+
+    @field_validator("base_url", "api_key", "provider_name", mode="before")
+    @classmethod
+    def strip_activate_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class MarketModelActivateOut(BaseModel):
+    provider_id: UUID
+    model_id: str
+    name: str
+    provider_name: str
 
 
 def _validate_public_url(value: str) -> str:
