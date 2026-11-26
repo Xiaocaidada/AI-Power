@@ -1,6 +1,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Archive,
+  BookOpen,
+  Check,
   Download,
   Globe2,
   Link2,
@@ -35,6 +37,7 @@ import {
 } from '../../lib/exportConversation'
 import { apiRequest } from '../../lib/http'
 import { useI18n } from '../../lib/i18n'
+import { cn } from '../../lib/utils'
 import {
   streamChat,
   streamRegenerate,
@@ -52,6 +55,7 @@ import type {
   KnowledgeBase,
   ModelEntry,
   PersonalModel,
+  PromptTemplate,
   SearchProvider,
   ThinkingLevel,
   WebSource,
@@ -118,6 +122,9 @@ export function ChatPage() {
   const [studySessionId, setStudySessionId] = useState('')
   const [reuseMessageId, setReuseMessageId] = useState<string | null>(null)
   const [shareOpen, setShareOpen] = useState(false)
+  const [templateOpen, setTemplateOpen] = useState(false)
+  const [templateBusy, setTemplateBusy] = useState(false)
+  const [templateError, setTemplateError] = useState<string | null>(null)
   const [modeError, setModeError] = useState<string | null>(null)
   const [taskOpen, setTaskOpen] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
@@ -154,11 +161,20 @@ export function ChatPage() {
     queryFn: () => apiRequest<SearchProvider[]>('/search-providers'),
     staleTime: 60_000,
   })
+  const promptTemplates = useQuery({
+    queryKey: ['prompt-templates'],
+    queryFn: () => apiRequest<PromptTemplate[]>('/prompt-templates'),
+    staleTime: 60_000,
+  })
   const enabledSearchProviders = (searchProviders.data ?? []).filter(
     (item) => item.enabled,
   )
   const hasSearchProvider = enabledSearchProviders.length > 0
   const activeMode: ChatMode = conversation.data?.default_mode ?? 'chat'
+  const activePromptVersionId = conversation.data?.prompt_version_id ?? null
+  const activeTemplate = (promptTemplates.data ?? []).find((template) =>
+    template.versions.some((version) => version.id === activePromptVersionId),
+  )
   const modeImplemented = isModeImplemented(activeMode, chatModes.data)
   const searchProviderMissing = activeMode === 'web_search' && !hasSearchProvider
   const studySessionMissing = activeMode === 'study' && studySessionId === ''
@@ -675,6 +691,30 @@ export function ChatPage() {
     }
   }
 
+  const applyTemplate = async (template: PromptTemplate | null) => {
+    if (conversation.data === undefined) return
+    setTemplateBusy(true)
+    setTemplateError(null)
+    const version = template?.versions[0]
+    try {
+      await apiRequest(`/conversations/${conversationId}`, {
+        method: 'PATCH',
+        body: {
+          prompt_version_id: version?.id ?? null,
+          prompt_variables: Object.fromEntries(
+            (version?.variables ?? []).map((name) => [name, '']),
+          ),
+        },
+      })
+      await queryClient.invalidateQueries({ queryKey: ['conversation', conversationId] })
+      setTemplateOpen(false)
+    } catch (caught) {
+      setTemplateError(t(errorTextKey(caught)))
+    } finally {
+      setTemplateBusy(false)
+    }
+  }
+
   if (conversation.isLoading) {
     return (
       <div className="flex flex-1 items-center justify-center">
@@ -786,7 +826,7 @@ export function ChatPage() {
             {kbLabel !== undefined && <span className="truncate">· {kbLabel}</span>}
             {conversation.data?.prompt_version_id !== null &&
             conversation.data?.prompt_version_id !== undefined ? (
-              <span className="truncate">· {t('prompts.active')}</span>
+              <span className="truncate">· {activeTemplate?.name ?? t('prompts.active')}</span>
             ) : null}
           </button>
         </div>
@@ -802,6 +842,19 @@ export function ChatPage() {
               {latestCitations.length}
             </Button>
           )}
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={t('prompts.select')}
+            title={t('prompts.select')}
+            className={activePromptVersionId !== null ? 'text-accent' : undefined}
+            onClick={() => {
+              setTemplateError(null)
+              setTemplateOpen(true)
+            }}
+          >
+            <BookOpen className="h-4 w-4" />
+          </Button>
           <Button
             variant="ghost"
             size="sm"
@@ -1115,6 +1168,67 @@ export function ChatPage() {
       />
 
       <TraceDialog requestId={traceRequestId} onClose={() => setTraceRequestId(null)} />
+
+      <Dialog
+        open={templateOpen}
+        onClose={() => setTemplateOpen(false)}
+        title={t('prompts.select')}
+        footer={
+          <Button variant="secondary" size="sm" onClick={() => setTemplateOpen(false)}>
+            {t('common.cancel')}
+          </Button>
+        }
+      >
+        <div className="space-y-1">
+          {templateError !== null && (
+            <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">
+              {templateError}
+            </p>
+          )}
+          <button
+            type="button"
+            disabled={templateBusy}
+            onClick={() => void applyTemplate(null)}
+            className={cn(
+              'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors',
+              activePromptVersionId === null
+                ? 'bg-accent-soft text-accent'
+                : 'text-ink hover:bg-surface-muted',
+            )}
+          >
+            <span className="flex-1">{t('prompts.none')}</span>
+            {activePromptVersionId === null && <Check className="h-4 w-4" />}
+          </button>
+          {(promptTemplates.data ?? []).map((template) => {
+            const active =
+              activePromptVersionId !== null &&
+              template.versions.some((version) => version.id === activePromptVersionId)
+            return (
+              <button
+                key={template.id}
+                type="button"
+                disabled={templateBusy}
+                onClick={() => void applyTemplate(template)}
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors',
+                  active ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-surface-muted',
+                )}
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm">{template.name}</span>
+                  <span className="block truncate text-[11px] text-ink-muted">
+                    {template.description || `v${template.versions[0]?.version ?? 1}`}
+                  </span>
+                </span>
+                {active && <Check className="h-4 w-4" />}
+              </button>
+            )
+          })}
+          {promptTemplates.data !== undefined && promptTemplates.data.length === 0 && (
+            <p className="px-3 py-2 text-xs text-ink-muted">{t('prompts.emptyHint')}</p>
+          )}
+        </div>
+      </Dialog>
 
       {settingsOpen && conversation.data !== undefined && (
         <ChatSettingsDialog

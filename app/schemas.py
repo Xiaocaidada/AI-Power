@@ -2342,6 +2342,8 @@ class ConversationUpdate(BaseModel):
     memory_enabled: bool | None = None
     excluded_memory_ids: list[UUID] | None = Field(default=None, max_length=50)
     generation_settings: GenerationSettings | None = None
+    prompt_version_id: UUID | None = None
+    prompt_variables: dict[str, str] | None = None
 
     @field_validator("title", "provider_id", "model", mode="before")
     @classmethod

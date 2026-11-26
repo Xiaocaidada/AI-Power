@@ -1724,6 +1724,38 @@ async def update_conversation(
         conversation.provider_id = provider_id
         conversation.model = model
 
+    if "prompt_version_id" in data:
+        version_id = data.pop("prompt_version_id")
+        variables = data.pop("prompt_variables", None) or {}
+        if version_id is None:
+            conversation.prompt_version_id = None
+            conversation.system_prompt = None
+            if conversation.project_id is not None and conversation.custom_agent_id is None:
+                project = await session.get(Project, conversation.project_id)
+                if project is not None and project.instructions:
+                    conversation.system_prompt = project.instructions
+        else:
+            version, system_prompt = await resolve_conversation_prompt(
+                session,
+                workspace_id=context.workspace.id,
+                version_id=version_id,
+                variables=variables,
+            )
+            if conversation.project_id is not None and conversation.custom_agent_id is None:
+                project = await session.get(Project, conversation.project_id)
+                if project is not None and project.instructions:
+                    system_prompt = f"{project.instructions}\n\n{system_prompt}"
+            conversation.prompt_version_id = version.id
+            conversation.system_prompt = system_prompt
+    elif "prompt_variables" in data:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {
+                "code": "prompt_version_required",
+                "message": "prompt_variables require a prompt_version_id",
+            },
+        )
+
     if mode_switched_to_agent:
         await _validate_model_choice(
             session,

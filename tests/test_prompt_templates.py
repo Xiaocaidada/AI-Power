@@ -249,6 +249,65 @@ async def test_chat_wraps_prior_user_messages_with_template(client, api, scripte
     assert user_contents == ["Q: first", "Q: second"]
 
 
+async def test_conversation_switches_and_clears_prompt_template(client, api, scripted):
+    headers = await api.headers("prompt-switch@example.com")
+    template = (
+        await client.post(
+            "/prompt-templates",
+            json={
+                "name": "Switch",
+                "system_prompt": "You are switched.",
+                "user_prompt": "T: {{input}}",
+            },
+            headers=headers,
+        )
+    ).json()
+    created = await _create_conversation(client, headers)
+    conversation_id = created.json()["id"]
+    await _send(client, headers, conversation_id, "first")
+
+    version_id = template["versions"][0]["id"]
+    switched = await client.patch(
+        f"/conversations/{conversation_id}",
+        json={"prompt_version_id": version_id, "prompt_variables": {"input": ""}},
+        headers=headers,
+    )
+    assert switched.status_code == 200
+    assert switched.json()["prompt_version_id"] == version_id
+
+    await _send(client, headers, conversation_id, "second")
+    messages = scripted.calls[-1]
+    assert messages[0].role == "system"
+    assert messages[0].content == "You are switched."
+    assert messages[-1].content == "T: second"
+
+    cleared = await client.patch(
+        f"/conversations/{conversation_id}",
+        json={"prompt_version_id": None},
+        headers=headers,
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["prompt_version_id"] is None
+
+    await _send(client, headers, conversation_id, "third")
+    messages = scripted.calls[-1]
+    assert all(message.role != "system" for message in messages)
+    assert messages[-1].content == "third"
+
+
+async def test_switching_template_requires_its_variables(client, api, scripted):
+    headers = await api.headers("prompt-switch-vars@example.com")
+    template = (await _create_template(client, headers, "You are {{tone}}.")).json()
+    created = await _create_conversation(client, headers)
+    response = await client.patch(
+        f"/conversations/{created.json()['id']}",
+        json={"prompt_version_id": template["versions"][0]["id"]},
+        headers=headers,
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "missing_variables"
+
+
 async def test_conversation_rejects_missing_prompt_variables(client, api, registry):
     headers = await api.headers("prompt-conv-missing@example.com")
     template = (await _create_template(client, headers, "Tone: {{tone}}")).json()
