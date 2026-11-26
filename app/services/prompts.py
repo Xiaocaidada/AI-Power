@@ -35,6 +35,27 @@ def _render_one(text: str, variables: dict[str, str]) -> str:
     return VARIABLE_PATTERN.sub(replace, text)
 
 
+def apply_user_template(template: str, content: str) -> str:
+    """Wrap a typed chat message with a template's user prompt.
+
+    ``{{input}}`` receives the typed content; other declared variables render
+    empty. A single non-``input`` variable also receives the content. Templates
+    without variables are prepended to the content so the text is not lost.
+    """
+    if template.strip() == "":
+        return content
+    declared = extract_variables(template)
+    if not declared:
+        return f"{template.rstrip()}\n\n{content}"
+    if "input" in declared:
+        filled = {name: (content if name == "input" else "") for name in declared}
+        return _render_one(template, filled)
+    if len(declared) == 1:
+        return _render_one(template, {declared[0]: content})
+    rendered = _render_one(template, dict.fromkeys(declared, "")).rstrip()
+    return f"{rendered}\n\n{content}"
+
+
 def render_prompt(system_prompt: str, variables: dict[str, str]) -> tuple[str, list[str]]:
     declared = extract_variables(system_prompt)
     missing = [name for name in declared if name not in variables]

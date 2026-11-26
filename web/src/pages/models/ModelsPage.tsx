@@ -226,13 +226,13 @@ export function ModelsPage() {
             {market.data !== undefined && market.data.total === 0 && (
               <EmptyState title={t('models.publicEmpty')} description={t('models.publicEmptyLead')} />
             )}
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
+            <div className="grid auto-rows-fr grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
               {market.data?.items.map((model) => {
                 const mine = personalFor(model)
                 return (
                 <article
                   key={model.id}
-                  className="group relative flex aspect-[5/6] flex-col rounded-card border border-border bg-surface p-4 transition duration-200 hover:-translate-y-1 hover:border-accent/50 hover:shadow-floating"
+                  className="group relative flex h-full min-h-[360px] flex-col rounded-card border border-border bg-surface p-4 transition duration-200 hover:-translate-y-1 hover:border-accent/50 hover:shadow-floating"
                 >
                   <Link
                     to={`/models/${model.slug}`}
@@ -495,11 +495,11 @@ export function ModelsPage() {
                 </Button>
               </EmptyState>
             )}
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
+            <div className="grid auto-rows-fr grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
               {myModels.map((model) => (
                 <article
                   key={`${model.provider_id}:${model.model_id}`}
-                  className="flex aspect-[5/6] flex-col rounded-card border border-border bg-surface p-4"
+                  className="flex h-full min-h-[360px] flex-col rounded-card border border-border bg-surface p-4"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">

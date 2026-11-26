@@ -27,6 +27,7 @@
 - **变量**：`{{name}}` 正则提取，创建版本时写入 `variables`；渲染保留未知占位符。
 - **对话接入**：
   - 普通对话：模板渲染结果作为 system prompt；带知识库时与 `<reference_material>` 合并，并强制附加不可信数据防护语。
+  - 用户消息：模板的 `user_prompt` 在发送时套用到输入框内容，`{{input}}`（或唯一变量）由用户输入填充，其余变量渲染为空；无占位符时模板前置到消息前。聊天记录仍保存并显示用户原文，历史消息重放时同样套用模板。
   - Agent 对话：模板替换 supervisor system prompt，工具协议与委派说明仍然追加；子 Agent 保持专用 prompt。
 - **前端**：`/settings/prompts` 管理页（列表、创建、新版本、变量渲染预览、软删除）；新建会话可选择模板并填写变量；对话头部显示“自定义 Prompt”；中英文案对齐。
 
@@ -43,6 +44,8 @@
 | 7 | Agent supervisor 使用模板且保留委派协议 | `test_agent_supervisor_uses_template` | PASS |
 | 8 | 删除模板不影响已有会话的 Prompt 与后续对话 | `test_deleting_template_keeps_existing_conversation` | PASS |
 | 9 | RAG 模板与引用材料、防护语共存 | `test_rag_prompt_combines_template_with_references` | PASS |
+| 10 | 用户输入填充 `user_prompt` 的 `{{input}}` 后发送 | `test_chat_applies_user_prompt_with_typed_input` | PASS |
+| 11 | 历史用户消息重放时同样套用模板 | `test_chat_wraps_prior_user_messages_with_template` | PASS |
 
 ## Known Gaps
 

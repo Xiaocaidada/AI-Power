@@ -40,6 +40,7 @@ from app.models import (
     MessageFeedback,
     MessageWebSource,
     Project,
+    PromptVersion,
     Trace,
 )
 from app.observability import request_id_var
@@ -125,7 +126,7 @@ from app.services.plugins import (
 )
 from app.services.project_resources import project_agent_ids
 from app.services.projects import ProjectError, get_project
-from app.services.prompts import resolve_conversation_prompt
+from app.services.prompts import apply_user_template, resolve_conversation_prompt
 from app.services.provider_configs import ProviderConfigError, ensure_model_capability
 from app.services.quotas import add_token_usage, enforce_quota
 from app.services.rag import build_rag_messages, fit_context
@@ -2107,6 +2108,14 @@ async def _open_auto_stream(
     )
 
 
+async def _conversation_user_template(session: AsyncSession, conversation: Conversation) -> str:
+    """Load the raw user-prompt template bound to the conversation, if any."""
+    if conversation.prompt_version_id is None:
+        return ""
+    version = await session.get(PromptVersion, conversation.prompt_version_id)
+    return version.user_prompt if version is not None else ""
+
+
 async def _start_chat_turn(
     *,
     conversation: Conversation,
@@ -2131,6 +2140,7 @@ async def _start_chat_turn(
     request_id = request_id_var.get()
     retrieval_ms: float | None = None
     opts = _generation_opts(conversation)
+    user_template = await _conversation_user_template(session, conversation)
     provider: LLMProvider | None = None
     if conversation.provider_id != "auto":
         try:
@@ -2291,7 +2301,9 @@ async def _start_chat_turn(
         ChatMessage(
             role=message.role,
             content=build_user_content(
-                message.content,
+                apply_user_template(user_template, message.content)
+                if message.role == "user"
+                else message.content,
                 history_attachments.get(message.id, []),
                 include_images=False,
             ),
@@ -2342,7 +2354,7 @@ async def _start_chat_turn(
         ChatMessage(
             role="user",
             content=build_user_content(
-                content,
+                apply_user_template(user_template, content),
                 current_rows,
                 include_images=not conversation.agent,
             ),

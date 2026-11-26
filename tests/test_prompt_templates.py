@@ -191,6 +191,64 @@ async def test_conversation_uses_rendered_prompt_and_reports_version(
     assert detail.json()["prompt_version_id"] == version_id
 
 
+async def test_chat_applies_user_prompt_with_typed_input(client, api, scripted):
+    headers = await api.headers("prompt-user-input@example.com")
+    template = (
+        await client.post(
+            "/prompt-templates",
+            json={
+                "name": "Analyze",
+                "system_prompt": "You are a reviewer.",
+                "user_prompt": "请分析以下代码：\n\n{{input}}",
+            },
+            headers=headers,
+        )
+    ).json()
+    created = await _create_conversation(
+        client,
+        headers,
+        prompt_version_id=template["versions"][0]["id"],
+        prompt_variables={"input": ""},
+    )
+
+    await _send(client, headers, created.json()["id"], "print(1)")
+
+    messages = scripted.calls[-1]
+    assert messages[0].role == "system"
+    assert messages[0].content == "You are a reviewer."
+    user_messages = [message for message in messages if message.role == "user"]
+    assert user_messages[-1].content == "请分析以下代码：\n\nprint(1)"
+
+
+async def test_chat_wraps_prior_user_messages_with_template(client, api, scripted):
+    headers = await api.headers("prompt-user-history@example.com")
+    template = (
+        await client.post(
+            "/prompt-templates",
+            json={
+                "name": "QA",
+                "system_prompt": "You are helpful.",
+                "user_prompt": "Q: {{input}}",
+            },
+            headers=headers,
+        )
+    ).json()
+    created = await _create_conversation(
+        client,
+        headers,
+        prompt_version_id=template["versions"][0]["id"],
+        prompt_variables={"input": ""},
+    )
+    conversation_id = created.json()["id"]
+
+    await _send(client, headers, conversation_id, "first")
+    await _send(client, headers, conversation_id, "second")
+
+    messages = scripted.calls[-1]
+    user_contents = [message.content for message in messages if message.role == "user"]
+    assert user_contents == ["Q: first", "Q: second"]
+
+
 async def test_conversation_rejects_missing_prompt_variables(client, api, registry):
     headers = await api.headers("prompt-conv-missing@example.com")
     template = (await _create_template(client, headers, "Tone: {{tone}}")).json()
