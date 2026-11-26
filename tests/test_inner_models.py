@@ -167,18 +167,14 @@ async def test_provider_catalog_and_catalog_filters(monkeypatch, tmp_path, clien
     assert len(first_page.json()["items"]) == 2
     second_page = await client.get("/market/models/page?catalog=true&per_page=2&page=2")
     assert len(second_page.json()["items"]) == 2
-    assert (
-        first_page.json()["items"][0]["id"] != second_page.json()["items"][0]["id"]
-    )
+    assert first_page.json()["items"][0]["id"] != second_page.json()["items"][0]["id"]
 
     empty = await client.get("/market/models?catalog=false")
     assert empty.status_code == 200
     assert empty.json() == []
 
 
-async def test_activate_builtin_model_with_user_credentials(
-    monkeypatch, tmp_path, client, api
-):
+async def test_activate_builtin_model_with_user_credentials(monkeypatch, tmp_path, client, api):
     _configure(monkeypatch, _catalog_dir(tmp_path))
     headers = await api.headers("inner-models@example.com")
     payload = {

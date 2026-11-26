@@ -6,6 +6,7 @@ is bundled with these files.
 """
 
 import json
+import logging
 import re
 import uuid
 from dataclasses import dataclass
@@ -15,6 +16,7 @@ from typing import Any
 
 from app.config import get_settings
 
+logger = logging.getLogger(__name__)
 NAMESPACE = uuid.UUID("6f9619ff-8b86-d011-b42d-00c04fc964ff")
 NEW_MODEL_WINDOW_SECONDS = 180 * 24 * 60 * 60
 
@@ -384,10 +386,12 @@ def load_inner_models(
             provider_name = meta.get("name", provider_id.title())
             try:
                 payload = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                logger.warning("Skipping unreadable inner model catalog %s: %s", path, exc)
                 continue
             entries = payload.get("data") if isinstance(payload, dict) else payload
             if not isinstance(entries, list):
+                logger.warning("Skipping inner model catalog %s: expected a list", path)
                 continue
             for item in entries:
                 if not isinstance(item, dict):
